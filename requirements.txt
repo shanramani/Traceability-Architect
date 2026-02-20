@@ -1,1 +1,5 @@
-
+streamlit
+langchain-groq
+langchain-community
+pypdf
+pandas
