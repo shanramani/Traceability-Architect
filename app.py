@@ -44,13 +44,13 @@ def extract_table(text):
     except:
         return None
         with st.sidebar:
-    st.header("📝 Project Controls")
-    proj_name = st.text_input("System Name", "BioLogistics v1.0")
-    author = st.text_input("CSV Lead", "Shan")
-    st.divider()
-    if st.button("Load Sample Data"):
-        st.session_state.full_analysis = """SECTION 1: FRS\n| ReqID | Functionality | Design Note |\n|---|---|---|\n| FRS-01| Login | LDAP |\n---SECTION_SPLIT---SECTION 2: OQ\n| TestID | Step | Result |\n|---|---|---|\n| OQ-01 | Login | Success |\n---SECTION_SPLIT---SECTION 3: RTM\n| URS | FRS | OQ |\n|---|---|---|"""
-        st.success("Sample Loaded!")
+        st.header("📝 Project Controls")
+        proj_name = st.text_input("System Name", "BioLogistics v1.0")
+        author = st.text_input("CSV Lead", "Shan")
+        st.divider()
+        if st.button("Load Sample Data"):
+            st.session_state.full_analysis = """SECTION 1: FRS\n| ReqID | Functionality | Design Note |\n|---|---|---|\n| FRS-01| Login | LDAP |\n---SECTION_SPLIT---SECTION 2: OQ\n| TestID | Step | Result |\n|---|---|---|\n| OQ-01 | Login | Success |\n---SECTION_SPLIT---SECTION 3: RTM\n| URS | FRS | OQ |\n|---|---|---|"""
+            st.success("Sample Loaded!")
 
 uploaded_file = st.file_uploader("OR Upload URS PDF", type="pdf")
 
