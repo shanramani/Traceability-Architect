@@ -19,7 +19,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.title("🏗️ The Traceability Architect")
-st.caption("AI-Powered CSV Document Suite | v2.5 (Smart RTM Merging)")
+st.caption("AI-Powered CSV Document Suite | v2.5")
 
 if 'full_analysis' not in st.session_state:
     st.session_state.full_analysis = None
@@ -39,10 +39,8 @@ def extract_table(text):
             df = pd.read_csv(io.StringIO(raw_data), sep='|', skipinitialspace=True).dropna(axis=1, how='all')
             df.columns = [c.strip() for c in df.columns]
             df = df[~df.iloc[:,0].str.contains('---', na=False)]
-            
-            # --- SMART MERGE LOGIC ---
+            # Smart Merge Logic
             first_col = df.columns[0]
-            # Fill missing data and merge duplicate URS IDs
             df = df.replace('', pd.NA).ffill().bfill()
             df = df.groupby(first_col).last().reset_index()
             return df
@@ -58,21 +56,59 @@ with st.sidebar:
     st.divider()
     
     if st.button("Load Sample Data"):
-        st.session_state.full_analysis = """
-SECTION 1: FRS
-| ReqID | Functionality | Design Note |
-|-------|---------------|-------------|
-| FRS-01| User Authentication | LDAP integration. |
-| FRS-02| Audit Trail | SQL Trigger logging. |
+        sample_text = "SECTION 1: FRS\n| ReqID | Functionality | Design Note |\n|---|---|---|\n| FRS-01 | Auth | LDAP |\n\n---SECTION_SPLIT---\n\nSECTION 2: OQ\n| TestID | Instruction | Result |\n|---|---|---|\n| OQ-01 | Login | Success |\n\n---SECTION_SPLIT---\n\nSECTION 3: RTM\n| URS_ID | Description | FRS_Link | Test_Link |\n|---|---|---|---|\n| URS-01 | Login | FRS-01 | OQ-01 |"
+        st.session_state.full_analysis = sample_text
+        st.success("Sample Data Loaded!")
 
----SECTION_SPLIT---
+# --- 3. PROCESSING ---
+uploaded_file = st.file_uploader("Upload URS PDF", type="pdf")
 
-SECTION 2: OQ
-| TestID | Instruction | Expected Result |
-|--------|-------------|-----------------|
-| OQ-01  | Login check | Access granted. |
-| OQ-02  | Edit record | Log entry created. |
+if uploaded_file:
+    with tempfile.NamedTemporaryFile(delete=False) as tmp_file:
+        tmp_file.write(uploaded_file.getvalue())
+        tmp_path = tmp_file.name
 
----SECTION_SPLIT---
+    if st.button("🚀 Process PDF"):
+        with st.spinner("Authoring GAMP artifacts..."):
+            try:
+                loader = PyPDFLoader(tmp_path)
+                pages = loader.load()
+                full_text = "\n".join([p.page_content for p in pages])
+                
+                master_prompt = f"Analyze this URS and generate FRS, OQ, and RTM Markdown tables. Separate sections with '---SECTION_SPLIT---'. Ensure RTM rows are complete. URS TEXT: {full_text[:12000]}"
+                response = get_llm().invoke(master_prompt)
+                st.session_state.full_analysis = response.content
+            except Exception as e:
+                st.error(f"Error: {e}")
+            finally:
+                if os.path.exists(tmp_path):
+                    os.remove(tmp_path)
 
-SECTION 3:
+# --- 4. DISPLAY & EXCEL ---
+if st.session_state.full_analysis:
+    parts = st.session_state.full_analysis.split('---SECTION_SPLIT---')
+    tab1, tab2, tab3 = st.tabs(["📑 FRS Document", "🧪 Test Protocol", "🔗 Trace Matrix"])
+    
+    df_frs = extract_table(parts[0]) if len(parts) > 0 else None
+    df_oq = extract_table(parts[1]) if len(parts) > 1 else None
+    df_rtm = extract_table(parts[2]) if len(parts) > 2 else None
+
+    with tab1: st.markdown(parts[0])
+    with tab2: st.markdown(parts[1])
+    with tab3:
+        st.markdown(parts[2])
+
+    st.divider()
+    if any([df_frs is not None, df_oq is not None, df_rtm is not None]):
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            if df_frs is not None: df_frs.to_excel(writer, index=False, sheet_name='FRS')
+            if df_oq is not None: df_oq.to_excel(writer, index=False, sheet_name='OQ')
+            if df_rtm is not None: df_rtm.to_excel(writer, index=False, sheet_name='RTM')
+        
+        st.download_button(
+            label="📊 Download Complete Excel Workbook",
+            data=output.getvalue(),
+            file_name=f"{proj_name}_Validation.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
