@@ -97,4 +97,40 @@ if st.session_state.full_analysis:
     # Split the AI output into the three document sections
     parts = st.session_state.full_analysis.split('---SECTION_SPLIT---')
     
-    tab1, tab
+    tab1, tab2, tab3 = st.tabs(["📑 FRS Document", "🧪 Test Protocol", "🔗 Trace Matrix"])
+    
+    with tab1:
+        st.subheader("Functional Requirements Specification")
+        
+        # Professional Signature Block
+        st.markdown(f"""
+        <div class="signature-box">
+            <table style="width:100%; border:none;">
+                <tr><td><b>Document ID:</b> {doc_id}</td><td><b>Status:</b> {status}</td></tr>
+                <tr><td><b>Author:</b> {author}</td><td><b>Date:</b> {review_date}</td></tr>
+            </table>
+            <hr>
+            <p style="font-size: 0.8em; color: gray;">
+                <b>QA Approval Signature:</b> __________________________  &nbsp;&nbsp;&nbsp; <b>Date:</b> __________
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        st.markdown(parts[0] if len(parts) > 0 else "Analysis content missing.")
+        
+    with tab2:
+        st.header("Operational Qualification (OQ) Protocol")
+        st.markdown(parts[1] if len(parts) > 1 else "Analysis content missing.")
+        
+    with tab3:
+        st.header("Requirements Traceability Matrix (RTM)")
+        st.markdown(parts[2] if len(parts) > 2 else "Analysis content missing.")
+
+    # Export Logic
+    st.divider()
+    st.download_button(
+        label="📥 Download Full Validation Suite Draft",
+        data=st.session_state.full_analysis,
+        file_name=f"{proj_name}_Validation_Draft.txt",
+        mime="text/plain"
+    )
