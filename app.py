@@ -43,7 +43,7 @@ def extract_table(text):
         return None
     except:
         return None
-       with st.sidebar:
+           with st.sidebar:
     st.header("📝 Project Controls")
     proj_name = st.text_input("System Name", "BioLogistics v1.0")
     author = st.text_input("CSV Lead", "Shan")
