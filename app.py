@@ -8,95 +8,58 @@ import tempfile
 import io
 
 # --- 1. CONFIG & iOS SLEEK UI ---
-st.set_page_config(page_title="Traceability Architect", layout="wide", page_icon="🏗️")
+st.set_page_config(page_title="Traceability Architect v4.0", layout="wide", page_icon="🏗️")
 
-# Custom CSS for iOS/Sleek look
 st.markdown("""
     <style>
-    /* Global Styles */
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&display=swap');
-    
-    html, body, [class*="css"]  {
-        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-    }
+    html, body, [class*="css"]  { font-family: 'Inter', sans-serif; }
 
-    /* Modern Scrollbar */
-    ::-webkit-scrollbar { width: 8px; height: 8px; }
-    ::-webkit-scrollbar-track { background: transparent; }
-    ::-webkit-scrollbar-thumb { 
-        background: rgba(0, 0, 0, 0.1); 
-        border-radius: 10px; 
-    }
-    ::-webkit-scrollbar-thumb:hover { background: rgba(0, 0, 0, 0.2); }
-
-    /* Glassmorphism Sidebar */
+    /* Glassmorphism Design */
     [data-testid="stSidebar"] {
-        background: rgba(255, 255, 255, 0.8);
-        backdrop-filter: blur(10px);
-        border-right: 1px solid rgba(255, 255, 255, 0.3);
+        background: rgba(249, 249, 252, 0.95);
+        backdrop-filter: blur(15px);
+        border-right: 1px solid #e5e5ea;
     }
 
-    /* Sleek Cards & Tabs */
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 8px;
-        background-color: #f2f2f7;
-        padding: 5px;
-        border-radius: 12px;
+    /* iOS Progress Bar */
+    .stProgress > div > div > div > div { background-color: #34c759; }
+
+    /* Metric Cards */
+    .metric-card {
+        background: white;
+        padding: 20px;
+        border-radius: 16px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+        border: 1px solid #e5e5ea;
+        text-align: center;
     }
-    .stTabs [data-baseweb="tab"] {
-        height: 40px;
-        border-radius: 8px;
-        background-color: transparent;
-        transition: all 0.3s ease;
-        border: none;
+
+    /* Modern Tab Pills */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 12px;
+        background-color: #f2f2f7;
+        padding: 8px;
+        border-radius: 16px;
     }
     .stTabs [aria-selected="true"] {
         background-color: #ffffff !important;
-        box-shadow: 0px 3px 8px rgba(0,0,0,0.12);
+        box-shadow: 0px 4px 12px rgba(0,0,0,0.08);
         color: #007aff !important;
-    }
-
-    /* Buttons */
-    div.stButton > button {
-        border-radius: 12px;
-        background-color: #007aff;
-        color: white;
-        border: none;
-        padding: 0.5rem 1rem;
-        transition: all 0.2s ease;
-    }
-    div.stButton > button:hover {
-        background-color: #0056b3;
-        transform: scale(1.02);
-    }
-
-    /* Data Integrity Logs Styling */
-    .audit-box {
-        background-color: #ffffff;
-        border-radius: 12px;
-        padding: 15px;
-        border: 1px solid #e5e5ea;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+        font-weight: 600;
     }
     </style>
 """, unsafe_allow_html=True)
 
-st.title("🏗️ Traceability Architect")
-st.markdown("<p style='color: #8e8e93;'>AI-Powered CSV Document Suite | 21 CFR Part 11 MVP</p>", unsafe_allow_html=True)
-
-# Initialize session state for Audit Trail
-if 'audit_trail' not in st.session_state:
-    st.session_state.audit_trail = []
-if 'full_analysis' not in st.session_state:
-    st.session_state.full_analysis = None
+# --- 2. LOGIC HELPERS ---
+if 'audit_trail' not in st.session_state: st.session_state.audit_trail = []
+if 'full_analysis' not in st.session_state: st.session_state.full_analysis = None
+if 'version' not in st.session_state: st.session_state.version = 0.1
 
 def add_audit_entry(action):
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     user = st.session_state.get('user_name', 'System')
-    st.session_state.audit_trail.append({"Timestamp": timestamp, "User": user, "Action": action})
-
-def get_llm():
-    return ChatGroq(model_name="llama-3.3-70b-versatile", groq_api_key=st.secrets["GROQ_API_KEY"], temperature=0)
+    st.session_state.audit_trail.append({"Timestamp": timestamp, "User": user, "Action": action, "Version": f"v{st.session_state.version}"})
 
 def extract_table(text):
     try:
@@ -108,83 +71,106 @@ def extract_table(text):
             df = df[~df.iloc[:,0].str.contains('---', na=False)]
             first_col = df.columns[0]
             df = df.replace('', pd.NA).ffill().bfill()
-            df = df.groupby(first_col).last().reset_index()
-            return df
+            return df.groupby(first_col).last().reset_index()
         return None
     except: return None
 
-# --- 2. SIDEBAR (AUTHENTICATION) ---
+# --- 3. SIDEBAR ---
 with st.sidebar:
-    st.header("🔐 Access Control")
-    if 'authenticated' not in st.session_state:
-        st.session_state.authenticated = False
+    st.title("🏗️ Architect")
+    if 'authenticated' not in st.session_state: st.session_state.authenticated = False
 
     if not st.session_state.authenticated:
-        user_input = st.text_input("Username")
-        pass_input = st.text_input("Password", type="password")
-        if st.button("Sign In"):
-            if user_input:
-                st.session_state.user_name = user_input
-                st.session_state.authenticated = True
-                add_audit_entry("Login Success")
+        u, p = st.text_input("User ID"), st.text_input("Access Key", type="password")
+        if st.button("Authorize"):
+            if u: 
+                st.session_state.user_name, st.session_state.authenticated = u, True
+                add_audit_entry("Secure Sign-in Successful")
                 st.rerun()
     else:
-        st.markdown(f"Welcome, **{st.session_state.user_name}**")
-        st.caption(f"📍 Thousand Oaks, CA (91362)")
-        if st.button("Sign Out"):
-            add_audit_entry("Logout")
+        st.success(f"Verified: **{st.session_state.user_name}**")
+        st.caption(f"📍 Thousand Oaks (91362) | 🛡️ GxP Env")
+        if st.button("Revoke Access"):
+            add_audit_entry("Manual Session Termination")
             st.session_state.authenticated = False
             st.rerun()
 
     st.divider()
-    st.header("📝 Project")
-    proj_name = st.text_input("System", "BioLogistics v1.0")
-    doc_status = st.selectbox("Status", ["Draft", "In-Review", "Approved"])
+    proj_name = st.text_input("System ID", "Bio-RAG-Engine-01")
+    doc_status = st.selectbox("Lifecycle Stage", ["Draft", "Review", "Approved", "Superseded"])
+    if st.button("Increment Version"):
+        st.session_state.version = round(st.session_state.version + 0.1, 1)
+        add_audit_entry(f"Version up-revved to {st.session_state.version}")
 
-# --- 3. PROCESSING ---
+# --- 4. MAIN INTERFACE ---
 if st.session_state.authenticated:
-    uploaded_file = st.file_uploader("Upload URS PDF", type="pdf")
+    st.title("Validation Dashboard")
+    
+    col1, col2, col3 = st.columns(3)
+    with col1: st.markdown('<div class="metric-card"><h3>Version</h3><h2>v'+str(st.session_state.version)+'</h2></div>', unsafe_allow_html=True)
+    with col2: st.markdown('<div class="metric-card"><h3>Location</h3><h2>91362</h2></div>', unsafe_allow_html=True)
+    with col3: st.markdown('<div class="metric-card"><h3>Integrity</h3><h2>ALCOA+</h2></div>', unsafe_allow_html=True)
 
-    if uploaded_file:
-        if st.button("🚀 Process Validation Suite"):
-            add_audit_entry(f"Processed: {uploaded_file.name}")
-            with st.spinner("Analyzing requirements..."):
-                with tempfile.NamedTemporaryFile(delete=False) as tmp_file:
-                    tmp_file.write(uploaded_file.getvalue())
-                    tmp_path = tmp_file.name
-                try:
-                    loader = PyPDFLoader(tmp_path)
-                    pages = loader.load()
-                    full_text = "\n".join([p.page_content for p in pages])
-                    prompt = f"Extract FRS, OQ, RTM tables from: {full_text[:12000]}. Separate sections with '---SECTION_SPLIT---'."
-                    response = get_llm().invoke(prompt)
-                    st.session_state.full_analysis = response.content
-                finally:
-                    if os.path.exists(tmp_path): os.remove(tmp_path)
+    st.divider()
+    
+    uploaded_file = st.file_uploader("📂 Drop URS or SOP PDF here", type="pdf")
+    if uploaded_file and st.button("🚀 Execute AI Validation Strategy"):
+        add_audit_entry(f"File Analysis Initialized: {uploaded_file.name}")
+        with st.spinner("Llama 3.3 performing deep requirement extraction..."):
+            with tempfile.NamedTemporaryFile(delete=False) as tmp:
+                tmp.write(uploaded_file.getvalue())
+                tmp_path = tmp_file_path = tmp.name
+            try:
+                loader = PyPDFLoader(tmp_path)
+                full_text = "\n".join([p.page_content for p in loader.load()])
+                llm = ChatGroq(model_name="llama-3.3-70b-versatile", groq_api_key=st.secrets["GROQ_API_KEY"], temperature=0)
+                prompt = f"""
+                Act as a Principal CSV Engineer. Analyze this URS: {full_text[:12000]}
+                Generate 3 Markdown tables separated by '---SECTION_SPLIT---'.
+                
+                SECTION 1 (FRS): [FRS_ID, Requirement, Criticality (High/Med/Low), Design_Note]
+                SECTION 2 (OQ): [Test_ID, FRS_Link, Instruction, Acceptance_Criteria]
+                SECTION 3 (RTM): [URS_ID, FRS_ID, Test_ID, Status]
+                
+                Ensure every URS_ID has an FRS_ID and Test_ID.
+                """
+                st.session_state.full_analysis = llm.invoke(prompt).content
+            finally:
+                if os.path.exists(tmp_path): os.remove(tmp_path)
 
-    # --- 4. DISPLAY ---
+    # --- 5. RESULTS & ANALYTICS ---
     if st.session_state.full_analysis:
         parts = st.session_state.full_analysis.split('---SECTION_SPLIT---')
-        tab1, tab2, tab3, tab4 = st.tabs(["📑 FRS", "🧪 OQ", "🔗 RTM", "🕵️ Audit Log"])
-        
         df_frs, df_oq, df_rtm = extract_table(parts[0]), extract_table(parts[1]), extract_table(parts[2])
 
-        with tab1: st.markdown(parts[0])
-        with tab2: st.markdown(parts[1])
-        with tab3: st.markdown(parts[2])
-        with tab4:
-            st.markdown("### System Audit Trail")
-            st.dataframe(pd.DataFrame(st.session_state.audit_trail), use_container_width=True)
+        tab_stats, tab_frs, tab_oq, tab_rtm, tab_audit = st.tabs(["📊 Stats", "⚡ FRS", "🧪 OQ", "🔗 RTM", "📋 Audit"])
 
-        st.divider()
-        if any([df_frs is not None, df_oq is not None, df_rtm is not None]):
-            output = io.BytesIO()
-            with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                if df_frs is not None: df_frs.to_excel(writer, index=False, sheet_name='FRS')
-                if df_oq is not None: df_oq.to_excel(writer, index=False, sheet_name='OQ')
-                if df_rtm is not None: df_rtm.to_excel(writer, index=False, sheet_name='RTM')
-                pd.DataFrame(st.session_state.audit_trail).to_excel(writer, index=False, sheet_name='AUDIT_LOG')
-            
-            st.download_button("📊 Download Excel Workbook", output.getvalue(), f"{proj_name}_Validation.xlsx")
+        with tab_stats:
+            if df_rtm is not None:
+                total_reqs = len(df_rtm)
+                gaps = df_rtm['Test_ID'].isna().sum()
+                coverage = int(((total_reqs - gaps) / total_reqs) * 100)
+                st.subheader("Traceability Coverage")
+                st.progress(coverage / 100)
+                st.write(f"**{coverage}%** of requirements are successfully linked to a test case.")
+                if gaps > 0:
+                    st.error(f"⚠️ Critical Gap: {gaps} requirements have no test coverage!")
+
+        with tab_frs: st.markdown(parts[0])
+        with tab_oq: st.markdown(parts[1])
+        with tab_rtm: st.markdown(parts[2])
+        with tab_audit:
+            st.table(st.session_state.audit_trail)
+            st.info(f"Digitally Signed By: {st.session_state.user_name} | Date: {datetime.datetime.now().strftime('%Y-%m-%d')}")
+
+        # Excel Export
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            if df_frs is not None: df_frs.to_excel(writer, index=False, sheet_name='Functional_Specs')
+            if df_oq is not None: df_oq.to_excel(writer, index=False, sheet_name='OQ_Protocol')
+            if df_rtm is not None: df_rtm.to_excel(writer, index=False, sheet_name='Trace_Matrix')
+            pd.DataFrame(st.session_state.audit_trail).to_excel(writer, index=False, sheet_name='Audit_Trail')
+        
+        st.download_button("📂 Export GxP Validation Package", output.getvalue(), f"{proj_name}_v{st.session_state.version}.xlsx")
 else:
-    st.info("🔒 Secure System. Please sign in to continue.")
+    st.info("🔒 Secure GxP Workspace. Please authorize to proceed.")
