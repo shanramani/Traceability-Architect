@@ -49,11 +49,34 @@ def extract_table(text):
     except:
         return None
 
-# --- 2. SIDEBAR (RESTORED METADATA) ---
+# --- 2. SIDEBAR (RESTORED METADATA & LOGIN) ---
 with st.sidebar:
+    st.header("🔐 System Access")
+    
+    if 'user_name' not in st.session_state:
+        st.session_state.user_name = ""
+        st.session_state.authenticated = False
+
+    if not st.session_state.authenticated:
+        user_input = st.text_input("Username")
+        pass_input = st.text_input("Password", type="password")
+        if st.button("Sign In"):
+            if user_input and pass_input: # In production, verify against a DB
+                st.session_state.user_name = user_input
+                st.session_state.authenticated = True
+                st.rerun()
+    else:
+        st.success(f"Logged in as: **{st.session_state.user_name}**")
+        if st.button("Sign Out"):
+            st.session_state.authenticated = False
+            st.session_state.user_name = ""
+            st.rerun()
+
+    st.divider()
     st.header("📝 Project Controls")
     proj_name = st.text_input("System Name", "BioLogistics v1.0")
-    author = st.text_input("CSV Lead", "Shan")
+    # We now pull the author automatically from the login session
+    author = st.session_state.user_name if st.session_state.authenticated else "Unauthenticated"
     doc_status = st.selectbox("Document Status", ["Draft", "In-Review", "Approved"])
     
     st.divider()
@@ -63,6 +86,7 @@ with st.sidebar:
     st.markdown(f"**Date:** {curr_date}")
     st.markdown(f"**Location:** Thousand Oaks, CA (91362)")
     st.markdown(f"**Environment:** GxP / GAMP 5")
+
     
     st.divider()
     
