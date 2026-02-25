@@ -27,7 +27,7 @@ st.markdown("""
     
     .public-container {
         text-align: center;
-        padding: 100px 20px;
+        padding: 80px 20px;
     }
 
     /* Glassmorphism Sidebar */
@@ -46,10 +46,24 @@ st.markdown("""
         border: 1px solid #e5e5ea;
         text-align: center;
     }
+
+    /* Modern Tabs */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 12px;
+        background-color: #e5e5ea;
+        padding: 8px;
+        border-radius: 16px;
+    }
+    .stTabs [aria-selected="true"] {
+        background-color: #ffffff !important;
+        box-shadow: 0px 4px 12px rgba(0,0,0,0.08);
+        color: #007aff !important;
+        font-weight: 600;
+    }
     </style>
 """, unsafe_allow_html=True)
 
-# --- 2. SESSION LOGIC ---
+# --- 2. SESSION & LOGIC HELPERS ---
 if 'audit_trail' not in st.session_state: st.session_state.audit_trail = []
 if 'full_analysis' not in st.session_state: st.session_state.full_analysis = None
 if 'version' not in st.session_state: st.session_state.version = 0.1
@@ -65,7 +79,20 @@ def add_audit_entry(action):
         "Revision": f"v{st.session_state.version}"
     })
 
-# --- 3. SIDEBAR (CONTROLS) ---
+def extract_table(text):
+    try:
+        lines = [line for line in text.split('\n') if '|' in line]
+        if len(lines) > 2:
+            raw_data = '\n'.join(lines)
+            df = pd.read_csv(io.StringIO(raw_data), sep='|', skipinitialspace=True).dropna(axis=1, how='all')
+            df.columns = [c.strip() for c in df.columns]
+            df = df[~df.iloc[:,0].str.contains('---', na=False)]
+            first_col = df.columns[0]
+            return df.replace('', pd.NA).ffill().bfill().groupby(first_col).last().reset_index()
+        return None
+    except: return None
+
+# --- 3. SIDEBAR ---
 with st.sidebar:
     st.title("AI Powered GxP Validation Suite")
     if not st.session_state.authenticated:
@@ -93,27 +120,19 @@ with st.sidebar:
 
 # --- 4. MAIN CONTENT ---
 if not st.session_state.authenticated:
-    # PUBLIC LANDING PAGE
     st.markdown("""
         <div class="public-container">
             <h1 style="font-size: 3.5rem; color: #1d1d1f; font-weight: 600;">AI Powered GxP Validation Suite</h1>
             <p style="font-size: 1.5rem; color: #8e8e93; max-width: 800px; margin: 20px auto;">
-                A next-generation platform for automated CSV artifact generation. 
-                Leveraging Llama 3.3 to bridge the gap between URS, FRS, and OQ with 100% traceability.
+                Next-generation automated CSV artifact generation. 
+                Bridging URS, FRS, and OQ with Llama 3.3 Intelligence.
             </p>
             <div style="margin-top: 40px; padding: 20px; background: white; border-radius: 16px; display: inline-block; border: 1px solid #e5e5ea;">
                 <p style="color: #007aff; font-weight: 600;">🔐 Please authorize via the sidebar to access your workspace.</p>
             </div>
         </div>
     """, unsafe_allow_html=True)
-    
-    
-
-[Image of a software validation life cycle V-model]
-
-
 else:
-    # AUTHENTICATED DASHBOARD
     st.markdown("""
         <div class="hero-banner">
             <h1>AI Powered GxP Validation Suite</h1>
@@ -131,6 +150,50 @@ else:
     uploaded_file = st.file_uploader("📂 Upload URS / SOP PDF", type="pdf")
     if uploaded_file and st.button("🚀 Execute Validation Authoring"):
         add_audit_entry(f"Analysis Started: {uploaded_file.name}")
-        # (Processing logic remains the same as previous version...)
-        # [Implementation of LLM and extract_table calls here]
-        st.success("Documents successfully authored. Review in tabs below.")
+        with st.spinner("Analyzing requirements via AI..."):
+            with tempfile.NamedTemporaryFile(delete=False) as tmp:
+                tmp.write(uploaded_file.getvalue())
+                tmp_path = tmp.name
+            try:
+                loader = PyPDFLoader(tmp_path)
+                full_text = "\n".join([p.page_content for p in loader.load()])
+                llm = ChatGroq(model_name="llama-3.3-70b-versatile", groq_api_key=st.secrets["GROQ_API_KEY"], temperature=0)
+                prompt = f"""
+                Analyze this URS: {full_text[:12000]}
+                Generate 3 sections separated by '---SECTION_SPLIT---'.
+                Section 1 (FRS): [FRS_ID, Requirement, Criticality (High/Med/Low), Design_Note]
+                Section 2 (OQ): [Test_ID, FRS_Link, Instruction, Acceptance_Criteria]
+                Section 3 (RTM): [URS_ID, FRS_ID, Test_ID, Trace_Status]
+                """
+                st.session_state.full_analysis = llm.invoke(prompt).content
+            finally:
+                if os.path.exists(tmp_path): os.remove(tmp_path)
+
+    if st.session_state.full_analysis:
+        parts = st.session_state.full_analysis.split('---SECTION_SPLIT---')
+        df_frs, df_oq, df_rtm = extract_table(parts[0]), extract_table(parts[1]), extract_table(parts[2])
+
+        tab_stats, tab_frs, tab_oq, tab_rtm, tab_audit = st.tabs(["📊 Analytics", "⚡ FRS", "🧪 OQ", "🔗 RTM", "📋 Audit"])
+
+        with tab_stats:
+            if df_rtm is not None:
+                total = len(df_rtm)
+                missing = df_rtm['Test_ID'].isna().sum()
+                coverage = int(((total - missing) / total) * 100)
+                st.subheader("Traceability Coverage Index")
+                st.progress(coverage / 100)
+                st.write(f"**{coverage}%** of User Requirements are linked to testable OQ scripts.")
+
+        with tab_frs: st.markdown(parts[0])
+        with tab_oq: st.markdown(parts[1])
+        with tab_rtm: st.markdown(parts[2])
+        with tab_audit:
+            st.dataframe(pd.DataFrame(st.session_state.audit_trail), use_container_width=True)
+            st.markdown(f"**Digital Sign-off:** `/s/ {st.session_state.user_name}`")
+
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            for df, name in zip([df_frs, df_oq, df_rtm], ['FRS', 'OQ', 'RTM']):
+                if df is not None: df.to_excel(writer, index=False, sheet_name=name)
+            pd.DataFrame(st.session_state.audit_trail).to_excel(writer, index=False, sheet_name='AUDIT_LOG')
+        st.download_button("📂 Export GxP Workbook", output.getvalue(), f"{proj_name}_v{st.session_state.version}.xlsx")
