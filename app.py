@@ -140,4 +140,48 @@ if st.session_state.authenticated:
             try:
                 loader = PyPDFLoader(tmp_path)
                 full_text = "\n".join([p.page_content for p in loader.load()])
-                llm = ChatGroq(model_name="llama-3.3-70b-versatile", groq_api_key=st.secrets["GRO
+                llm = ChatGroq(model_name="llama-3.3-70b-versatile", groq_api_key=st.secrets["GROQ_API_KEY"], temperature=0)
+                prompt = f"""
+                Act as a Principal CSV Engineer. Analyze: {full_text[:12000]}
+                Generate 3 sections separated by '---SECTION_SPLIT---'.
+                Section 1 (FRS): [FRS_ID, Requirement, Criticality (High/Med/Low), Design_Note]
+                Section 2 (OQ): [Test_ID, FRS_Link, Instruction, Acceptance_Criteria]
+                Section 3 (RTM): [URS_ID, FRS_ID, Test_ID, Trace_Status]
+                """
+                st.session_state.full_analysis = llm.invoke(prompt).content
+            finally:
+                if os.path.exists(tmp_path): os.remove(tmp_path)
+
+    # --- 5. RESULTS ---
+    if st.session_state.full_analysis:
+        parts = st.session_state.full_analysis.split('---SECTION_SPLIT---')
+        df_frs, df_oq, df_rtm = extract_table(parts[0]), extract_table(parts[1]), extract_table(parts[2])
+
+        t_stats, t_frs, t_oq, t_rtm, t_audit = st.tabs(["📊 Analytics", "⚡ FRS", "🧪 OQ", "🔗 RTM", "📋 Audit"])
+
+        with t_stats:
+            if df_rtm is not None:
+                total = len(df_rtm)
+                missing = df_rtm['Test_ID'].isna().sum()
+                coverage = int(((total - missing) / total) * 100)
+                st.subheader("Traceability Coverage Index")
+                st.progress(coverage / 100)
+                st.write(f"**{coverage}%** of User Requirements are linked to testable OQ scripts.")
+
+        with t_frs: st.markdown(parts[0])
+        with t_oq: st.markdown(parts[1])
+        with t_rtm: st.markdown(parts[2])
+        with t_audit:
+            st.dataframe(pd.DataFrame(st.session_state.audit_trail), use_container_width=True)
+            st.markdown(f"**Digital Sign-off:** `/s/ {st.session_state.user_name}`")
+
+        # Excel Package
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            for df, name in zip([df_frs, df_oq, df_rtm], ['FRS', 'OQ', 'RTM']):
+                if df is not None: df.to_excel(writer, index=False, sheet_name=name)
+            pd.DataFrame(st.session_state.audit_trail).to_excel(writer, index=False, sheet_name='AUDIT_LOG')
+        
+        st.download_button("📂 Export GxP Validation Package", output.getvalue(), f"{proj_name}_v{st.session_state.version}.xlsx")
+else:
+    st.info("🔒 Authorized Access Required. Please sign in via sidebar.")
