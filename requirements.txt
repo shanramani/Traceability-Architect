@@ -1,6 +1,6 @@
+langchain-groq
 langchain-openai
 langchain-anthropic
-langchain-groq
 langchain-community
 pypdf
 pandas
