@@ -4,4 +4,6 @@ langchain-anthropic
 langchain-community
 pypdf
 pandas
+litellm
+python-dotenv
 openpyxl
