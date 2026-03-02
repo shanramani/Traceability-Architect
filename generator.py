@@ -4,6 +4,7 @@ import pandas as pd
 from dotenv import load_dotenv
 from litellm import completion
 
+# 1. Load your secret keys
 load_dotenv()
 
 def process_urs_list(urs_items):
@@ -19,16 +20,18 @@ def process_urs_list(urs_items):
         print(f"\n[AUDIT] Processing {req_id}...")
 
         try:
-            # Step 1: Brainstorming (Groq)
+            # Step 1: Technical Brainstorming (Groq)
+            print(f"[LOG] Step 1: Engineering Technical Controls for {req_id}...")
             res_groq = completion(
                 model="groq/llama-3.3-70b-versatile",
                 messages=[{"role": "user", "content": f"Provide 2 functional specs and 2 test steps for: {req_text}"}]
             )
             ai_logic = res_groq.choices[0].message.content
 
-            # Step 2: Formatting & Risk Assessment (Gemini 2.5 Flash)
-            prompt = (f"Analyze this requirement: '{req_text}'. Logic: {ai_logic}. "
-                      f"Return exactly 3 values separated by '|': "
+            # Step 2: GxP Formatting & Risk Assessment (Gemini 2.5 Flash)
+            print(f"[LOG] Step 2: Mapping to GxP Traceability Matrix...")
+            prompt = (f"Act as a GAMP 5 Validation Lead. Analyze: '{req_text}'. Logic: {ai_logic}. "
+                      f"Return exactly 3 values separated by a pipe '|': "
                       f"Functional_Requirement | Test_Steps | Risk_Level(High/Med/Low)")
             
             res_gemini = completion(
@@ -37,16 +40,20 @@ def process_urs_list(urs_items):
             )
             
             # Parsing the AI response
-            frs, tests, risk = res_gemini.choices[0].message.content.split('|')
+            parts = res_gemini.choices[0].message.content.split('|')
+            frs = parts[0].strip()
+            tests = parts[1].strip()
+            risk = parts[2].strip()
 
             # Append to our master list
             results_for_excel.append({
                 "Requirement ID": req_id,
                 "User Requirement": req_text,
-                "Functional Spec (FRS)": frs.strip(),
-                "Test Steps": tests.strip(),
-                "Risk Level": risk.strip(),
+                "Functional Spec (FRS)": frs,
+                "Test Steps": tests,
+                "Risk Level": risk,
                 "System Status": "Validated-Draft",
+                "Model Version": "Gemini 2.5 Flash",
                 "Timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
             })
 
@@ -57,7 +64,7 @@ def process_urs_list(urs_items):
 
 # --- EXECUTION BLOCK ---
 if __name__ == "__main__":
-    # This is your 'Complex URS' input
+    # Your 'Complex URS' input - Professional Syntax
     my_urs = [
         {"id": "URS-SEC-01", "text": "The system SHALL encrypt all PHI data at rest using AES-256."},
         {"id": "URS-COM-02", "text": "The system SHALL maintain an uneditable audit trail of all record changes."},
@@ -69,5 +76,7 @@ if __name__ == "__main__":
 
     # Export to Excel
     df = pd.DataFrame(final_data)
-    df.to_excel("Commercial_Traceability_Matrix.xlsx", index=False)
-    print("\n[SUCCESS] Commercial Demo File 'Commercial_Traceability_Matrix.xlsx' is ready!")
+    output_file = "Commercial_Traceability_Matrix.xlsx"
+    df.to_excel(output_file, index=False)
+    
+    print(f"\n[SUCCESS] Commercial Demo File '{output_file}' is ready!")
