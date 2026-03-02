@@ -3,9 +3,20 @@ import datetime
 import pandas as pd
 from dotenv import load_dotenv
 from litellm import completion
+import streamlit as st
 
 # 1. Load your secret keys
 load_dotenv()
+# FORCE Streamlit to share secrets with the System Environment
+if "GROQ_API_KEY" in st.secrets:
+    os.environ["GROQ_API_KEY"] = st.secrets["GROQ_API_KEY"]
+if "GEMINI_API_KEY" in st.secrets:
+    os.environ["GEMINI_API_KEY"] = st.secrets["GEMINI_API_KEY"]
+
+# If the keys are STILL missing, show a clear error instead of crashing
+if not os.environ.get("GROQ_API_KEY") or not os.environ.get("GEMINI_API_KEY"):
+    st.error("❌ Critical Error: API Keys not found in Streamlit Secrets.")
+    st.stop()
 
 def process_urs_list(urs_items):
     """
