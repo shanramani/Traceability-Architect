@@ -5,18 +5,34 @@ from dotenv import load_dotenv
 from litellm import completion
 import streamlit as st
 
-# 1. Load your secret keys
-load_dotenv()
-# FORCE Streamlit to share secrets with the System Environment
-if "GROQ_API_KEY" in st.secrets:
-    os.environ["GROQ_API_KEY"] = st.secrets["GROQ_API_KEY"]
-if "GEMINI_API_KEY" in st.secrets:
-    os.environ["GEMINI_API_KEY"] = st.secrets["GEMINI_API_KEY"]
+# --- UNIVERSAL SECRET BRIDGE ---
+# List of standard environment variables required by LiteLLM providers
+LLM_KEYS = {
+    "OPENAI_API_KEY": "OPENAI_API_KEY",
+    "ANTHROPIC_API_KEY": "ANTHROPIC_API_KEY",
+    "GEMINI_API_KEY": "GEMINI_API_KEY",    # Gemini uses this for 'gemini/' models
+    "GOOGLE_API_KEY": "GEMINI_API_KEY",    # Mapping Google to Gemini for consistency
+    "GROQ_API_KEY": "GROQ_API_KEY"
+}
 
-# If the keys are STILL missing, show a clear error instead of crashing
-if not os.environ.get("GROQ_API_KEY") or not os.environ.get("GEMINI_API_KEY"):
-    st.error("❌ Critical Error: API Keys not found in Streamlit Secrets.")
-    st.stop()
+def load_all_keys():
+    for env_name, secret_name in LLM_KEYS.items():
+        # 1. Try to get from Streamlit Cloud Secrets
+        key_value = st.secrets.get(secret_name)
+        
+        # 2. If not found, fall back to Local Environment (.env)
+        if not key_value:
+            key_value = os.getenv(env_name)
+            
+        # 3. Inject into OS Environment so LiteLLM can find it
+        if key_value:
+            os.environ[env_name] = key_value
+            # Also set GOOGLE_API_KEY if it's GEMINI to cover all SDK bases
+            if "GEMINI" in env_name:
+                os.environ["GOOGLE_API_KEY"] = key_value
+
+# Run the loader immediately
+load_all_keys()
 
 def process_urs_list(urs_items):
     """
