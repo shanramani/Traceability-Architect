@@ -3,10 +3,11 @@ import os
 import datetime
 import pandas as pd
 from litellm import completion
+from langchain_community.document_loaders import PyPDFLoader
 import tempfile
 import io
 
-# --- 1. UI CONFIG & CSS ---
+# --- 1. UI CONFIG & PREMIUM STYLING ---
 st.set_page_config(page_title="Traceability Architect Pro", layout="wide", page_icon="🧪")
 
 st.markdown("""
@@ -38,7 +39,7 @@ for key in ["GROQ_API_KEY", "GEMINI_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_K
     val = st.secrets.get(key)
     if val: os.environ[key] = val
 
-# --- 3. SIDEBAR ---
+# --- 3. SIDEBAR (Login & Engine Selection) ---
 with st.sidebar:
     st.title("🧪 Admin Controls")
     if not st.session_state.authenticated:
@@ -65,7 +66,7 @@ with st.sidebar:
             st.session_state.master_df = None
             st.rerun()
 
-# --- 4. SHARED HEADER ---
+# --- 4. SHARED HEADER (Always Visible) ---
 st.markdown(f"""
     <div class="hero-banner">
         <h1>Traceability Architect</h1>
@@ -75,61 +76,90 @@ st.markdown(f"""
 
 # --- 5. AUTHENTICATION LOGIC FLOW ---
 if not st.session_state.authenticated:
+    # --- PUBLIC LANDING PAGE ---
     st.markdown("""
         <div style="text-align: center; padding: 60px;">
-            <h2 style="color: #1d1d1f;">Secure GxP Cloud Environment</h2>
+            <h2 style="color: #1d1d1f;">AI-Powered GxP Validation Suite</h2>
             <p style="color: #8e8e93; font-size: 1.2rem; max-width: 600px; margin: 0 auto;">
-                Automated Artifact Generation for Bio-Pharmaceutical Compliance. 
+                Transforming static SOPs and URS documents into validated technical specifications 
+                using grounded AI architecture.
             </p>
             <div style="margin-top: 30px; padding: 20px; background: white; border-radius: 16px; border: 1px solid #e5e5ea; display: inline-block;">
-                <p style="color: #007aff; font-weight: 600; margin:0;">🔐 Please sign in via the sidebar to begin.</p>
+                <p style="color: #007aff; font-weight: 600; margin:0;">🔐 Please sign in via the sidebar to access the engine.</p>
             </div>
         </div>
     """, unsafe_allow_html=True)
-else:
-    st.subheader("🛠️ Step 1: Requirements Configuration")
     
-    urs_input = [
-        {"id": "URS-SEC-01", "text": "The system SHALL encrypt all PHI data at rest using AES-256."},
-        {"id": "URS-COM-02", "text": "The system SHALL maintain an uneditable audit trail of all record changes."},
-        {"id": "URS-FUN-03", "text": "The system SHOULD allow users to generate PDF reports of lab results."}
-    ]
     
-    with st.expander("View Active User Requirements", expanded=True):
-        st.json(urs_input)
 
-    if st.button("🚀 Generate & Edit Traceability Matrix"):
-        results = []
-        progress = st.progress(0)
+[Image of a software validation life cycle V-model]
+
+
+else:
+    # --- PRIVATE DASHBOARD (HIDDEN UNTIL LOGIN) ---
+    st.subheader("📂 Step 1: Document Ingestion")
+    uploaded_file = st.file_uploader("Upload URS or SOP PDF", type="pdf", help="AI will extract requirements from this document.")
+
+    if uploaded_file:
+        st.success(f"File '{uploaded_file.name}' received.")
         
-        model_map = {
-            "Llama 3.3 (Groq)": "groq/llama-3.3-70b-versatile",
-            "GPT-4o (OpenAI)": "openai/gpt-4o",
-            "Claude 3.5 (Anthropic)": "anthropic/claude-3-5-sonnet-20240620"
-        }
-        
-        for i, item in enumerate(urs_input):
-            with st.spinner(f"Analyzing {item['id']}..."):
-                try:
+        if st.button("🚀 Analyze & Generate Matrix"):
+            # 1. Extract Text from PDF
+            with tempfile.NamedTemporaryFile(delete=False) as tmp:
+                tmp.write(uploaded_file.getvalue())
+                tmp_path = tmp.name
+            
+            try:
+                with st.spinner("Extracting Pharmaceutical requirements..."):
+                    loader = PyPDFLoader(tmp_path)
+                    pages = loader.load()
+                    full_text = " ".join([p.page_content for p in pages])
+                
+                # 2. Process via AI
+                results = []
+                progress = st.progress(0)
+                
+                model_map = {
+                    "Llama 3.3 (Groq)": "groq/llama-3.3-70b-versatile",
+                    "GPT-4o (OpenAI)": "openai/gpt-4o",
+                    "Claude 3.5 (Anthropic)": "anthropic/claude-3-5-sonnet-20240620"
+                }
+
+                # We ask the AI to find the top 5 key requirements from the text
+                with st.spinner(f"Orchestrating {st.session_state.model_provider}..."):
+                    prompt = (f"Analyze this SOP/URS: {full_text[:10000]}. "
+                              f"Extract 5 key technical requirements. For each, provide: "
+                              f"Req_ID | Requirement_Text | Functional_Spec | Test_Step | Risk(H/M/L). "
+                              f"Separate each requirement with a new line.")
+                    
                     res = completion(
                         model=model_map[st.session_state.model_provider],
-                        messages=[{"role": "user", "content": f"Act as GxP Lead. Requirement: {item['text']}. Return pipe separated: Functional_Spec | Test_Step | Risk(High/Med/Low)"}]
+                        messages=[{"role": "user", "content": prompt}]
                     )
-                    parts = res.choices[0].message.content.split('|')
-                    results.append({
-                        "ID": item['id'],
-                        "Requirement": item['text'],
-                        "Functional_Spec": parts[0].strip() if len(parts)>0 else "Pending",
-                        "Test_Steps": parts[1].strip() if len(parts)>1 else "Pending",
-                        "Risk": parts[2].strip() if len(parts)>2 else "Med",
-                        "Verified_By_Human": False
-                    })
-                except Exception as e:
-                    st.error(f"Error on {item['id']}: {e}")
-            progress.progress((i+1)/len(urs_input))
-        
-        st.session_state.master_df = pd.DataFrame(results)
+                    
+                    # Parsing the output into a dataframe
+                    lines = res.choices[0].message.content.strip().split('\n')
+                    for line in lines:
+                        if '|' in line:
+                            p = line.split('|')
+                            results.append({
+                                "ID": p[0].strip(),
+                                "Requirement": p[1].strip(),
+                                "Functional_Spec": p[2].strip(),
+                                "Test_Steps": p[3].strip(),
+                                "Risk": p[4].strip(),
+                                "Verified": False
+                            })
+                
+                st.session_state.master_df = pd.DataFrame(results)
+                st.success("Analysis Complete!")
+                
+            except Exception as e:
+                st.error(f"Validation Error: {e}")
+            finally:
+                if os.path.exists(tmp_path): os.remove(tmp_path)
 
+    # 3. INTERACTIVE REVIEW & EXPORT
     if st.session_state.master_df is not None:
         st.divider()
         st.subheader("🛠️ Step 2: Human-in-the-Loop Verification")
@@ -138,7 +168,7 @@ else:
             st.session_state.master_df, 
             use_container_width=True,
             column_config={
-                "Verified_By_Human": st.column_config.CheckboxColumn("Verify", default=False),
+                "Verified": st.column_config.CheckboxColumn("Verify", default=False),
                 "Risk": st.column_config.SelectboxColumn("Risk Level", options=["High", "Med", "Low"])
             }
         )
@@ -147,7 +177,7 @@ else:
         st.subheader("🖋️ Step 3: Approval & Export")
         signer = st.text_input("Approver Digital Name", value=st.session_state.user_name)
         
-        if st.button("💾 Sign & Generate Final Excel"):
+        if st.button("💾 Sign & Generate GxP Workbook"):
             output = io.BytesIO()
             with pd.ExcelWriter(output, engine='openpyxl') as writer:
                 edited_df.to_excel(writer, index=False, sheet_name='Traceability_Matrix')
@@ -155,11 +185,10 @@ else:
                     "Signer": signer, 
                     "Date": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                     "Engine": st.session_state.model_provider,
-                    "Integrity_Statement": "Human-Verified GxP Artifact"
+                    "Integrity": "ALCOA+ Compliant Artifact"
                 }
                 pd.DataFrame([audit_data]).to_excel(writer, index=False, sheet_name='Audit_Trail')
             
-            st.success("Verification Workbook Ready.")
             st.download_button(
                 label="📥 Download SIGNED GxP Workbook",
                 data=output.getvalue(),
