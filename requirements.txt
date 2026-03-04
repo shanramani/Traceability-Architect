@@ -1,9 +1,10 @@
+streamlit
+pandas
+litellm
+python-dotenv
+openpyxl
 langchain-groq
 langchain-openai
 langchain-anthropic
 langchain-community
 pypdf
-pandas
-litellm
-python-dotenv
-openpyxl
