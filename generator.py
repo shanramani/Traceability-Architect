@@ -4,108 +4,113 @@ import pandas as pd
 from dotenv import load_dotenv
 from litellm import completion
 import streamlit as st
+import io
 
-# Load local .env if it exists
+# --- 1. CONFIG & KEYS ---
 load_dotenv()
+st.set_page_config(page_title="Traceability Architect Pro", page_icon="🧪", layout="wide")
 
-# --- UNIVERSAL SECRET BRIDGE ---
-LLM_KEYS = {
-    "OPENAI_API_KEY": "OPENAI_API_KEY",
-    "ANTHROPIC_API_KEY": "ANTHROPIC_API_KEY",
-    "GEMINI_API_KEY": "GEMINI_API_KEY",
-    "GROQ_API_KEY": "GROQ_API_KEY"
-}
+# Load keys from Secrets (Cloud) or Env (Local)
+for key in ["GROQ_API_KEY", "GEMINI_API_KEY", "OPENAI_API_KEY"]:
+    val = st.secrets.get(key) or os.getenv(key)
+    if val: os.environ[key] = val
 
-def load_all_keys():
-    for env_name, secret_name in LLM_KEYS.items():
-        key_value = st.secrets.get(secret_name) or os.getenv(env_name)
-        if key_value:
-            os.environ[env_name] = key_value
-            if "GEMINI" in env_name:
-                os.environ["GOOGLE_API_KEY"] = key_value
-
-load_all_keys()
-
-# --- VALIDATION ENGINE ---
-def process_urs_list(urs_items):
-    results_for_excel = []
+# --- 2. THE ENGINE ---
+def generate_matrix(urs_items):
+    results = []
     progress_bar = st.progress(0)
     
     for i, item in enumerate(urs_items):
-        req_id = item['id']
-        req_text = item['text']
+        req_id, req_text = item['id'], item['text']
         
-        st.write(f"🔍 Analyzing **{req_id}**...")
-
         try:
-            # Step 1: Technical Brainstorming (Groq)
+            # Step 1: Brainstorming (Llama 3.3 via Groq)
             res_groq = completion(
                 model="groq/llama-3.3-70b-versatile",
-                messages=[{"role": "user", "content": f"Provide 2 functional specs and 2 test steps for: {req_text}"}]
+                messages=[{"role": "user", "content": f"Draft 2 functional specs for: {req_text}"}]
             )
-            ai_logic = res_groq.choices[0].message.content
+            logic = res_groq.choices[0].message.content
 
-            # Step 2: GxP Formatting (Gemini)
-            prompt = (f"Act as a GAMP 5 Validation Lead. Analyze: '{req_text}'. Logic: {ai_logic}. "
-                      f"Return exactly 3 values separated by a pipe '|': "
-                      f"Functional_Requirement | Test_Steps | Risk_Level(High/Med/Low)")
+            # Step 2: GxP Formatting (Gemini 2.0 Flash)
+            prompt = (f"Act as GAMP 5 Lead. Req: '{req_text}'. Logic: {logic}. "
+                      f"Return: Functional_Requirement | Test_Steps | Risk(H/M/L)")
             
             res_gemini = completion(
-                model="gemini/gemini-2.0-flash", # Note: Gemini 2.0 is currently the stable high-speed flash
+                model="gemini/gemini-2.0-flash",
                 messages=[{"role": "user", "content": prompt}]
             )
             
             parts = res_gemini.choices[0].message.content.split('|')
             
-            results_for_excel.append({
-                "Requirement ID": req_id,
-                "User Requirement": req_text,
-                "Functional Spec (FRS)": parts[0].strip(),
-                "Test Steps": parts[1].strip(),
-                "Risk Level": parts[2].strip(),
-                "Timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+            results.append({
+                "Requirement_ID": req_id,
+                "User_Requirement": req_text,
+                "Functional_Spec": parts[0].strip() if len(parts)>0 else "Error",
+                "Test_Steps": parts[1].strip() if len(parts)>1 else "Error",
+                "Risk_Level": parts[2].strip() if len(parts)>2 else "Low",
+                "Verified_By_Human": False  # Commercial Feature: Status Tracking
             })
-
         except Exception as e:
             st.error(f"Error on {req_id}: {e}")
         
         progress_bar.progress((i + 1) / len(urs_items))
+    return results
 
-    return results_for_excel
+# --- 3. COMMERCIAL UI ---
+st.title("🧪 Traceability Architect Pro")
+st.caption("Commercial Version 6.0 | GAMP 5 & ALCOA+ Aligned")
 
-# --- STREAMLIT UI ---
-st.set_page_config(page_title="Traceability Architect", page_icon="🧪")
-st.title("🧪 Traceability Architect")
-st.subheader("GAMP 5 Automated Validation Engine")
+# Sample Data Setup
+if 'master_df' not in st.session_state:
+    st.session_state.master_df = None
 
-# Sample URS Input Area
-st.write("### 1. Define User Requirements")
-urs_input = [
-    {"id": "URS-SEC-01", "text": "The system SHALL encrypt all PHI data at rest using AES-256."},
-    {"id": "URS-COM-02", "text": "The system SHALL maintain an uneditable audit trail of all record changes."},
-    {"id": "URS-FUN-03", "text": "The system SHOULD allow users to generate PDF reports of lab results."}
-]
-st.json(urs_input)
+with st.expander("📝 1. Configure User Requirements", expanded=True):
+    urs_input = [
+        {"id": "URS-SEC-01", "text": "Encrypt PHI data at rest via AES-256."},
+        {"id": "URS-AUD-02", "text": "Maintain immutable audit trail for all records."},
+        {"id": "URS-SIG-03", "text": "Support 21 CFR Part 11 Electronic Signatures."}
+    ]
+    st.info("Currently processing 3 standard Bio-Pharma requirements.")
 
-if st.button("Generate Traceability Matrix"):
-    with st.spinner("Orchestrating AI Models..."):
-        final_data = process_urs_list(urs_input)
-        df = pd.DataFrame(final_data)
+if st.button("🚀 Generate Draft Traceability Matrix"):
+    with st.spinner("Orchestrating AI Validation Engines..."):
+        data = generate_matrix(urs_input)
+        st.session_state.master_df = pd.DataFrame(data)
+
+# --- 4. THE INTERACTIVE WORKBENCH ---
+if st.session_state.master_df is not None:
+    st.divider()
+    st.subheader("🛠️ 2. Review & Verify (Human-in-the-Loop)")
+    st.markdown("Edit any cell below to refine the AI's output. Check the **Verified_By_Human** box for compliance.")
+
+    # This is the "Commercial" feature: Editable UI
+    edited_df = st.data_editor(
+        st.session_state.master_df,
+        column_config={
+            "Verified_By_Human": st.column_config.CheckboxColumn("Verify Status", default=False),
+            "Risk_Level": st.column_config.SelectboxColumn("Risk", options=["High", "Med", "Low"])
+        },
+        use_container_width=True,
+        num_rows="dynamic"
+    )
+
+    # Export Logic
+    st.divider()
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("💾 Save Progress"):
+            st.session_state.master_df = edited_df
+            st.success("Changes saved to session memory.")
+
+    with col2:
+        # Professional Excel Export
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            edited_df.to_excel(writer, index=False, sheet_name='RTM_Final')
         
-        # Display Preview
-        st.success("✅ Matrix Generated!")
-        st.dataframe(df)
-
-        # Download Button
-        output_file = "Traceability_Matrix.xlsx"
-        df.to_excel(output_file, index=False)
-        with open(output_file, "rb") as file:
-            st.download_button(
-                label="📥 Download Excel RTM",
-                data=file,
-                file_name="Commercial_Traceability_Matrix.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
-
-st.divider()
-st.caption("Powered by Groq LPU™ and Google Gemini | GxP Compliant Design")
+        st.download_button(
+            label="📥 Download Validated RTM (Excel)",
+            data=output.getvalue(),
+            file_name=f"RTM_Export_{datetime.date.today()}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
