@@ -81,30 +81,22 @@ if not st.session_state.authenticated:
         <div style="text-align: center; padding: 60px;">
             <h2 style="color: #1d1d1f;">AI-Powered GxP Validation Suite</h2>
             <p style="color: #8e8e93; font-size: 1.2rem; max-width: 600px; margin: 0 auto;">
-                Transforming static SOPs and URS documents into validated technical specifications 
-                using grounded AI architecture.
+                Transforming static SOPs and URS documents into validated technical specifications.
             </p>
             <div style="margin-top: 30px; padding: 20px; background: white; border-radius: 16px; border: 1px solid #e5e5ea; display: inline-block;">
                 <p style="color: #007aff; font-weight: 600; margin:0;">🔐 Please sign in via the sidebar to access the engine.</p>
             </div>
         </div>
     """, unsafe_allow_html=True)
-    
-    
-
-[Image of a software validation life cycle V-model]
-
-
 else:
     # --- PRIVATE DASHBOARD (HIDDEN UNTIL LOGIN) ---
     st.subheader("📂 Step 1: Document Ingestion")
-    uploaded_file = st.file_uploader("Upload URS or SOP PDF", type="pdf", help="AI will extract requirements from this document.")
+    uploaded_file = st.file_uploader("Upload URS or SOP PDF", type="pdf")
 
     if uploaded_file:
         st.success(f"File '{uploaded_file.name}' received.")
         
         if st.button("🚀 Analyze & Generate Matrix"):
-            # 1. Extract Text from PDF
             with tempfile.NamedTemporaryFile(delete=False) as tmp:
                 tmp.write(uploaded_file.getvalue())
                 tmp_path = tmp.name
@@ -115,20 +107,16 @@ else:
                     pages = loader.load()
                     full_text = " ".join([p.page_content for p in pages])
                 
-                # 2. Process via AI
                 results = []
-                progress = st.progress(0)
-                
                 model_map = {
                     "Llama 3.3 (Groq)": "groq/llama-3.3-70b-versatile",
                     "GPT-4o (OpenAI)": "openai/gpt-4o",
                     "Claude 3.5 (Anthropic)": "anthropic/claude-3-5-sonnet-20240620"
                 }
 
-                # We ask the AI to find the top 5 key requirements from the text
                 with st.spinner(f"Orchestrating {st.session_state.model_provider}..."):
-                    prompt = (f"Analyze this SOP/URS: {full_text[:10000]}. "
-                              f"Extract 5 key technical requirements. For each, provide: "
+                    prompt = (f"Analyze this document: {full_text[:8000]}. "
+                              f"Extract 5 key technical requirements. For each, return exactly: "
                               f"Req_ID | Requirement_Text | Functional_Spec | Test_Step | Risk(H/M/L). "
                               f"Separate each requirement with a new line.")
                     
@@ -137,19 +125,19 @@ else:
                         messages=[{"role": "user", "content": prompt}]
                     )
                     
-                    # Parsing the output into a dataframe
                     lines = res.choices[0].message.content.strip().split('\n')
                     for line in lines:
                         if '|' in line:
                             p = line.split('|')
-                            results.append({
-                                "ID": p[0].strip(),
-                                "Requirement": p[1].strip(),
-                                "Functional_Spec": p[2].strip(),
-                                "Test_Steps": p[3].strip(),
-                                "Risk": p[4].strip(),
-                                "Verified": False
-                            })
+                            if len(p) >= 5:
+                                results.append({
+                                    "ID": p[0].strip(),
+                                    "Requirement": p[1].strip(),
+                                    "Functional_Spec": p[2].strip(),
+                                    "Test_Steps": p[3].strip(),
+                                    "Risk": p[4].strip(),
+                                    "Verified": False
+                                })
                 
                 st.session_state.master_df = pd.DataFrame(results)
                 st.success("Analysis Complete!")
@@ -185,7 +173,7 @@ else:
                     "Signer": signer, 
                     "Date": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                     "Engine": st.session_state.model_provider,
-                    "Integrity": "ALCOA+ Compliant Artifact"
+                    "Integrity": "ALCOA+ Compliant"
                 }
                 pd.DataFrame([audit_data]).to_excel(writer, index=False, sheet_name='Audit_Trail')
             
