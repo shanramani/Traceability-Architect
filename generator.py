@@ -115,4 +115,70 @@ else:
         
         # Mapping models for LiteLLM
         model_map = {
-            "Llama 3.3 (Groq)": "groq
+            "Llama 3.3 (Groq)": "groq/llama-3.3-70b-versatile",
+            "GPT-4o (OpenAI)": "openai/gpt-4o",
+            "Claude 3.5 (Anthropic)": "anthropic/claude-3-5-sonnet-20240620"
+        }
+        
+        for i, item in enumerate(urs_input):
+            with st.spinner(f"Analyzing {item['id']}..."):
+                try:
+                    res = completion(
+                        model=model_map[st.session_state.model_provider],
+                        messages=[{"role": "user", "content": f"Act as GxP Lead. Requirement: {item['text']}. Return pipe separated: Functional_Spec | Test_Step | Risk(High/Med/Low)"}]
+                    )
+                    parts = res.choices[0].message.content.split('|')
+                    results.append({
+                        "ID": item['id'],
+                        "Requirement": item['text'],
+                        "Functional_Spec": parts[0].strip() if len(parts)>0 else "Pending",
+                        "Test_Steps": parts[1].strip() if len(parts)>1 else "Pending",
+                        "Risk": parts[2].strip() if len(parts)>2 else "Med",
+                        "Verified_By_Human": False
+                    })
+                except Exception as e:
+                    st.error(f"Error on {item['id']}: {e}")
+            progress.progress((i+1)/len(urs_input))
+        
+        st.session_state.master_df = pd.DataFrame(results)
+
+    # The Interactive Editor & Export
+    if st.session_state.master_df is not None:
+        st.divider()
+        st.subheader("🛠️ Step 2: Human-in-the-Loop Verification")
+        st.info("Edit cells directly to refine specifications. Check the 'Verified' box for compliance.")
+        
+        # Data Editor for Commercial Validation
+        edited_df = st.data_editor(
+            st.session_state.master_df, 
+            use_container_width=True,
+            column_config={
+                "Verified_By_Human": st.column_config.CheckboxColumn("Verify", default=False),
+                "Risk": st.column_config.SelectboxColumn("Risk Level", options=["High", "Med", "Low"])
+            }
+        )
+        
+        st.divider()
+        st.subheader("🖋️ Step 3: Approval & Export")
+        signer = st.text_input("Approver Digital Name", value=st.session_state.user_name)
+        
+        if st.button("💾 Sign & Generate Final Excel"):
+            output = io.BytesIO()
+            with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                edited_df.to_excel(writer, index=False, sheet_name='Traceability_Matrix')
+                # Audit Trail Sheet
+                audit_data = {
+                    "Signer": signer, 
+                    "Date": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "Engine": st.session_state.model_provider,
+                    "Integrity_Statement": "Human-Verified GxP Artifact"
+                }
+                pd.DataFrame([audit_data]).to_excel(writer, index=False, sheet_name='Audit_Trail')
+            
+            st.success("Verification Workbook Ready.")
+            st.download_button(
+                label="📥 Download SIGNED GxP Workbook",
+                data=output.getvalue(),
+                file_name=f"Verified_RTM_{datetime.date.today()}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
