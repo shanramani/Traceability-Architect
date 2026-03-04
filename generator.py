@@ -115,14 +115,18 @@ else:
                 }
 
                 with st.spinner(f"Orchestrating {st.session_state.model_provider}..."):
-                    prompt = (f"Analyze this document: {full_text[:8000]}. "
-                              f"Extract 5 key technical requirements. For each, return exactly: "
-                              f"Req_ID | Requirement_Text | Functional_Spec | Test_Step | Risk(H/M/L). "
-                              f"Separate each requirement with a new line.")
+                    prompt = (f"Act as a Senior GxP Validation Engineer expert in GAMP 5 and 21 CFR Part 11. "
+                        f"Analyze this document: {full_text[:8000]}. "
+                        f"Extract 5 key technical requirements. For each, return exactly: "
+                        f"Req_ID | Requirement_Description | Functional_Spec | GAMP_Test_Method | Risk(H/M/L). "
+                        f"Ensure 'Functional_Spec' describes HOW the system meets it, "
+                        f"and 'GAMP_Test_Method' describes an OQ (Operational Qualification) test step. "
+                        f"Separate each requirement with a new line.")
                     
                     res = completion(
                         model=model_map[st.session_state.model_provider],
-                        messages=[{"role": "user", "content": prompt}]
+                        messages=[{"role": "user", "content": prompt}],
+                        api_key=active_key
                     )
                     
                     lines = res.choices[0].message.content.strip().split('\n')
