@@ -120,4 +120,11 @@ else:
     # Step 2: Editor & Export
     if st.session_state.master_df is not None:
         st.divider()
-        st.subheader("🛠️ Step 2: Human-in-
+        st.subheader("🛠️ Step 2: Human-in-the-Loop Verification")
+        edited_df = st.data_editor(st.session_state.master_df, use_container_width=True)
+        
+        if st.button("💾 Finalize GxP Workbook"):
+            output = io.BytesIO()
+            with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                edited_df.to_excel(writer, index=False, sheet_name='Traceability_Matrix')
+            st.download_button("📥 Download Excel RTM", data=output.getvalue(), file_name="GAMP5_RTM.xlsx")
