@@ -8,123 +8,97 @@ import tempfile
 import io
 
 # --- 1. UI CONFIG ---
-st.set_page_config(page_title="Traceability Architect Pro", layout="wide", page_icon="🧪")
-
-st.markdown("""
-    <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&display=swap');
-    html, body, [class*="css"]  { font-family: 'Inter', sans-serif; background-color: #f5f5f7; }
-    .hero-banner {
-        background: linear-gradient(90deg, #007aff 0%, #5856d6 100%);
-        padding: 40px; border-radius: 24px; color: white;
-        margin-bottom: 30px; box-shadow: 0 10px 20px rgba(0,122,255,0.2);
-        text-align: center;
-    }
-    [data-testid="stSidebar"] { background: rgba(249, 249, 252, 0.95); backdrop-filter: blur(15px); }
-    </style>
-""", unsafe_allow_html=True)
+st.set_page_config(page_title="Inspector's Choice - Part 11 Audit", layout="wide", page_icon="⚖️")
 
 # --- 2. SESSION STATE ---
 if 'authenticated' not in st.session_state: st.session_state.authenticated = False
-if 'master_df' not in st.session_state: st.session_state.master_df = None
-if 'model_provider' not in st.session_state: st.session_state.model_provider = "Llama 3.3 (Groq)"
+if 'master_data' not in st.session_state: st.session_state.master_data = None
 
 # --- 3. SIDEBAR ---
 with st.sidebar:
-    st.title("🧪 Admin Controls")
+    st.title("🛡️ 91362 Audit Readiness")
     if not st.session_state.authenticated:
-        u = st.text_input("User ID")
-        p = st.text_input("Access Key", type="password")
+        u, p = st.text_input("User ID"), st.text_input("Access Key", type="password")
         if st.button("Authorize"):
-            if u: 
-                st.session_state.user_name, st.session_state.authenticated = u, True
-                st.rerun()
+            if u: st.session_state.user_name, st.session_state.authenticated = u, True; st.rerun()
     else:
-        st.success(f"Verified: **{st.session_state.user_name}**")
-        st.session_state.model_provider = st.radio(
-            "Select Intelligence Engine:",
-            ["Llama 3.3 (Groq)", "GPT-4o (OpenAI)", "Claude 3.5 (Anthropic)"]
-        )
-        if st.button("Logout"):
-            st.session_state.authenticated = False
-            st.rerun()
+        st.success(f"Verified Auditor: **{st.session_state.user_name}**")
+        st.session_state.model_provider = st.radio("Intelligence Engine:", ["GPT-4o (OpenAI)", "Claude 3.5 (Anthropic)"])
+        if st.button("Logout"): st.session_state.authenticated = False; st.rerun()
 
 # --- 4. MAIN INTERFACE ---
-st.markdown(f'<div class="hero-banner"><h1>Traceability Architect</h1><p>{st.session_state.model_provider} | Site: 91362</p></div>', unsafe_allow_html=True)
-
 if not st.session_state.authenticated:
-    st.info("🔐 Please sign in via the sidebar to begin.")
+    st.info("🔐 Authorized Access Only: 21 CFR Part 11 Audit Suite")
 else:
-    st.subheader("📂 Step 1: GAMP 5 Document Ingestion")
-    uploaded_file = st.file_uploader("Upload SOP or URS PDF", type="pdf")
+    st.subheader("📂 Step 1: Upload SOP/URS for " "Virtual 483" " Scanning")
+    uploaded_file = st.file_uploader("Upload PDF", type="pdf")
 
-    if uploaded_file and st.button("🚀 Analyze & Generate GxP Matrix"):
-        # --- FIX: DEFINE ACTIVE_KEY GLOBALLY WITHIN THIS BLOCK ---
-        active_key = None
-        if "Groq" in st.session_state.model_provider: active_key = st.secrets.get("GROQ_API_KEY")
-        elif "OpenAI" in st.session_state.model_provider: active_key = st.secrets.get("OPENAI_API_KEY")
-        elif "Claude" in st.session_state.model_provider: active_key = st.secrets.get("ANTHROPIC_API_KEY")
-
-        if not active_key:
-            st.error(f"Missing API Key for {st.session_state.model_provider} in Streamlit Secrets.")
-        else:
-            with tempfile.NamedTemporaryFile(delete=False) as tmp:
-                tmp.write(uploaded_file.getvalue())
-                tmp_path = tmp.name
-            
-            try:
-                loader = PyPDFLoader(tmp_path)
-                pages = loader.load()
-                full_text = " ".join([p.page_content for p in pages])
-                
-                model_map = {
-                    "Llama 3.3 (Groq)": "groq/llama-3.3-70b-versatile",
-                    "GPT-4o (OpenAI)": "openai/gpt-4o",
-                    "Claude 3.5 (Anthropic)": "anthropic/claude-3-5-sonnet-20240620"
-                }
-
-                with st.spinner("Executing GAMP 5 Regulatory Analysis..."):
-                    # Refined Power Prompt for RAG Grounding
-                    prompt = (
-                        f"Act as a GxP Validation Lead. Analyze: {full_text[:8000]}. "
-                        f"Extract 5 requirements. Format exactly: "
-                        f"ID | Requirement | Functional_Spec | GAMP_Test_Method | Risk | Reg_Citation. "
-                        f"Include specific FDA 21 CFR Part 11 or GAMP 5 citations in 'Reg_Citation'. "
-                        f"Separate with newlines."
-                    )
-                    
-                    res = completion(
-                        model=model_map[st.session_state.model_provider],
-                        messages=[{"role": "user", "content": prompt}],
-                        api_key=active_key
-                    )
-                    
-                    lines = res.choices[0].message.content.strip().split('\n')
-                    results = []
-                    for line in lines:
-                        if '|' in line:
-                            p = line.split('|')
-                            if len(p) >= 6:
-                                results.append({
-                                    "ID": p[0].strip(), "Requirement": p[1].strip(), 
-                                    "Spec": p[2].strip(), "Test": p[3].strip(), 
-                                    "Risk": p[4].strip(), "Citation": p[5].strip(), "Verified": False
-                                })
-                    st.session_state.master_df = pd.DataFrame(results)
-
-            except Exception as e:
-                st.error(f"Critical Error: {e}")
-            finally:
-                if os.path.exists(tmp_path): os.remove(tmp_path)
-
-    # Step 2: Editor & Export
-    if st.session_state.master_df is not None:
-        st.divider()
-        st.subheader("🛠️ Step 2: Human-in-the-Loop Verification")
-        edited_df = st.data_editor(st.session_state.master_df, use_container_width=True)
+    if uploaded_file and st.button("🚀 Execute Critical-Check Audit"):
+        active_key = st.secrets.get("OPENAI_API_KEY") if "OpenAI" in st.session_state.model_provider else st.secrets.get("ANTHROPIC_API_KEY")
         
-        if st.button("💾 Finalize GxP Workbook"):
+        with tempfile.NamedTemporaryFile(delete=False) as tmp:
+            tmp.write(uploaded_file.getvalue()); tmp_path = tmp.name
+        
+        try:
+            loader = PyPDFLoader(tmp_path)
+            full_text = " ".join([p.page_content for p in loader.load()])
+            
+            with st.spinner("Scanning for Data Integrity Vulnerabilities..."):
+                prompt = (
+                    f"Act as a GxP Senior Auditor. Analyze: {full_text[:8000]}. "
+                    f"1. Extract 5 key URS items and link to FS and OQ. "
+                    f"2. FLAG MISSING CONTROLS for: "
+                    f"   - §11.10(e) Audit Trails: Does it log 'Who, What, When, Why'? "
+                    f"   - §11.10(g) Authority Checks: Are role-based permissions explicit? "
+                    f"   - §11.50 Signature Manifestations: Is the 'Meaning' (Approval/Review) required? "
+                    f"3. For each requirement, assign an ALCOA+ Score (1-10) based on how 'Attributable' and 'Accurate' the spec is. "
+                    f"Return ONLY pipe-separated: URS_ID | URS_Text | FS_ID | FS_Spec | OQ_ID | OQ_Test | Part11_Ref | ALCOA_Score | Auditor_Observation."
+                )
+                
+                model_map = {"GPT-4o (OpenAI)": "openai/gpt-4o", "Claude 3.5 (Anthropic)": "anthropic/claude-3-5-sonnet-20240620"}
+                res = completion(model=model_map[st.session_state.model_provider], messages=[{"role": "user", "content": prompt}], api_key=active_key)
+                
+                raw_rows = [ [i.strip() for i in l.split('|')] for l in res.choices[0].message.content.strip().split('\n') if '|' in l ]
+                st.session_state.master_data = raw_rows
+                st.success("Analysis Complete.")
+
+        except Exception as e: st.error(f"Error: {e}")
+        finally: 
+            if os.path.exists(tmp_path): os.remove(tmp_path)
+
+    # --- 5. DASHBOARD & EXPORT ---
+    if st.session_state.master_data:
+        df = pd.DataFrame(st.session_state.master_data, columns=["URS_ID", "Requirement", "FS_ID", "FS_Spec", "OQ_ID", "OQ_Test", "Part11_Ref", "ALCOA_Score", "Observation"])
+        
+        # High Risk Filter (ALCOA Score < 7)
+        high_risk = df[df['ALCOA_Score'].astype(float) < 7.0]
+        
+        st.divider()
+        st.subheader("🚨 Data Integrity Risk Report (ALCOA+ Scale)")
+        if not high_risk.empty:
+            st.error(f"Critical Findings: {len(high_risk)} requirements have low integrity scores.")
+            st.dataframe(high_risk[['URS_ID', 'Part11_Ref', 'ALCOA_Score', 'Observation']], use_container_width=True)
+        else:
+            st.success("SOP/URS meets basic integrity standards (All ALCOA Scores > 7).")
+
+        st.subheader("🛠️ Step 2: Full Traceability Review")
+        st.data_editor(df, use_container_width=True)
+
+        if st.button("💾 Export Verified Audit Package"):
             output = io.BytesIO()
+            sig_block = pd.DataFrame([{
+                "Approver": st.session_state.user_name,
+                "Site": "91362 - Thousand Oaks Hub",
+                "Meaning": "Verification of Traceability and Part 11 Controls",
+                "Date": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            }])
+            
             with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                edited_df.to_excel(writer, index=False, sheet_name='Traceability_Matrix')
-            st.download_button("📥 Download Excel RTM", data=output.getvalue(), file_name="GAMP5_RTM.xlsx")
+                df.to_excel(writer, index=False, sheet_name='Traceability_Matrix')
+                sig_block.to_excel(writer, index=False, startrow=len(df)+3, sheet_name='Traceability_Matrix')
+                
+                # Extracting specific Gaps for a separate tab
+                gaps = df[df['URS_ID'] == 'PART11_GAP']
+                gaps.to_excel(writer, index=False, sheet_name='Compliance_Gaps')
+
+            st.download_button("📥 Download Signed Workbook", data=output.getvalue(), file_name=f"GxP_Audit_{datetime.date.today()}.xlsx")
