@@ -131,18 +131,21 @@ MODELS = {
 # --- 3. AUTHENTICATION ---
 
 def show_login():
-    # 1. Create 3 columns. The middle one (40%) matches your text box width.
-    # The side columns (30% each) act as "invisible spacers."
+    # Keep the 30/40/30 split to maintain the centering that worked
     left_space, center_content, right_space = st.columns([3, 4, 3])
 
     with center_content:
+        # 1. Put the banner back at the very top of the center column
+        st.markdown('<div class="top-banner"><p class="banner-text-inner">AI OPTIMIZED CSV</p></div>', unsafe_allow_html=True)
+        
+        # 2. Add the Title
         st.markdown("<h1 style='text-align: center;'>🛡️ Validation Doc Assist</h1>", unsafe_allow_html=True)
         
-        # Text Inputs
+        # 3. Text Inputs
         u = st.text_input("Professional Identity", placeholder="Username", label_visibility="collapsed")
         p = st.text_input("Security Token", type="password", placeholder="Password", label_visibility="collapsed")
         
-        # THE BUTTON FIX: use_container_width=True forces it to fill the 40% column
+        # 4. The Button (centered and matching the 40% column width)
         if st.button("Initialize Secure Session", key="login_btn", use_container_width=True):
             if u: 
                 st.session_state.user_name = u
