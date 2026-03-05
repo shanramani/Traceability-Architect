@@ -175,8 +175,8 @@ def show_app():
             st.rerun()
 
         st.markdown('<div class="system-spacer"></div>', unsafe_allow_html=True)
-st.write()
-st.write()
+        st.write()
+        st.write()
 
         st.markdown('<p class="sb-sub">📂 Target System Context</p>', unsafe_allow_html=True)
         st.file_uploader("SysContext", type="pdf", key="sidebar_sys_uploader", label_visibility="collapsed")
