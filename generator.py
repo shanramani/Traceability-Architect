@@ -47,12 +47,14 @@ st.markdown("""
         transition: all 0.2s ease-in-out !important;
     }
 
-    div.stButton {
+    /* This targets the wrapper around the button to force it left */
+    div[data-testid="stButton"] {
+        text-align: left !important;
         width: 320px !important;
-        margin: 0 auto !important;
-        display: block !important;
+        margin: 0 auto !important; /* This aligns the 320px block to the center, matching the inputs */
     }
 
+    /* This styles the button itself to fill that left-aligned block */
     div.stButton > button[key="login_btn"] {
         background: linear-gradient(135deg, #3b82f6, #2563eb) !important;
         color: white !important;
@@ -61,9 +63,10 @@ st.markdown("""
         border-radius: 8px !important;
         border: none !important;
         font-weight: 600 !important;
-        /* Negative margin to counteract column padding */
-        margin-left: -5px !important; 
         box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3) !important;
+        /* Remove any default Streamlit centering */
+        display: block !important;
+        margin-left: 0 !important; 
     }
 
     /* RUN ANALYSIS - MODERN BLUE (When Active) */
