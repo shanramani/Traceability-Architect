@@ -133,7 +133,7 @@ def show_app():
                                    label_visibility="collapsed")
         if engine_name != st.session_state.selected_model:
             st.session_state.selected_model = engine_name; st.rerun()
-        
+        st.markdown("<br>", unsafe_allow_html=True)
         st.markdown('<div class="system-spacer"></div>', unsafe_allow_html=True)
         st.markdown('<p class="sb-sub">📂 Target System Context</p>', unsafe_allow_html=True)
         st.file_uploader("SysContext", type="pdf", key="sidebar_sys_uploader", label_visibility="collapsed")
