@@ -16,9 +16,15 @@ def get_location():
     return "Thousand Oaks, USA"
 
 # --- SESSION STATE ---
-if 'authenticated' not in st.session_state: st.session_state.authenticated = False
-if 'selected_model' not in st.session_state: st.session_state.selected_model = "Gemini 1.5 Pro"
-if 'location' not in st.session_state: st.session_state.location = get_location()
+if 'authenticated' not in st.session_state:
+    st.session_state.authenticated = False
+
+if 'selected_model' not in st.session_state:
+    st.session_state.selected_model = "Gemini 1.5 Pro"
+
+if 'location' not in st.session_state:
+    st.session_state.location = get_location()
+
 
 # --- STYLES ---
 st.markdown("""
@@ -27,67 +33,97 @@ st.markdown("""
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 html, body, [class*="st-"] { font-family: 'Inter', sans-serif; }
 
-.stApp { background-color: #fcfcfd; }
+.stApp { background-color:#fcfcfd; }
 
-/* --- TOP BANNER --- */
-.top-banner {
-    background-color: white;
-    border: 1px solid #eef2f6;
-    border-radius: 10px;
-    padding: 12px 0px;
-    text-align: center;
-    margin-bottom: 10px;
+/* ---------------- HEADER ---------------- */
+
+.ai-header{
+    margin-top:10px;
+    margin-bottom:25px;
 }
 
-.banner-text-inner {
-    color: #475569;
-    font-weight: 400;
-    letter-spacing: 4px;
-    text-transform: uppercase;
-    font-size: 0.85rem;
-    margin: 0;
+.ai-title{
+    font-size:2.3rem;
+    font-weight:700;
+
+    background:linear-gradient(90deg,#2563eb,#1e40af);
+    -webkit-background-clip:text;
+    -webkit-text-fill-color:transparent;
 }
 
-/* CENTER LOGIN INPUTS */
-[data-testid="stTextInput"] {
-    width: 55% !important;
-    margin: 0 auto !important;
+.ai-subtitle{
+    color:#64748b;
+    font-size:1.05rem;
+    margin-top:5px;
+    margin-bottom:10px;
 }
 
-/* --- SIDEBAR --- */
-[data-testid="stSidebar"] {
-    background-color: #0f172a;
-    border-right: 1px solid #1e293b;
+.ai-status{
+    display:inline-block;
+    background:#e0f2fe;
+    color:#0369a1;
+    font-size:0.8rem;
+    font-weight:600;
+    padding:4px 10px;
+    border-radius:20px;
 }
 
-/* REMOVE SIDEBAR HEADER */
-[data-testid="stSidebar"] header,
-[data-testid="stSidebarCollapseButton"] {
+/* ---------------- LOGIN ---------------- */
+
+.top-banner{
+    background:white;
+    border:1px solid #eef2f6;
+    border-radius:10px;
+    padding:12px;
+    text-align:center;
+    margin-bottom:10px;
+}
+
+.banner-text-inner{
+    color:#475569;
+    letter-spacing:4px;
+    font-size:0.85rem;
+}
+
+[data-testid="stTextInput"]{
+    width:55% !important;
+    margin:0 auto !important;
+}
+
+/* ---------------- SIDEBAR ---------------- */
+
+[data-testid="stSidebar"]{
+    background-color:#0f172a;
+    border-right:1px solid #1e293b;
+}
+
+[data-testid="stSidebar"] header{
     display:none !important;
 }
 
-.sb-title {
+.sb-title{
     color:white !important;
-    font-weight:700 !important;
+    font-weight:700;
     font-size:1.1rem;
 }
 
-.sb-sub {
+.sb-sub{
     color:white !important;
-    font-weight:600 !important;
+    font-weight:600;
     font-size:0.95rem;
 }
 
-.sidebar-stats {
+.sidebar-stats{
     color:white !important;
     font-size:0.85rem;
 }
 
-/* --- MODERN BLUE BUTTONS --- */
-div.stButton > button[key="login_btn"],
-div.stButton > button[key="terminate_sidebar"] {
+/* ---------------- MODERN BUTTONS ---------------- */
 
-    background: linear-gradient(135deg,#2563eb,#1d4ed8);
+div.stButton > button[key="login_btn"],
+div.stButton > button[key="terminate_sidebar"]{
+
+    background:linear-gradient(135deg,#2563eb,#1d4ed8);
     color:white !important;
 
     border:none;
@@ -98,45 +134,40 @@ div.stButton > button[key="terminate_sidebar"] {
     font-weight:600;
 
     box-shadow:0 4px 10px rgba(37,99,235,0.35);
-
     transition:all 0.25s ease;
 }
 
-/* Hover animation */
+/* Hover */
+
 div.stButton > button[key="login_btn"]:hover,
-div.stButton > button[key="terminate_sidebar"]:hover {
+div.stButton > button[key="terminate_sidebar"]:hover{
 
     transform:translateY(-1px);
+
     box-shadow:0 8px 18px rgba(37,99,235,0.45);
+
     background:linear-gradient(135deg,#3b82f6,#2563eb);
 }
 
-/* Click animation */
-div.stButton > button[key="login_btn"]:active,
-div.stButton > button[key="terminate_sidebar"]:active {
+/* Button widths */
 
-    transform:translateY(1px);
-    box-shadow:0 3px 6px rgba(0,0,0,0.2);
-}
-
-/* LOGIN BUTTON SIZE */
 div.stButton > button[key="login_btn"]{
     width:340px;
     display:block;
     margin:auto;
 }
 
-/* SIDEBAR TERMINATE BUTTON */
 div.stButton > button[key="terminate_sidebar"]{
     width:220px;
     display:block;
     margin:auto;
 }
 
-/* --- RUN ANALYSIS BUTTON (AI STYLE) --- */
+/* ---------------- RUN ANALYSIS BUTTON ---------------- */
+
 div.stButton > button[key="run_analysis_btn"]{
 
-    background: linear-gradient(135deg,#2563eb,#1e40af);
+    background:linear-gradient(135deg,#2563eb,#1e40af);
     color:white !important;
 
     border:none;
@@ -150,11 +181,11 @@ div.stButton > button[key="run_analysis_btn"]{
     margin:auto;
 
     box-shadow:0 6px 20px rgba(37,99,235,0.35);
-
     transition:all 0.25s ease;
 }
 
-/* glow on hover */
+/* Hover Glow */
+
 div.stButton > button[key="run_analysis_btn"]:hover{
 
     transform:translateY(-2px);
@@ -162,22 +193,23 @@ div.stButton > button[key="run_analysis_btn"]:hover{
     box-shadow:
     0 10px 25px rgba(37,99,235,0.45),
     0 0 12px rgba(59,130,246,0.55);
-
 }
 
-/* disabled state */
+/* Disabled */
+
 div.stButton > button[key="run_analysis_btn"]:disabled{
 
     background:#e2e8f0 !important;
     color:#94a3b8 !important;
     box-shadow:none;
     cursor:not-allowed;
-
 }
 
 </style>
 """, unsafe_allow_html=True)
 
+
+# --- MODELS ---
 MODELS = {
     "Gemini 1.5 Pro": "gemini/gemini-1.5-pro",
     "Claude 3.5 Sonnet": "anthropic/claude-3-5-sonnet-20240620",
@@ -185,7 +217,8 @@ MODELS = {
     "Groq (Llama 3.3)": "groq/llama-3.3-70b-versatile"
 }
 
-# --- LOGIN ---
+
+# --- LOGIN SCREEN ---
 def show_login():
 
     _, col, _ = st.columns([1,2,1])
@@ -199,6 +232,7 @@ def show_login():
         st.title("🛡️ Validation Doc Assist")
 
         u = st.text_input("Professional Identity", placeholder="Username")
+
         p = st.text_input("Security Token", type="password")
 
         if st.button("Initialize Secure Session", key="login_btn"):
@@ -208,12 +242,14 @@ def show_login():
                 st.session_state.authenticated = True
                 st.rerun()
 
-# --- MAIN APP ---
+
+# --- MAIN APPLICATION ---
 def show_app():
 
     with st.sidebar:
 
         st.markdown(f'<p class="sb-title">CSV Generator v{VERSION}</p>', unsafe_allow_html=True)
+
         st.divider()
 
         st.markdown('<p class="sb-sub">🤖 Intelligence Engine</p>', unsafe_allow_html=True)
@@ -229,7 +265,7 @@ def show_app():
             st.session_state.selected_model = engine_name
             st.rerun()
 
-        # ---- CARRIAGE RETURN ABOVE TARGET SYSTEM CONTEXT ----
+        # spacing before target system context
         st.markdown('<div style="height:60px;"></div>', unsafe_allow_html=True)
 
         st.markdown('<p class="sb-sub">📂 Target System Context</p>', unsafe_allow_html=True)
@@ -258,8 +294,26 @@ def show_app():
             st.session_state.authenticated = False
             st.rerun()
 
-    st.title("Auto-Generate CSV Documents")
+    # --- MAIN HEADER ---
+    st.markdown("""
+    <div class="ai-header">
 
+    <div class="ai-title">
+    Validation Doc Assist
+    </div>
+
+    <div class="ai-subtitle">
+    AI-Powered Computer System Validation Documentation Generator
+    </div>
+
+    <div class="ai-status">
+    AI Engine Active
+    </div>
+
+    </div>
+    """, unsafe_allow_html=True)
+
+    # --- SOP Upload ---
     sop_file = st.file_uploader(
         "Upload SOP (The 'What')",
         type="pdf",
@@ -273,10 +327,11 @@ def show_app():
     if st.button("🚀 Run Analysis", key="run_analysis_btn", disabled=not is_ready):
 
         st.success(
-        f"Analysis sequence initiated using {st.session_state.selected_model}."
+        f"Analysis sequence initiated using {st.session_state.selected_model}"
         )
 
-# --- APP ROUTER ---
+
+# --- ROUTER ---
 if not st.session_state.authenticated:
     show_login()
 else:
