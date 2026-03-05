@@ -38,23 +38,30 @@ st.markdown("""
         color: #475569; font-weight: 400; letter-spacing: 4px;
         text-transform: uppercase; font-size: 0.85rem; margin: 0;
     }
-    [data-testid="stTextInput"] { width: 50% !important; margin: 0 auto !important; }
+    /*   [data-testid="stTextInput"] { width: 50% !important; margin: 0 auto !important; }
 
     /* MODERN BLUE BUTTON ENGINE */
     /* Target Login and Sidebar Terminate and Active Run Analysis */
     div.stButton > button {
         border: none !important;
         transition: all 0.2s ease-in-out !important;
+    } */
+
+    /* 1. Target the text input containers */
+    [data-testid="stTextInput"] { 
+        width: 320px !important; 
+        margin-left: 0 !important; /* Force to the left instead of 'auto' */
+        margin-right: auto !important;
     }
 
-    /* This targets the wrapper around the button to force it left */
+    /* 2. Style the Login Button to match that left edge */
     div[data-testid="stButton"] {
-        text-align: left !important;
+        display: flex !important;
+        justify-content: flex-start !important;
         width: 320px !important;
-        margin: 0 auto !important; /* This aligns the 320px block to the center, matching the inputs */
+        margin-left: 0 !important;
     }
 
-    /* This styles the button itself to fill that left-aligned block */
     div.stButton > button[key="login_btn"] {
         background: linear-gradient(135deg, #3b82f6, #2563eb) !important;
         color: white !important;
@@ -64,9 +71,6 @@ st.markdown("""
         border: none !important;
         font-weight: 600 !important;
         box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3) !important;
-        /* Remove any default Streamlit centering */
-        display: block !important;
-        margin-left: 0 !important; 
     }
 
     /* RUN ANALYSIS - MODERN BLUE (When Active) */
