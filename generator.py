@@ -38,7 +38,7 @@ st.markdown("""
         color: #475569; font-weight: 400; letter-spacing: 4px;
         text-transform: uppercase; font-size: 0.85rem; margin: 0;
     }
-    /*   [data-testid="stTextInput"] { width: 50% !important; margin: 0 auto !important; }
+    [data-testid="stTextInput"] { width: 30% !important; margin: 0 auto !important; }
 
     /* MODERN BLUE BUTTON ENGINE */
     /* Target Login and Sidebar Terminate and Active Run Analysis */
@@ -47,12 +47,12 @@ st.markdown("""
         transition: all 0.2s ease-in-out !important;
     } */
 
-    /* 1. Target the text input containers */
+    /* 1. Target the text input containers 
     [data-testid="stTextInput"] { 
     width: 30% !important; 
     margin-left: 0 !important; 
     margin-right: auto !important;
-    }
+    } */
 
     /* 2. Style the Login Button to match that left edge */
     div[data-testid="stButton"] {
