@@ -9,11 +9,11 @@ import io
 import requests
 
 # --- 1. PRO-GRADE UI & BRANDING ---
-VERSION = "10.19"
+VERSION = "10.20"
 st.set_page_config(page_title=f"Architect v{VERSION}", layout="wide")
 
 def get_location():
-    # Forced override for your specific location context [cite: 2025-12-28]
+    # Locked to your 91362 context [cite: 2025-12-28]
     return "Thousand Oaks, USA"
 
 st.markdown("""
@@ -23,7 +23,7 @@ st.markdown("""
     
     .stApp { background-color: #fcfcfd; }
     
-    /* 1. BANNER & LOGIN FIXES */
+    /* 1. LOGIN & BANNER */
     .top-banner {
         background-color: white;
         border: 1px solid #eef2f6;
@@ -43,19 +43,19 @@ st.markdown("""
     }
     [data-testid="stTextInput"] { width: 50% !important; margin: 0 auto !important; }
     
-    /* 2. SIDEBAR PERFECTION */
+    /* 2. SIDEBAR HARDENING */
     [data-testid="stSidebar"] { background-color: #0f172a; border-right: 1px solid #1e293b; }
     
-    /* KILL keyboard_double & Header artifacts */
+    /* NUCLEAR KILL for keyboard_double and Sidebar Header */
     [data-testid="stSidebar"] [data-testid="stHeader"], 
     [data-testid="stSidebar"] header,
     .st-emotion-cache-10oheav, 
-    [title="keyboard_double_arrow_left"] {
+    [title="keyboard_double_arrow_left"],
+    button[aria-label="Collapse sidebar"] {
         display: none !important;
         visibility: hidden !important;
     }
 
-    /* Subheader Styling */
     .sb-title { color: white !important; font-weight: 700 !important; font-size: 1.1rem; margin-bottom: 20px;}
     .sb-sub { color: white !important; font-weight: 700 !important; font-size: 0.95rem; margin-bottom: 10px; }
     
@@ -70,30 +70,21 @@ st.markdown("""
         margin-bottom: 5px;
     }
 
-    /* CUSTOM TERMINATE BUTTON (Double Width, No Wrap) */
-    .terminate-wrapper {
-        width: 100%;
-        display: flex;
-        justify-content: center;
-        margin-top: 20px;
+    /* TERMINATE BUTTON: Double Width, Blue */
+    div.stButton > button[key="terminate_sidebar"] {
+        width: 100% !important;
+        background-color: #2563eb !important;
+        color: white !important;
+        border: none !important;
     }
-    .terminate-btn {
-        width: 90%;
-        background-color: #2563eb;
-        color: white;
-        border: none;
-        padding: 10px;
-        border-radius: 8px;
-        font-weight: 600;
-        cursor: pointer;
-        text-align: center;
-        transition: background 0.3s;
-    }
-    .terminate-btn:hover { background-color: #1d4ed8; }
 
-    /* Login Button Centering */
+    /* LOGIN BUTTON: Centered, Blue */
     .login-center { display: flex; justify-content: center; width: 100%; }
-    .login-center button { width: 50% !important; background-color: #2563eb !important; color: white !important; }
+    div.stButton > button:first-child:not([key="terminate_sidebar"]) { 
+        width: 50% !important; 
+        background-color: #2563eb !important; 
+        color: white !important; 
+    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -102,7 +93,13 @@ if 'authenticated' not in st.session_state: st.session_state.authenticated = Fal
 if 'selected_model' not in st.session_state: st.session_state.selected_model = "Gemini 1.5 Pro"
 if 'location' not in st.session_state: st.session_state.location = get_location()
 
-MODELS = {"Gemini 1.5 Pro": "gemini/gemini-1.5-pro", "Claude 3.5 Sonnet": "anthropic/claude-3-5-sonnet-20240620", "GPT-4o": "openai/gpt-4o"}
+# Restored Groq to the list
+MODELS = {
+    "Gemini 1.5 Pro": "gemini/gemini-1.5-pro", 
+    "Claude 3.5 Sonnet": "anthropic/claude-3-5-sonnet-20240620", 
+    "GPT-4o": "openai/gpt-4o",
+    "Groq (Llama 3.3)": "groq/llama-3.3-70b-versatile"
+}
 
 # --- 3. AUTHENTICATION ---
 def show_login():
@@ -124,32 +121,35 @@ def show_app():
         st.divider()
         
         st.markdown('<p class="sb-sub">🤖 Intelligence Engine</p>', unsafe_allow_html=True)
-        engine_name = st.selectbox("Model", list(MODELS.keys()), index=list(MODELS.keys()).index(st.session_state.selected_model), label_visibility="collapsed")
+        # Using index lookup to prevent reset on model change
+        engine_name = st.selectbox("Model", list(MODELS.keys()), 
+                                   index=list(MODELS.keys()).index(st.session_state.selected_model), 
+                                   label_visibility="collapsed")
+        
         if engine_name != st.session_state.selected_model:
-            st.session_state.selected_model = engine_name; st.rerun()
+            st.session_state.selected_model = engine_name
+            st.rerun()
         
-        # The 1-inch Spacer
         st.markdown('<div class="system-spacer"></div>', unsafe_allow_html=True)
-        
         st.markdown('<p class="sb-sub">📂 Target System Context</p>', unsafe_allow_html=True)
         st.file_uploader("SysContext", type="pdf", key="sidebar_sys_uploader", label_visibility="collapsed")
         
         st.divider()
-        
-        # Non-bold white text for stats
         st.markdown(f'<p class="sidebar-stats">Operator: {st.session_state.user_name}</p>', unsafe_allow_html=True)
         st.markdown(f'<p class="sidebar-stats">Location: {st.session_state.location}</p>', unsafe_allow_html=True)
         
-        # DOUBLE WIDTH CUSTOM BUTTON
-        if st.button("Terminate Session", use_container_width=True):
+        if st.button("Terminate Session", key="terminate_sidebar", use_container_width=True):
             st.session_state.authenticated = False; st.rerun()
 
     st.title("Auto-Generate CSV Documents")
-    st.info("Ingest Business SOPs to generate context-aware Functional Specs.")
     
-    if st.file_uploader("Upload SOP (The 'What')", type="pdf", key="main_sop_uploader"):
+    # Using 'key' ensures the file object stays in st.session_state
+    st.file_uploader("Upload SOP (The 'What')", type="pdf", key="main_sop_uploader")
+
+    # FIX: Check session_state directly so the button persists after model switch
+    if st.session_state.get("main_sop_uploader") is not None:
         if st.button("🚀 Run Analysis"):
-            st.success("Analysis sequence initiated.")
+            st.success(f"Analysis sequence initiated using {st.session_state.selected_model}.")
 
 if not st.session_state.authenticated: show_login()
 else: show_app()
