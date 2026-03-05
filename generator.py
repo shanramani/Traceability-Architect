@@ -38,7 +38,7 @@ st.markdown("""
         color: #475569; font-weight: 400; letter-spacing: 4px;
         text-transform: uppercase; font-size: 0.85rem; margin: 0;
     }
-    [data-testid="stTextInput"] { width: 40% !important; margin: 0 auto !important; }
+    [data-testid="stTextInput"] { width: 50% !important; margin: 0 auto !important; }
 
     /* MODERN BLUE BUTTON ENGINE */
     /* Target Login and Sidebar Terminate and Active Run Analysis */
