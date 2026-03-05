@@ -149,7 +149,7 @@ def show_login():
         # Create nested columns inside your 'center_content' to make the button 50% width
         # [1, 2, 1] means the button takes 2/4 (50%) of the 40% column
         b_left, b_center, b_right = st.columns([1, 2, 1])
-        
+        st.markdown("<br>", unsafe_allow_html=True)
         with b_center:
             if st.button("Initialize Secure Session", key="login_btn", use_container_width=True):
                 if u: 
