@@ -8,6 +8,7 @@ import tempfile
 import io
 import requests
 
+# --- CONFIG ---
 VERSION = "10.23"
 st.set_page_config(page_title=f"Architect v{VERSION}", layout="wide")
 
@@ -22,19 +23,20 @@ if 'location' not in st.session_state: st.session_state.location = get_location(
 # --- STYLES ---
 st.markdown("""
 <style>
+
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 html, body, [class*="st-"] { font-family: 'Inter', sans-serif; }
 
 .stApp { background-color: #fcfcfd; }
 
-/* BANNER */
+/* --- TOP BANNER --- */
 .top-banner {
     background-color: white;
     border: 1px solid #eef2f6;
     border-radius: 10px;
     padding: 12px 0px;
     text-align: center;
-    margin-bottom: 5px;
+    margin-bottom: 10px;
 }
 
 .banner-text-inner {
@@ -46,86 +48,133 @@ html, body, [class*="st-"] { font-family: 'Inter', sans-serif; }
     margin: 0;
 }
 
-/* CENTER TEXT INPUTS */
+/* CENTER LOGIN INPUTS */
 [data-testid="stTextInput"] {
     width: 55% !important;
     margin: 0 auto !important;
 }
 
-/* SIDEBAR */
+/* --- SIDEBAR --- */
 [data-testid="stSidebar"] {
     background-color: #0f172a;
     border-right: 1px solid #1e293b;
 }
 
 /* REMOVE SIDEBAR HEADER */
-[data-testid="stSidebar"] [data-testid="stHeader"],
 [data-testid="stSidebar"] header,
-[data-testid="stSidebarCollapseButton"],
-button[aria-label="Collapse sidebar"] {
-    display: none !important;
+[data-testid="stSidebarCollapseButton"] {
+    display:none !important;
 }
 
-/* SIDEBAR TEXT */
 .sb-title {
-    color: white !important;
-    font-weight: 700 !important;
-    font-size: 1.1rem;
-    margin-bottom: 20px;
+    color:white !important;
+    font-weight:700 !important;
+    font-size:1.1rem;
 }
 
 .sb-sub {
-    color: white !important;
-    font-weight: 700 !important;
-    font-size: 0.95rem;
-    margin-bottom: 10px;
-}
-
-/* MOVE SYSTEM CONTEXT LOWER */
-.system-spacer {
-    margin-top: 120px;   /* <<< CHANGE >>> moved down more */
+    color:white !important;
+    font-weight:600 !important;
+    font-size:0.95rem;
 }
 
 .sidebar-stats {
-    color: white !important;
-    font-size: 0.85rem;
+    color:white !important;
+    font-size:0.85rem;
 }
 
-/* LOGIN BUTTON */
-div.stButton > button[key="login_btn"] {
-    width: 320px !important;     /* <<< CHANGE >>> longer button */
+/* --- MODERN BLUE BUTTONS --- */
+div.stButton > button[key="login_btn"],
+div.stButton > button[key="terminate_sidebar"] {
+
+    background: linear-gradient(135deg,#2563eb,#1d4ed8);
+    color:white !important;
+
+    border:none;
+    border-radius:10px;
+
+    padding:0.65rem 1.8rem;
+    font-size:0.95rem;
+    font-weight:600;
+
+    box-shadow:0 4px 10px rgba(37,99,235,0.35);
+
+    transition:all 0.25s ease;
+}
+
+/* Hover animation */
+div.stButton > button[key="login_btn"]:hover,
+div.stButton > button[key="terminate_sidebar"]:hover {
+
+    transform:translateY(-1px);
+    box-shadow:0 8px 18px rgba(37,99,235,0.45);
+    background:linear-gradient(135deg,#3b82f6,#2563eb);
+}
+
+/* Click animation */
+div.stButton > button[key="login_btn"]:active,
+div.stButton > button[key="terminate_sidebar"]:active {
+
+    transform:translateY(1px);
+    box-shadow:0 3px 6px rgba(0,0,0,0.2);
+}
+
+/* LOGIN BUTTON SIZE */
+div.stButton > button[key="login_btn"]{
+    width:340px;
     display:block;
     margin:auto;
-    background-color:#2563eb !important;
-    color:white !important;
-}
-
-/* RUN ANALYSIS BUTTON */
-div.stButton > button[key="run_analysis_btn"] {
-    width:340px !important;   /* <<< CHANGE >>> wider */
-    display:block;
-    margin:auto;
-    background-color:#2563eb !important;
-    color:white !important;
-    padding:0.75rem 2rem !important;
-    font-size:1.1rem !important;
-    border-radius:8px !important;
-}
-
-/* DISABLED STYLE */
-div.stButton > button[key="run_analysis_btn"]:disabled {
-    background-color:#e2e8f0 !important;
-    color:#94a3b8 !important;
 }
 
 /* SIDEBAR TERMINATE BUTTON */
-div.stButton > button[key="terminate_sidebar"] {
-    width:200px !important;      /* <<< CHANGE >>> centered button */
+div.stButton > button[key="terminate_sidebar"]{
+    width:220px;
     display:block;
     margin:auto;
-    background-color:#2563eb !important;
-    color:white !important;
 }
+
+/* --- RUN ANALYSIS BUTTON (AI STYLE) --- */
+div.stButton > button[key="run_analysis_btn"]{
+
+    background: linear-gradient(135deg,#2563eb,#1e40af);
+    color:white !important;
+
+    border:none;
+    border-radius:12px;
+
+    padding:0.9rem 2.8rem;
+    font-size:1.15rem;
+    font-weight:600;
+
+    display:block;
+    margin:auto;
+
+    box-shadow:0 6px 20px rgba(37,99,235,0.35);
+
+    transition:all 0.25s ease;
+}
+
+/* glow on hover */
+div.stButton > button[key="run_analysis_btn"]:hover{
+
+    transform:translateY(-2px);
+
+    box-shadow:
+    0 10px 25px rgba(37,99,235,0.45),
+    0 0 12px rgba(59,130,246,0.55);
+
+}
+
+/* disabled state */
+div.stButton > button[key="run_analysis_btn"]:disabled{
+
+    background:#e2e8f0 !important;
+    color:#94a3b8 !important;
+    box-shadow:none;
+    cursor:not-allowed;
+
+}
+
 </style>
 """, unsafe_allow_html=True)
 
@@ -138,16 +187,22 @@ MODELS = {
 
 # --- LOGIN ---
 def show_login():
+
     _, col, _ = st.columns([1,2,1])
 
     with col:
-        st.markdown('<div class="top-banner"><p class="banner-text-inner">AI OPTIMIZED CSV</p></div>', unsafe_allow_html=True)
+
+        st.markdown(
+        '<div class="top-banner"><p class="banner-text-inner">AI OPTIMIZED CSV</p></div>',
+        unsafe_allow_html=True)
+
         st.title("🛡️ Validation Doc Assist")
 
         u = st.text_input("Professional Identity", placeholder="Username")
         p = st.text_input("Security Token", type="password")
 
-        if st.button("Initialize Secure Session", key="login_btn"):   # <<< CHANGE
+        if st.button("Initialize Secure Session", key="login_btn"):
+
             if u:
                 st.session_state.user_name = u
                 st.session_state.authenticated = True
@@ -174,34 +229,54 @@ def show_app():
             st.session_state.selected_model = engine_name
             st.rerun()
 
-        st.markdown('<div class="system-spacer"></div>', unsafe_allow_html=True)
-        st.markdown("<br>", unsafe_allow_html=True)
-       
+        # ---- CARRIAGE RETURN ABOVE TARGET SYSTEM CONTEXT ----
+        st.markdown('<div style="height:60px;"></div>', unsafe_allow_html=True)
+
         st.markdown('<p class="sb-sub">📂 Target System Context</p>', unsafe_allow_html=True)
-        st.file_uploader("SysContext", type="pdf", key="sidebar_sys_uploader", label_visibility="collapsed")
+
+        st.file_uploader(
+            "SysContext",
+            type="pdf",
+            key="sidebar_sys_uploader",
+            label_visibility="collapsed"
+        )
 
         st.divider()
 
-        st.markdown(f'<p class="sidebar-stats">Operator: {st.session_state.user_name}</p>', unsafe_allow_html=True)
-        st.markdown(f'<p class="sidebar-stats">Location: {st.session_state.location}</p>', unsafe_allow_html=True)
+        st.markdown(
+        f'<p class="sidebar-stats">Operator: {st.session_state.user_name}</p>',
+        unsafe_allow_html=True)
+
+        st.markdown(
+        f'<p class="sidebar-stats">Location: {st.session_state.location}</p>',
+        unsafe_allow_html=True)
 
         st.markdown("<br>", unsafe_allow_html=True)
 
-        if st.button("Terminate Session", key="terminate_sidebar"):   # <<< centered
+        if st.button("Terminate Session", key="terminate_sidebar"):
+
             st.session_state.authenticated = False
             st.rerun()
 
     st.title("Auto-Generate CSV Documents")
 
-    sop_file = st.file_uploader("Upload SOP (The 'What')", type="pdf", key="main_sop_uploader")
+    sop_file = st.file_uploader(
+        "Upload SOP (The 'What')",
+        type="pdf",
+        key="main_sop_uploader"
+    )
 
     is_ready = sop_file is not None
 
     st.markdown("<br>", unsafe_allow_html=True)
 
     if st.button("🚀 Run Analysis", key="run_analysis_btn", disabled=not is_ready):
-        st.success(f"Analysis sequence initiated using {st.session_state.selected_model}.")
 
+        st.success(
+        f"Analysis sequence initiated using {st.session_state.selected_model}."
+        )
+
+# --- APP ROUTER ---
 if not st.session_state.authenticated:
     show_login()
 else:
