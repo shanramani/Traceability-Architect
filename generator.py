@@ -6,75 +6,147 @@ from litellm import completion
 from langchain_community.document_loaders import PyPDFLoader
 import tempfile
 import io
-import plotly.express as px
 
-# --- 1. UI CONFIG ---
-VERSION = "10.0"
+# --- 1. PRO-GRADE UI & BRANDING ---
+VERSION = "10.2"
 st.set_page_config(page_title=f"Architect v{VERSION}", layout="wide")
 
-# (Styling remains consistent with v9.9 for brand stability)
-st.markdown("""<style>...</style>""", unsafe_allow_html=True) 
+# Custom Professional Theme
+st.markdown("""
+    <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&display=swap');
+    html, body, [class*="st-"] { font-family: 'Inter', sans-serif; }
+    
+    /* Main Background & Cards */
+    .stApp { background-color: #fcfcfd; }
+    .main .block-container { max-width: 1200px; padding-top: 2rem; }
+    
+    /* Sidebar Aesthetics */
+    [data-testid="stSidebar"] { background-color: #0f172a; color: white; border-right: 1px solid #1e293b; }
+    [data-testid="stSidebar"] * { color: #f8fafc !important; }
+    
+    /* Tab Styling */
+    .stTabs [data-baseweb="tab-list"] { gap: 12px; background: #f1f5f9; padding: 8px; border-radius: 12px; }
+    .stTabs [data-baseweb="tab"] { 
+        padding: 10px 20px; border-radius: 8px; border: none; font-weight: 600; 
+    }
+    .stTabs [aria-selected="true"] { background-color: #ffffff !important; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1); color: #0f172a !important; }
 
-# --- 2. SESSION STATE ---
+    /* Login Screen Center */
+    .login-box { text-align: center; padding: 3rem; background: white; border-radius: 16px; border: 1px solid #e2e8f0; box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1); }
+    </style>
+    """, unsafe_allow_html=True)
+
+# --- 2. SESSION & AUDIT ---
 if 'authenticated' not in st.session_state: st.session_state.authenticated = False
 if 'master_df' not in st.session_state: st.session_state.master_df = None
 if 'audit_trail' not in st.session_state: st.session_state.audit_trail = []
 
 def log_event(action):
-    st.session_state.audit_trail.append({"Timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "User": st.session_state.user_name, "Action": action})
+    st.session_state.audit_trail.append({"Timestamp": datetime.datetime.now().strftime("%H:%M:%S"), "User": st.session_state.user_name, "Action": action})
 
-# --- 3. MAIN DASHBOARD ---
-def show_main_dashboard():
+# Model Mapping for LiteLLM
+MODELS = {
+    "Gemini 1.5 Pro": "gemini/gemini-1.5-pro",
+    "Claude 3.5 Sonnet": "anthropic/claude-3-5-sonnet-20240620",
+    "GPT-4o": "openai/gpt-4o",
+    "Groq (Llama 3.3)": "groq/llama-3.3-70b-versatile"
+}
+
+# --- 3. AUTHENTICATION GATE ---
+def show_login():
+    _, col, _ = st.columns([1, 1.5, 1])
+    with col:
+        st.markdown('<div class="login-box">', unsafe_allow_html=True)
+        st.title("🛡️ Architect Pro")
+        st.subheader("GxP Validation Intelligence")
+        u = st.text_input("Professional Identity", placeholder="Username")
+        p = st.text_input("Security Token", type="password", placeholder="••••••••")
+        if st.button("Initialize Secure Session"):
+            if u: 
+                st.session_state.user_name = u
+                st.session_state.authenticated = True
+                log_event("Login Success")
+                st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
+
+# --- 4. MAIN APPLICATION ---
+def show_app():
     with st.sidebar:
-        st.title(f"Sovereign v{VERSION}")
-        engine = st.radio("Intelligence Provider", ["Gemini", "Groq"])
+        st.markdown(f"### 🚀 Architect v{VERSION}")
         st.divider()
-        st.markdown("### 📂 System Context")
-        # NEW: Context Uploader for System Manuals (SAP, LIMS, etc.)
-        system_guide = st.file_uploader("Upload System Guide (e.g. SAP Manual)", type="pdf")
+        
+        # Multi-Model Switcher
+        st.markdown("#### 🤖 Intelligence Engine")
+        engine_name = st.selectbox("Select Model", list(MODELS.keys()), index=0)
+        
         st.divider()
-        st.caption(f"Operator: {st.session_state.user_name} | Site: 91362")
-        if st.button("Logout"): st.session_state.authenticated = False; st.rerun()
-
-    st.header("Context-Aware System Validation")
-    sop_file = st.file_uploader("Upload Business SOP (The 'What')", type="pdf")
-
-    if sop_file and st.button("🚀 Generate System-Specific Traceability"):
-        api_key = st.secrets.get("GEMINI_API_KEY") if engine == "Gemini" else st.secrets.get("GROQ_API_KEY")
+        st.markdown("#### 📂 Target System Context")
+        system_guide = st.file_uploader("Upload System Guide (SAP/LIMS)", type="pdf")
         
-        with tempfile.NamedTemporaryFile(delete=False) as tmp_sop:
-            tmp_sop.write(sop_file.getvalue()); sop_path = tmp_sop.name
+        st.divider()
+        st.caption(f"Operator: {st.session_state.user_name}")
+        st.caption(f"Location: 91362")
+        if st.button("Terminate Session"): 
+            st.session_state.authenticated = False
+            st.rerun()
+
+    # Main Body
+    st.title("System-Specific Traceability")
+    st.info("Ingest Business SOPs to generate context-aware Functional Specs and OQ Protocols.")
+    
+    sop_file = st.file_uploader("Upload SOP (The 'What')", type="pdf")
+
+    if sop_file and st.button("🚀 Run Analysis"):
+        model_id = MODELS[engine_name]
+        # Resolve API Key based on model provider
+        provider = model_id.split('/')[0]
+        api_key = st.secrets.get(f"{provider.upper()}_API_KEY") or st.secrets.get("GEMINI_API_KEY")
+
+        with tempfile.NamedTemporaryFile(delete=False) as tmp:
+            tmp.write(sop_file.getvalue()); sop_path = tmp.name
         
-        # Load System Context if available
-        system_text = "No specific system manual provided. Use generic GxP best practices."
+        sys_context = ""
         if system_guide:
-            with tempfile.NamedTemporaryFile(delete=False) as tmp_sys:
-                tmp_sys.write(system_guide.getvalue()); sys_path = tmp_sys.name
-            system_text = " ".join([p.page_content for p in PyPDFLoader(sys_path).load()])[:10000]
+            with tempfile.NamedTemporaryFile(delete=False) as tmp_s:
+                tmp_s.write(system_guide.getvalue()); sys_path = tmp_s.name
+            sys_context = " ".join([p.page_content for p in PyPDFLoader(sys_path).load()])[:10000]
 
         try:
             sop_text = " ".join([p.page_content for p in PyPDFLoader(sop_path).load()])[:8000]
-            
-            with st.spinner(f"Mapping SOP to System Context..."):
+            with st.spinner(f"Requesting {engine_name}..."):
                 prompt = (
-                    f"CONTEXT A: Business SOP (Requirements): {sop_text}\n"
-                    f"CONTEXT B: System Guide (Technical Capabilities): {system_text}\n\n"
-                    "TASK: Generate a Traceability Matrix. The FRS (Functional Req) MUST be specific to the system in Context B. "
-                    "Use technical terms from Context B (e.g., specific SAP T-Codes, LIMS Menu paths). "
-                    "Return pipe-separated: URS_ID | URS_Desc | FS_ID | FS_Detail (System Specific) | OQ_ID | OQ_Protocol | Risk | Ref | Justification"
+                    f"Requirements: {sop_text}\nTechnical Context: {sys_context}\n\n"
+                    "Return pipe-separated: URS_ID | URS_Desc | FS_ID | FS_Detail | OQ_ID | OQ_Protocol | Risk | Ref | Justification"
                 )
-                
-                model_id = "gemini/gemini-1.5-pro" if engine == "Gemini" else "groq/llama-3.3-70b-versatile"
                 res = completion(model=model_id, messages=[{"role":"user","content":prompt}], api_key=api_key)
-                
                 data = [l.split('|') for l in res.choices[0].message.content.strip().split('\n') if '|' in l]
-                st.session_state.master_df = pd.DataFrame(data, columns=["URS_ID", "URS_Description", "FS_ID", "FS_Detail", "OQ_ID", "OQ_Protocol", "Risk", "Ref", "Justification"])
-                log_event(f"Context-Aware Audit Complete via {engine}")
-        except Exception as e: st.error(f"Error: {e}")
+                st.session_state.master_df = pd.DataFrame([d[:9] if len(d)>=9 else d+["N/A"]*(9-len(d)) for d in data], 
+                                                        columns=["URS_ID", "URS_Description", "FS_ID", "FS_Detail", "OQ_ID", "OQ_Protocol", "Risk", "Ref", "Justification"])
+                log_event(f"Matrix Generated via {engine_name}")
+        except Exception as e: st.error(f"Engine Error: {e}")
 
-    # (Tabs 1-6 and Export logic remain identical to v9.9)
     if st.session_state.master_df is not None:
-        # Display Tabs...
-        pass
+        st.divider()
+        df = st.session_state.master_df
+        t1, t2, t3, t4, t5, t6 = st.tabs(["📋 URS", "⚙️ FS", "🧪 OQ Scripts", "🔗 Trace Matrix", "⚠️ Gap Analysis", "📑 Audit Log"])
+        
+        with t1: st.dataframe(df[["URS_ID", "URS_Description", "Risk"]].drop_duplicates(), use_container_width=True, hide_index=True)
+        with t2: st.dataframe(df[["URS_ID", "FS_ID", "FS_Detail"]], use_container_width=True, hide_index=True)
+        with t3: st.dataframe(df[["FS_ID", "OQ_ID", "OQ_Protocol"]], use_container_width=True, hide_index=True)
+        with t4: st.dataframe(df[["URS_ID", "FS_ID", "OQ_ID", "Risk"]], use_container_width=True, hide_index=True)
+        with t5: 
+            gaps = df[df['Justification'].str.contains('MISSING|N/A', na=False, case=False)]
+            st.warning(f"Detected {len(gaps)} gaps.")
+            st.dataframe(gaps, use_container_width=True, hide_index=True)
+        with t6: st.table(st.session_state.audit_trail)
 
-# (Auth logic remains same)
+        # Excel Export
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            df.to_excel(writer, sheet_name='Traceability', index=False)
+        st.download_button("📥 Download GxP Workbook", data=output.getvalue(), file_name="Validation_Package.xlsx")
+
+# --- 5. EXECUTION ---
+if not st.session_state.authenticated: show_login()
+else: show_app()
