@@ -98,10 +98,15 @@ div.stButton > button[key="terminate_sidebar"] { width: 100% !important; }
     display: flex;
     justify-content: center; /* horizontal center */
     align-items: center;     /* vertical center */
-    height: 80vh;            /* almost full screen */
+    height: 80vh;            /* almost full viewport height */
     flex-direction: column;
 }
-.login-center div.stButton > button { width: 700px !important; max-width: 90%; margin:auto; }
+div.stButton > button[key="login_btn"] {
+    width: 700px !important;  /* fixed width */
+    max-width: 90%;           /* responsive for smaller screens */
+    display: block;
+    margin: auto;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -115,21 +120,19 @@ MODELS = {
 
 # --- 5. AUTHENTICATION ---
 def show_login():
-    _, col, _ = st.columns([1, 2, 1])
-    with col:
-        st.markdown('<div class="top-banner"><p class="banner-text-inner">AI OPTIMIZED CSV</p></div>', unsafe_allow_html=True)
-        st.title("🛡️ Validation Doc Assist")
-        u = st.text_input("Professional Identity", placeholder="Username")
-        p = st.text_input("Security Token", type="password")
-        
-        # Wrap login button in flex container for vertical + horizontal centering
-        st.markdown('<div class="login-wrapper"><div class="login-center">', unsafe_allow_html=True)
-        if st.button("Initialize Secure Session", key="login_btn"):
-            if u:
-                st.session_state.user_name = u
-                st.session_state.authenticated = True
-                st.rerun()
-        st.markdown('</div></div>', unsafe_allow_html=True)
+    st.markdown('<div class="top-banner"><p class="banner-text-inner">AI OPTIMIZED CSV</p></div>', unsafe_allow_html=True)
+    st.title("🛡️ Validation Doc Assist")
+    u = st.text_input("Professional Identity", placeholder="Username")
+    p = st.text_input("Security Token", type="password")
+
+    # Full-page wrapper for vertical + horizontal centering
+    st.markdown('<div class="login-wrapper">', unsafe_allow_html=True)
+    if st.button("Initialize Secure Session", key="login_btn"):
+        if u:
+            st.session_state.user_name = u
+            st.session_state.authenticated = True
+            st.rerun()
+    st.markdown('</div>', unsafe_allow_html=True)
 
 # --- 6. MAIN APPLICATION ---
 def show_app():
@@ -145,23 +148,23 @@ def show_app():
         st.markdown("<br>", unsafe_allow_html=True)
         st.markdown('<div class="system-spacer"></div>', unsafe_allow_html=True)
         st.markdown("<br><br>", unsafe_allow_html=True)
-        
+
         st.markdown('<p class="sb-sub">📂 Target System Context</p>', unsafe_allow_html=True)
         st.file_uploader("SysContext", type="pdf", key="sidebar_sys_uploader", label_visibility="collapsed")
-        
+
         st.divider()
         st.markdown(f'<p class="sidebar-stats">Operator: {st.session_state.user_name}</p>', unsafe_allow_html=True)
         st.markdown(f'<p class="sidebar-stats">Location: {st.session_state.location}</p>', unsafe_allow_html=True)
-        
+
         if st.button("Terminate Session", key="terminate_sidebar", use_container_width=True):
             st.session_state.authenticated = False; st.rerun()
 
     st.title("Auto-Generate CSV Documents")
     sop_file = st.file_uploader("Upload SOP (The 'What')", type="pdf", key="main_sop_uploader")
-    
+
     is_ready = sop_file is not None
     st.markdown("<br>", unsafe_allow_html=True)
-    
+
     if st.button("🚀 Run Analysis", key="run_analysis_btn", disabled=not is_ready):
         st.success(f"Analysis sequence initiated using {st.session_state.selected_model}.")
 
