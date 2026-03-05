@@ -9,7 +9,7 @@ import io
 import requests
 
 # --- 1. PRO-GRADE UI & BRANDING ---
-VERSION = "10.13"
+VERSION = "10.14"
 st.set_page_config(page_title=f"Architect v{VERSION}", layout="wide")
 
 def get_location():
@@ -24,73 +24,67 @@ def get_location():
 
 st.markdown("""
     <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
     html, body, [class*="st-"] { font-family: 'Inter', sans-serif; }
     
     .stApp { background-color: #fcfcfd; }
     
-    /* FIX: Banner Rectangle Population */
+    /* SLEEK MODERN BANNER FIX */
     .top-banner {
         background-color: white;
-        border: 1px solid #e2e8f0;
-        border-radius: 12px;
-        padding: 15px;
+        border: 1px solid #eef2f6;
+        border-radius: 10px;
+        padding: 12px 0px; /* Thinner padding for a sleek look */
         text-align: center;
-        margin-bottom: 20px;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        margin-bottom: 25px;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
     }
     .banner-text-inner {
-        color: #2563eb;
-        font-weight: 800;
-        letter-spacing: 2px;
+        color: #475569; /* Sleek Slate Grey */
+        font-weight: 400; /* Modern thinner weight */
+        letter-spacing: 4px; /* Increased breathing room */
         text-transform: uppercase;
-        font-size: 1rem;
+        font-size: 0.85rem; /* Smaller, more sophisticated size */
         margin: 0;
     }
 
-    /* Sidebar Styling */
+    /* Sidebar Refinement */
     [data-testid="stSidebar"] { background-color: #0f172a; border-right: 1px solid #1e293b; }
-    .sb-title { color: white !important; font-weight: 700 !important; font-size: 1.25rem; margin-bottom: 5px; }
-    .sb-sub { color: white !important; font-weight: 700 !important; font-size: 1rem; margin-top: 15px; margin-bottom: 5px; }
+    .sb-title { color: white !important; font-weight: 700 !important; font-size: 1.1rem; margin-bottom: 5px; }
+    .sb-sub { color: #94a3b8 !important; font-weight: 600 !important; font-size: 0.9rem; margin-top: 15px; margin-bottom: 5px; }
     
     /* Mute keyboard_double and tooltips */
     [data-testid="stSidebar"] [title="keyboard_double_arrow_left"], 
     [data-testid="stSidebar"] [data-testid="stIconChild"] { display: none !important; }
     div[data-testid="stTooltipContent"] { display: none !important; }
 
-    /* Ultra-Tight Sidebar Uploader */
+    /* File Uploader UI - SIDEBAR */
     [data-testid="stSidebar"] div[data-testid="stFileUploader"] section {
         background-color: white !important;
         border: 1px solid #cbd5e1 !important;
         border-radius: 6px !important;
-        padding: 2px 4px !important;
+        padding: 4px !important;
         min-height: 40px !important;
     }
     [data-testid="stSidebar"] div[data-testid="stFileUploader"] section div div { display: none; }
     
-    /* Blue Sidebar Button */
+    /* High-Contrast Sidebar Button */
     [data-testid="stSidebar"] div[data-testid="stFileUploader"] button {
         background-color: #2563eb !important;
         color: white !important;
         border: none !important;
-        padding: 4px 12px !important;
+        padding: 4px 14px !important;
         font-size: 0.75rem !important;
         font-weight: 700 !important;
     }
 
-    [data-testid="stSidebar"] [data-testid="stFileUploaderFileName"] {
-        color: #2563eb !important;
-        font-size: 0.7rem !important;
-        font-weight: 700 !important;
-    }
-
-    /* Login Box */
-    .login-box { text-align: center; padding: 2rem; background: transparent; }
+    /* Login & Buttons */
+    .login-box { text-align: center; padding: 1rem; }
     .stButton > button { background-color: #2563eb !important; color: white !important; border-radius: 8px !important; font-weight: 600 !important; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. SESSION ---
+# --- 2. SESSION STATE ---
 if 'authenticated' not in st.session_state: st.session_state.authenticated = False
 if 'master_df' not in st.session_state: st.session_state.master_df = None
 if 'selected_model' not in st.session_state: st.session_state.selected_model = "Gemini 1.5 Pro"
@@ -105,9 +99,9 @@ MODELS = {
 
 # --- 3. AUTHENTICATION ---
 def show_login():
-    _, col, _ = st.columns([1, 1.8, 1])
+    _, col, _ = st.columns([1, 2, 1])
     with col:
-        # THE POPULATED BANNER RECTANGLE
+        # THE MODERN SLEEK BANNER
         st.markdown('''
             <div class="top-banner">
                 <p class="banner-text-inner">AI OPTIMIZED CSV</p>
@@ -127,7 +121,7 @@ def show_app():
     with st.sidebar:
         st.markdown(f'<p class="sb-title">CSV Generator v{VERSION}</p>', unsafe_allow_html=True)
         st.divider()
-        st.markdown('<p class="sb-sub">🤖 Intelligence Engine</p>', unsafe_allow_html=True)
+        st.markdown('<p class="sb-sub">Intelligence Engine</p>', unsafe_allow_html=True)
         
         current_index = list(MODELS.keys()).index(st.session_state.selected_model)
         engine_name = st.selectbox("Engine", list(MODELS.keys()), index=current_index, label_visibility="collapsed")
@@ -136,7 +130,7 @@ def show_app():
             st.session_state.selected_model = engine_name; st.rerun()
         
         st.divider()
-        st.markdown('<p class="sb-sub">📂 Target System Context</p>', unsafe_allow_html=True)
+        st.markdown('<p class="sb-sub">Target System Context</p>', unsafe_allow_html=True)
         system_guide = st.file_uploader("SysContext", type="pdf", key="sidebar_sys_uploader", label_visibility="collapsed")
         
         st.divider()
@@ -150,10 +144,9 @@ def show_app():
     
     sop_file = st.file_uploader("Upload SOP (The 'What')", type="pdf", key="main_sop_uploader")
 
-    # Persistent Button Logic
     if st.session_state.get("main_sop_uploader") is not None:
         if st.button("🚀 Run Analysis"):
-            # Analysis logic here...
+            # Model logic would live here
             pass
 
 if not st.session_state.authenticated: show_login()
