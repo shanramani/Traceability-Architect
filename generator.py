@@ -1,13 +1,19 @@
 import streamlit as st
 import os
+import datetime
+import pandas as pd
+from litellm import completion
+from langchain_community.document_loaders import PyPDFLoader
+import tempfile
+import io
 import requests
 
 # --- 1. PRO-GRADE UI & BRANDING ---
-VERSION = "10.25"
+VERSION = "10.24"
 st.set_page_config(page_title=f"Architect v{VERSION}", layout="wide")
 
 def get_location():
-    # Locked to Thousand Oaks, USA context [cite: 2025-12-28]
+    # Persistent location context for 91362 [cite: 2025-12-28]
     return "Thousand Oaks, USA"
 
 # --- 2. SESSION STATE ---
@@ -34,36 +40,35 @@ st.markdown("""
     }
     [data-testid="stTextInput"] { width: 50% !important; margin: 0 auto !important; }
 
-    /* SIDEBAR: NEW SUBTLE BACKGROUND COLOR */
-    [data-testid="stSidebar"] { 
-        background-color: #1e293b !important; /* Professional Slate-Charcoal */
-        border-right: 1px solid #334155; 
-    }
-    
-    /* KILL KEYBOARD_DOUBLE / Sidebar Header */
-    [data-testid="stSidebar"] [data-testid="stHeader"], 
-    [data-testid="stSidebarCollapseButton"],
-    [title="keyboard_double_arrow_left"] { display: none !important; }
-
     /* MODERN BLUE BUTTON ENGINE */
+    /* Target Login and Sidebar Terminate and Active Run Analysis */
     div.stButton > button {
         border: none !important;
         transition: all 0.2s ease-in-out !important;
     }
 
-    /* VIBRANT BLUE FOR HIGH CONTRAST AGAINST CHARCOAL SIDEBAR */
+    /* INITIALIZE SECURE SESSION (Login) & SIDEBAR TERMINATE */
     div.stButton > button[key="login_btn"], 
-    div.stButton > button[key="terminate_sidebar"],
-    div.stButton > button[key="run_analysis_btn"]:not(:disabled) {
+    div.stButton > button[key="terminate_sidebar"] {
         background: linear-gradient(135deg, #3b82f6, #2563eb) !important;
         color: white !important;
-        box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
+        box-shadow: 0 4px 12px rgba(37, 99, 235, 0.2);
+    }
+
+    /* RUN ANALYSIS - MODERN BLUE (When Active) */
+    div.stButton > button[key="run_analysis_btn"] {
+        background: linear-gradient(135deg, #3b82f6, #2563eb) !important;
+        color: white !important;
+        padding: 0.75rem 3rem !important; 
+        font-size: 1.1rem !important;
+        border-radius: 8px !important;
+        box-shadow: 0 4px 15px rgba(37, 99, 235, 0.3);
     }
 
     /* HOVER EFFECTS */
     div.stButton > button:hover:not(:disabled) {
         transform: translateY(-2px) !important;
-        box-shadow: 0 8px 20px rgba(37, 99, 235, 0.45) !important;
+        box-shadow: 0 8px 20px rgba(37, 99, 235, 0.4) !important;
         filter: brightness(1.1);
     }
 
@@ -72,18 +77,25 @@ st.markdown("""
         background: #e2e8f0 !important;
         color: #94a3b8 !important;
         cursor: not-allowed !important;
+        transform: none !important;
+        box-shadow: none !important;
     }
 
-    /* SIDEBAR TEXT ELEMENTS */
-    .sb-title { color: #f8fafc !important; font-weight: 700 !important; font-size: 1.1rem; }
-    .sb-sub { color: #cbd5e1 !important; font-weight: 700 !important; font-size: 0.95rem; }
+    /* SIDEBAR STYLING & KILL KEYBOARD_DOUBLE */
+    [data-testid="stSidebar"] { background-color: #0f172a; border-right: 1px solid #1e293b; }
+    [data-testid="stSidebar"] [data-testid="stHeader"], 
+    [data-testid="stSidebarCollapseButton"],
+    [title="keyboard_double_arrow_left"] { display: none !important; }
+    
+    .sb-title { color: white !important; font-weight: 700 !important; font-size: 1.1rem; }
+    .sb-sub { color: white !important; font-weight: 700 !important; font-size: 0.95rem; }
     .system-spacer { margin-top: 80px; }
-    .sidebar-stats { color: #f1f5f9 !important; font-weight: 400 !important; font-size: 0.85rem; margin-bottom: 5px; }
+    .sidebar-stats { color: white !important; font-weight: 400 !important; font-size: 0.85rem; margin-bottom: 5px; }
 
-    /* SIDEBAR BUTTON WIDTH */
+    /* Sidebar terminate width */
     div.stButton > button[key="terminate_sidebar"] { width: 100% !important; }
     
-    /* LOGIN CENTERING */
+    /* Login Centering */
     .login-center { display: flex; justify-content: center; width: 100%; }
     .login-center div.stButton > button { width: 50% !important; }
     </style>
@@ -96,6 +108,7 @@ MODELS = {
     "Groq (Llama 3.3)": "groq/llama-3.3-70b-versatile"
 }
 
+# --- 3. AUTHENTICATION ---
 def show_login():
     _, col, _ = st.columns([1, 2, 1])
     with col:
@@ -108,6 +121,7 @@ def show_login():
             if u: st.session_state.user_name, st.session_state.authenticated = u, True; st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
 
+# --- 4. MAIN APPLICATION ---
 def show_app():
     with st.sidebar:
         st.markdown(f'<p class="sb-title">CSV Generator v{VERSION}</p>', unsafe_allow_html=True)
@@ -119,13 +133,14 @@ def show_app():
                                    label_visibility="collapsed")
         if engine_name != st.session_state.selected_model:
             st.session_state.selected_model = engine_name; st.rerun()
-        
+        st.markdown("<br>", unsafe_allow_html=True)
         st.markdown('<div class="system-spacer"></div>', unsafe_allow_html=True)
+        st.markdown("<br><br>", unsafe_allow_html=True)
+        
         st.markdown('<p class="sb-sub">📂 Target System Context</p>', unsafe_allow_html=True)
         st.file_uploader("SysContext", type="pdf", key="sidebar_sys_uploader", label_visibility="collapsed")
         
         st.divider()
-        # White non-bold text for stats against the charcoal background
         st.markdown(f'<p class="sidebar-stats">Operator: {st.session_state.user_name}</p>', unsafe_allow_html=True)
         st.markdown(f'<p class="sidebar-stats">Location: {st.session_state.location}</p>', unsafe_allow_html=True)
         
