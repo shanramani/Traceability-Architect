@@ -1,12 +1,19 @@
 import streamlit as st
 import os
+import datetime
+import pandas as pd
+from litellm import completion
+from langchain_community.document_loaders import PyPDFLoader
+import tempfile
+import io
+import requests
 
 # --- 1. PRO-GRADE UI & BRANDING ---
-VERSION = "10.28"
+VERSION = "10.24"
 st.set_page_config(page_title=f"Architect v{VERSION}", layout="wide")
 
 def get_location():
-    # Locked to Thousand Oaks, USA context [cite: 2025-12-28]
+    # Persistent location context for 91362 [cite: 2025-12-28]
     return "Thousand Oaks, USA"
 
 # --- 2. SESSION STATE ---
@@ -21,134 +28,136 @@ st.markdown("""
     
     .stApp { background-color: #fcfcfd; }
     
-    /* LOGIN PAGE CENTERING */
-    .login-container {
-        display: flex; flex-direction: column; align-items: center; 
-        width: 100%; margin-top: 10vh;
-    }
-
-    /* TOP BANNER */
+    /* BANNER & LOGIN */
     .top-banner {
         background-color: white; border: 1px solid #eef2f6; border-radius: 10px;
-        padding: 12px 0px; text-align: center; margin-bottom: 25px;
+        padding: 12px 0px; text-align: center; margin-bottom: 5px;
         box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
-        width: 320px;
     }
     .banner-text-inner {
         color: #475569; font-weight: 400; letter-spacing: 4px;
         text-transform: uppercase; font-size: 0.85rem; margin: 0;
     }
+    [data-testid="stTextInput"] { width: 50% !important; margin: 0 auto !important; }
 
-    /* INPUT BOXES (HALF WIDTH) */
-    [data-testid="stTextInput"] { 
-        width: 320px !important; 
-        margin: 0 auto !important; 
+    /* MODERN BLUE BUTTON ENGINE */
+    /* Target Login and Sidebar Terminate and Active Run Analysis */
+    div.stButton > button {
+        border: none !important;
+        transition: all 0.2s ease-in-out !important;
     }
 
-    /* THE CENTERED BUTTON ENGINE */
-    div.stButton {
-        display: flex;
-        justify-content: center;
-        width: 100%;
-    }
-
-    div.stButton > button[key="login_btn"] {
+    /* INITIALIZE SECURE SESSION (Login) & SIDEBAR TERMINATE */
+    div.stButton > button[key="login_btn"], 
+    div.stButton > button[key="terminate_sidebar"] {
         background: linear-gradient(135deg, #3b82f6, #2563eb) !important;
         color: white !important;
-        width: 320px !important;
-        height: 3.2rem !important;
-        border-radius: 8px !important;
-        border: none !important;
-        font-weight: 600 !important;
-        box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
-        margin-top: 15px !important;
+        box-shadow: 0 4px 12px rgba(37, 99, 235, 0.2);
     }
 
-    /* SIDEBAR: SLATE-CHARCOAL BACKGROUND */
-    [data-testid="stSidebar"] { 
-        background-color: #1e293b !important; 
-        border-right: 1px solid #334155; 
+    /* RUN ANALYSIS - MODERN BLUE (When Active) */
+    div.stButton > button[key="run_analysis_b
+        background: linear-gradient(135deg, #3b82f6, #2563eb) !important;
+        color: white !important;
+        padding: 0.75rem 3rem !important; 
+        font-size: 1.1rem !important;
+        border-radius: 8px !important;
+        box-shadow: 0 4px 15px rgba(37, 99, 235, 0.3);
     }
-    
-    /* HIDE KEYBOARD_DOUBLE */
+
+    /* HOVER EFFECTS */
+    div.stButton > button:hover:not(:disabled) {
+        transform: translateY(-2px) !important;
+        box-shadow: 0 8px 20px rgba(37, 99, 235, 0.4) !important;
+        filter: brightness(1.1);
+    }
+
+    /* DISABLED STATE */
+    div.stButton > button:disabled {
+        background: #e2e8f0 !important;
+        color: #94a3b8 !important;
+        cursor: not-allowed !important;
+        transform: none !important;
+        box-shadow: none !important;
+    }
+
+    /* SIDEBAR STYLING & KILL KEYBOARD_DOUBLE */
+    [data-testid="stSidebar"] { background-color: #0f172a; border-right: 1px solid #1e293b; }
     [data-testid="stSidebar"] [data-testid="stHeader"], 
     [data-testid="stSidebarCollapseButton"],
     [title="keyboard_double_arrow_left"] { display: none !important; }
-
-    /* TERMINATE BUTTON CONTRAST */
-    div.stButton > button[key="terminate_sidebar"] {
-        width: 100% !important; 
-        background-color: #2563eb !important; 
-        color: white !important;
-    }
-
-    /* SIDEBAR TEXT */
-    .sb-title { color: #f8fafc !important; font-weight: 700 !important; font-size: 1.1rem; }
-    .sidebar-stats { color: #f1f5f9 !important; font-weight: 400 !important; font-size: 0.85rem; }
+    
+    .sb-title { color: white !important; font-weight: 700 !important; font-size: 1.1rem; }
+    .sb-sub { color: white !important; font-weight: 700 !important; font-size: 0.95rem; }
     .system-spacer { margin-top: 80px; }
+    .sidebar-stats { color: white !important; font-weight: 400 !important; font-size: 0.85rem; margin-bottom: 5px; }
+
+    /* Sidebar terminate width */
+    div.stButton > button[key="terminate_sidebar"] { width: 100% !important; }
+    
+    /* Login Centering */
+    .login-center { display: flex; justify-content: center; width: 100%; }
+    .login-center div.stButton > button { width: 50% !important; }
     </style>
     """, unsafe_allow_html=True)
 
+MODELS = {
+    "Gemini 1.5 Pro": "gemini/gemini-1.5-pro", 
+    "Claude 3.5 Sonnet": "anthropic/claude-3-5-sonnet-20240620", 
+    "GPT-4o": "openai/gpt-4o",
+    "Groq (Llama 3.3)": "groq/llama-3.3-70b-versatile"
+}
+
 # --- 3. AUTHENTICATION ---
 def show_login():
-    st.markdown('<div class="login-container">', unsafe_allow_html=True)
-    st.markdown('<div class="top-banner"><p class="banner-text-inner">AI OPTIMIZED CSV</p></div>', unsafe_allow_html=True)
-    st.markdown("<h1 style='text-align: center;'>🛡️ Validation Doc Assist</h1>", unsafe_allow_html=True)
-    u = st.text_input("Professional Identity", placeholder="Username", label_visibility="collapsed")
-    p = st.text_input("Security Token", type="password", placeholder="Password", label_visibility="collapsed")
-    
-    if st.button("Initialize Secure Session", key="login_btn"):
-        if u: 
-            st.session_state.user_name = u
-            st.session_state.authenticated = True
-            st.rerun()
-    st.markdown('</div>', unsafe_allow_html=True)
+    _, col, _ = st.columns([1, 2, 1])
+    with col:
+        st.markdown('<div class="top-banner"><p class="banner-text-inner">AI OPTIMIZED CSV</p></div>', unsafe_allow_html=True)
+        st.title("🛡️ Validation Doc Assist")
+        u = st.text_input("Professional Identity", placeholder="Username")
+        p = st.text_input("Security Token", type="password")
+        st.markdown('<div class="login-center">', unsafe_allow_html=True)
+        if st.button("Initialize Secure Session", key="login_btn"):
+            if u: st.session_state.user_name, st.session_state.authenticated = u, True; st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
 
 # --- 4. MAIN APPLICATION ---
 def show_app():
-    MODELS = {
-        "Gemini 1.5 Pro": "gemini/gemini-1.5-pro", 
-        "Claude 3.5 Sonnet": "anthropic/claude-3-5-sonnet-20240620", 
-        "GPT-4o": "openai/gpt-4o",
-        "Groq (Llama 3.3)": "groq/llama-3.3-70b-versatile" # Restored Groq [cite: 2026-02-11]
-    }
-
     with st.sidebar:
         st.markdown(f'<p class="sb-title">CSV Generator v{VERSION}</p>', unsafe_allow_html=True)
         st.divider()
-        st.markdown('<p class="sb-sub" style="color:#cbd5e1; font-weight:700;">🤖 Intelligence Engine</p>', unsafe_allow_html=True)
+        st.markdown('<p class="sb-sub">🤖 Intelligence Engine</p>', unsafe_allow_html=True)
         
         engine_name = st.selectbox("Model", list(MODELS.keys()), 
                                    index=list(MODELS.keys()).index(st.session_state.selected_model), 
                                    label_visibility="collapsed")
         if engine_name != st.session_state.selected_model:
             st.session_state.selected_model = engine_name; st.rerun()
-        
+        st.markdown("<br>", unsafe_allow_html=True)
         st.markdown('<div class="system-spacer"></div>', unsafe_allow_html=True)
+        st.markdown("<br><br>", unsafe_allow_html=True)
+	st.markdown("<br>", unsafe_allow_html=True)
         st.markdown("<br>", unsafe_allow_html=True)
         st.markdown("<br>", unsafe_allow_html=True)
-        st.markdown("<br>", unsafe_allow_html=True)
-
-        st.markdown('<p class="sb-sub" style="color:#cbd5e1; font-weight:700;">📂 Target System Context</p>', unsafe_allow_html=True)
+        
+        st.markdown('<p class="sb-sub">📂 Target System Context</p>', unsafe_allow_html=True)
         st.file_uploader("SysContext", type="pdf", key="sidebar_sys_uploader", label_visibility="collapsed")
         
         st.divider()
         st.markdown(f'<p class="sidebar-stats">Operator: {st.session_state.user_name}</p>', unsafe_allow_html=True)
         st.markdown(f'<p class="sidebar-stats">Location: {st.session_state.location}</p>', unsafe_allow_html=True)
         
-        if st.button("Terminate Session", key="terminate_sidebar"):
+        if st.button("Terminate Session", key="terminate_sidebar", use_container_width=True):
             st.session_state.authenticated = False; st.rerun()
 
     st.title("Auto-Generate CSV Documents")
     sop_file = st.file_uploader("Upload SOP (The 'What')", type="pdf", key="main_sop_uploader")
     
-    # Analysis logic persistence [cite: 2026-02-11]
     is_ready = sop_file is not None
     st.markdown("<br>", unsafe_allow_html=True)
+    
     if st.button("🚀 Run Analysis", key="run_analysis_btn", disabled=not is_ready):
-        st.success(f"Analysis initiated via {st.session_state.selected_model}.")
+        st.success(f"Analysis sequence initiated using {st.session_state.selected_model}.")
 
-if not st.session_state.authenticated: 
-    show_login()
-else: 
-    show_app()
+if not st.session_state.authenticated: show_login()
+else: show_app()
