@@ -52,17 +52,20 @@ st.markdown("""
     /* 2. Style the Login Button to match that left edge */
     /* 1. Center the button's container horizontally */
     /* 1. Target the 'widget' container that holds the button */
-    div[data-testid="stVerticalBlock"] > div:has(button[key="login_btn"]) {
+    /* 1. Force the outer button container to take up 100% width of the page */
+    div.stButton {
+        width: 100% !important;
         display: flex !important;
         justify-content: center !important;
-        width: 100% !important;
     }
 
-    /* 2. Style the button to match the 40% width of the text boxes */
+    /* 2. Set the button to exactly 40% and use auto-margins to snap to center */
     div.stButton > button[key="login_btn"] {
-        width: 40% !important; 
-        margin: left auto !important; /* Forces the button to center within its container */
+        width: 40% !important;
+        margin: 0 auto !important; 
         display: block !important;
+        
+        /* Branding Colors */
         background: linear-gradient(135deg, #3b82f6, #2563eb) !important;
         color: white !important;
         height: 3.2rem !important;
