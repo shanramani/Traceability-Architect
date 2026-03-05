@@ -82,7 +82,7 @@ st.markdown("""
     }
 
     /* SIDEBAR STYLING & KILL KEYBOARD_DOUBLE */
-    [data-testid="stSidebar"] { background-color: #0f172a; border-right: 1px solid #1e293b; }
+    [data-testid="stSidebar"] { background-color: #1e293b; border-right: 1px solid #3b4252; }
     [data-testid="stSidebar"] [data-testid="stHeader"], 
     [data-testid="stSidebarCollapseButton"],
     [title="keyboard_double_arrow_left"] { display: none !important; }
