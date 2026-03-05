@@ -9,7 +9,7 @@ import io
 import requests
 
 # --- 1. PRO-GRADE UI & BRANDING ---
-VERSION = "10.20"
+VERSION = "10.21"
 st.set_page_config(page_title=f"Architect v{VERSION}", layout="wide")
 
 def get_location():
@@ -46,12 +46,12 @@ st.markdown("""
     /* 2. SIDEBAR HARDENING */
     [data-testid="stSidebar"] { background-color: #0f172a; border-right: 1px solid #1e293b; }
     
-    /* NUCLEAR KILL for keyboard_double and Sidebar Header */
+    /* PERMANENT CSS KILL for keyboard_double arrow text */
     [data-testid="stSidebar"] [data-testid="stHeader"], 
     [data-testid="stSidebar"] header,
-    .st-emotion-cache-10oheav, 
-    [title="keyboard_double_arrow_left"],
-    button[aria-label="Collapse sidebar"] {
+    button[aria-label="Collapse sidebar"],
+    div[data-testid="stTooltipContent"],
+    [title="keyboard_double_arrow_left"] {
         display: none !important;
         visibility: hidden !important;
     }
@@ -80,10 +80,17 @@ st.markdown("""
 
     /* LOGIN BUTTON: Centered, Blue */
     .login-center { display: flex; justify-content: center; width: 100%; }
-    div.stButton > button:first-child:not([key="terminate_sidebar"]) { 
+    div.stButton > button:first-child:not([key="terminate_sidebar"]):not([key="run_analysis_btn"]) { 
         width: 50% !important; 
         background-color: #2563eb !important; 
         color: white !important; 
+    }
+    
+    /* RUN ANALYSIS BUTTON: Distinct Blue */
+    div.stButton > button[key="run_analysis_btn"] {
+        background-color: #2563eb !important;
+        color: white !important;
+        padding: 0.75rem 2rem !important;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -92,8 +99,8 @@ st.markdown("""
 if 'authenticated' not in st.session_state: st.session_state.authenticated = False
 if 'selected_model' not in st.session_state: st.session_state.selected_model = "Gemini 1.5 Pro"
 if 'location' not in st.session_state: st.session_state.location = get_location()
+if 'file_ready' not in st.session_state: st.session_state.file_ready = False
 
-# Restored Groq to the list
 MODELS = {
     "Gemini 1.5 Pro": "gemini/gemini-1.5-pro", 
     "Claude 3.5 Sonnet": "anthropic/claude-3-5-sonnet-20240620", 
@@ -121,7 +128,6 @@ def show_app():
         st.divider()
         
         st.markdown('<p class="sb-sub">🤖 Intelligence Engine</p>', unsafe_allow_html=True)
-        # Using index lookup to prevent reset on model change
         engine_name = st.selectbox("Model", list(MODELS.keys()), 
                                    index=list(MODELS.keys()).index(st.session_state.selected_model), 
                                    label_visibility="collapsed")
@@ -143,12 +149,19 @@ def show_app():
 
     st.title("Auto-Generate CSV Documents")
     
-    # Using 'key' ensures the file object stays in st.session_state
-    st.file_uploader("Upload SOP (The 'What')", type="pdf", key="main_sop_uploader")
+    # 1. Capture file upload
+    sop_file = st.file_uploader("Upload SOP (The 'What')", type="pdf", key="main_sop_uploader")
+    
+    # 2. Update persistent state if file exists
+    if sop_file:
+        st.session_state.file_ready = True
+    else:
+        st.session_state.file_ready = False
 
-    # FIX: Check session_state directly so the button persists after model switch
-    if st.session_state.get("main_sop_uploader") is not None:
-        if st.button("🚀 Run Analysis"):
+    # 3. Always show button based on state, not just current run local variable
+    if st.session_state.file_ready:
+        st.markdown("---")
+        if st.button("🚀 Run Analysis", key="run_analysis_btn"):
             st.success(f"Analysis sequence initiated using {st.session_state.selected_model}.")
 
 if not st.session_state.authenticated: show_login()
