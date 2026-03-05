@@ -8,58 +8,74 @@ import tempfile
 import io
 
 # --- 1. PRO-GRADE UI & BRANDING ---
-VERSION = "10.4"
+VERSION = "10.5"
 st.set_page_config(page_title=f"Architect v{VERSION}", layout="wide")
 
-# Custom Professional Theme
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&display=swap');
     html, body, [class*="st-"] { font-family: 'Inter', sans-serif; }
     
-    /* Main Background */
     .stApp { background-color: #fcfcfd; }
     
     /* Sidebar Aesthetics */
     [data-testid="stSidebar"] { 
         background-color: #0f172a; 
-        color: white; 
         border-right: 1px solid #1e293b; 
     }
     
-    /* Sidebar Text Visibility Fixes */
-    [data-testid="stSidebar"] p, [data-testid="stSidebar"] span, [data-testid="stSidebar"] label { 
+    /* Global Sidebar Text Visibility */
+    [data-testid="stSidebar"] p, [data-testid="stSidebar"] span, [data-testid="stSidebar"] label, [data-testid="stSidebar"] h4 { 
         color: #f8fafc !important; 
     }
 
-    /* FIX: Visibility of selected text in Selectbox and File Uploader */
-    div[data-baseweb="select"] > div, div[data-testid="stFileUploadDropzone"] {
+    /* SPECIFIC FIX: Selectbox Visibility */
+    div[data-baseweb="select"] {
         background-color: white !important;
         border-radius: 8px !important;
     }
-    
-    /* Ensuring the actual text inside the white boxes is DARK */
-    div[data-baseweb="select"] span, div[data-testid="stFileUploader"] p {
-        color: #0f172a !important;
+    div[data-baseweb="select"] * {
+        color: #0f172a !important; /* Force black text inside selectbox */
     }
 
-    /* Button Styling - High Visibility Blue */
+    /* SPECIFIC FIX: File Uploader Visibility inside Sidebar */
+    /* Target the dropzone background */
+    [data-testid="stSidebar"] div[data-testid="stFileUploader"] section {
+        background-color: white !important;
+        border: 1px dashed #cbd5e1 !important;
+        border-radius: 8px !important;
+        padding: 10px !important;
+    }
+    
+    /* Target the 'Browse Files' button text and the 'Drag and Drop' instructions */
+    [data-testid="stSidebar"] div[data-testid="stFileUploader"] button {
+        color: #0f172a !important;
+        background-color: #f1f5f9 !important;
+        border: 1px solid #94a3b8 !important;
+    }
+    
+    /* Force the 'Drag and Drop' and 'Limit' text to be dark grey/black */
+    [data-testid="stSidebar"] div[data-testid="stFileUploader"] {
+        color: #0f172a !important;
+    }
+    
+    [data-testid="stSidebar"] div[data-testid="stFileUploader"] small {
+        color: #475569 !important;
+    }
+
+    /* Main Action Button Styling */
     .stButton > button { 
         background-color: #2563eb !important; 
         color: white !important; 
         border-radius: 8px !important; 
-        border: none !important;
         font-weight: 500 !important;
         width: 100%;
     }
 
-    /* Tab Styling */
+    /* Tabs */
     .stTabs [data-baseweb="tab-list"] { gap: 12px; background: #f1f5f9; padding: 8px; border-radius: 12px; }
     .stTabs [data-baseweb="tab"] { padding: 10px 20px; border-radius: 8px; font-weight: 600; }
     .stTabs [aria-selected="true"] { background-color: #ffffff !important; color: #0f172a !important; }
-
-    /* Login Screen Center */
-    .login-box { text-align: center; padding: 3rem; background: white; border-radius: 16px; border: 1px solid #e2e8f0; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -83,7 +99,7 @@ MODELS = {
 def show_login():
     _, col, _ = st.columns([1, 1.5, 1])
     with col:
-        st.markdown('<div class="login-box">', unsafe_allow_html=True)
+        st.markdown('<div style="text-align: center; padding: 3rem; background: white; border-radius: 16px; border: 1px solid #e2e8f0;">', unsafe_allow_html=True)
         st.title("🛡️ Validation Doc Assist")
         u = st.text_input("Professional Identity", placeholder="Username")
         p = st.text_input("Security Token", type="password")
@@ -97,7 +113,6 @@ def show_login():
 # --- 4. MAIN APPLICATION ---
 def show_app():
     with st.sidebar:
-        # Fixed header to remove stray text
         st.subheader(f"🚀 Architect v{VERSION}")
         st.divider()
         
@@ -117,7 +132,8 @@ def show_app():
         
         st.divider()
         st.markdown("#### 📂 Target System Context")
-        system_guide = st.file_uploader("Upload System Guide (SAP/LIMS etc.)", type="pdf")
+        # The file uploader is now forced to have a white background and dark text
+        system_guide = st.file_uploader("Upload System Guide (SAP/LIMS etc.)", type="pdf", key="sys_guide_sidebar")
         
         st.divider()
         st.caption(f"Operator: {st.session_state.user_name}")
@@ -129,7 +145,7 @@ def show_app():
     st.title("Auto-Generate CSV Documents")
     st.info("Ingest Business SOPs/User Guides to generate context-aware Functional Specs, OQ Protocols and Traceability matrix.")
     
-    sop_file = st.file_uploader("Upload SOP (The 'What')", type="pdf")
+    sop_file = st.file_uploader("Upload SOP (The 'What')", type="pdf", key="main_sop_uploader")
 
     if sop_file and st.button("🚀 Run Analysis"):
         model_id = MODELS[st.session_state.selected_model]
