@@ -9,11 +9,11 @@ import io
 import requests
 
 # --- 1. PRO-GRADE UI & BRANDING ---
-VERSION = "10.24"
+VERSION = "10.23"
 st.set_page_config(page_title=f"Architect v{VERSION}", layout="wide")
 
 def get_location():
-    # Persistent location context for 91362 [cite: 2025-12-28]
+    # Locked to your 91362 context [cite: 2025-12-28]
     return "Thousand Oaks, USA"
 
 # --- 2. SESSION STATE ---
@@ -21,6 +21,7 @@ if 'authenticated' not in st.session_state: st.session_state.authenticated = Fal
 if 'selected_model' not in st.session_state: st.session_state.selected_model = "Gemini 1.5 Pro"
 if 'location' not in st.session_state: st.session_state.location = get_location()
 
+# Styles for persistent UI and Sidebar cleaning
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
@@ -39,65 +40,51 @@ st.markdown("""
         text-transform: uppercase; font-size: 0.85rem; margin: 0;
     }
     [data-testid="stTextInput"] { width: 50% !important; margin: 0 auto !important; }
-
-    /* MODERN BLUE BUTTON ENGINE */
-    /* Target Login and Sidebar Terminate and Active Run Analysis */
-    div.stButton > button {
-        border: none !important;
-        transition: all 0.2s ease-in-out !important;
-    }
-
-    /* INITIALIZE SECURE SESSION (Login) & SIDEBAR TERMINATE */
-    div.stButton > button[key="login_btn"], 
-    div.stButton > button[key="terminate_sidebar"] {
-        background: linear-gradient(135deg, #3b82f6, #2563eb) !important;
-        color: white !important;
-        box-shadow: 0 4px 12px rgba(37, 99, 235, 0.2);
-    }
-
-    /* RUN ANALYSIS - MODERN BLUE (When Active) */
-    div.stButton > button[key="run_analysis_b
-        background: linear-gradient(135deg, #3b82f6, #2563eb) !important;
-        color: white !important;
-        padding: 0.75rem 3rem !important; 
-        font-size: 1.1rem !important;
-        border-radius: 8px !important;
-        box-shadow: 0 4px 15px rgba(37, 99, 235, 0.3);
-    }
-
-    /* HOVER EFFECTS */
-    div.stButton > button:hover:not(:disabled) {
-        transform: translateY(-2px) !important;
-        box-shadow: 0 8px 20px rgba(37, 99, 235, 0.4) !important;
-        filter: brightness(1.1);
-    }
-
-    /* DISABLED STATE */
-    div.stButton > button:disabled {
-        background: #e2e8f0 !important;
-        color: #94a3b8 !important;
-        cursor: not-allowed !important;
-        transform: none !important;
-        box-shadow: none !important;
-    }
-
-    /* SIDEBAR STYLING & KILL KEYBOARD_DOUBLE */
-    [data-testid="stSidebar"] { background-color: #0f172a; border-right: 1px solid #1e293b; }
-    [data-testid="stSidebar"] [data-testid="stHeader"], 
-    [data-testid="stSidebarCollapseButton"],
-    [title="keyboard_double_arrow_left"] { display: none !important; }
     
-    .sb-title { color: white !important; font-weight: 700 !important; font-size: 1.1rem; }
-    .sb-sub { color: white !important; font-weight: 700 !important; font-size: 0.95rem; }
+    /* SIDEBAR HARDENING & KEYBOARD_DOUBLE KILL */
+    [data-testid="stSidebar"] { background-color: #0f172a; border-right: 1px solid #1e293b; }
+    
+    [data-testid="stSidebar"] [data-testid="stHeader"], 
+    [data-testid="stSidebar"] header,
+    [data-testid="stSidebarCollapseButton"],
+    button[aria-label="Collapse sidebar"],
+    [title="keyboard_double_arrow_left"] {
+        display: none !important;
+        visibility: hidden !important;
+        height: 0px !important;
+    }
+
+    .sb-title { color: white !important; font-weight: 700 !important; font-size: 1.1rem; margin-bottom: 20px;}
+    .sb-sub { color: white !important; font-weight: 700 !important; font-size: 0.95rem; margin-bottom: 10px; }
+    
     .system-spacer { margin-top: 80px; }
     .sidebar-stats { color: white !important; font-weight: 400 !important; font-size: 0.85rem; margin-bottom: 5px; }
 
-    /* Sidebar terminate width */
-    div.stButton > button[key="terminate_sidebar"] { width: 100% !important; }
+    /* BUTTON STYLING */
+    /* Sidebar Terminate */
+    div.stButton > button[key="terminate_sidebar"] {
+        width: 100% !important; background-color: #2563eb !important; color: white !important;
+    }
     
-    /* Login Centering */
+    /* Login Button */
     .login-center { display: flex; justify-content: center; width: 100%; }
-    .login-center div.stButton > button { width: 50% !important; }
+    div.stButton > button:first-child:not([key="terminate_sidebar"]):not([key="run_analysis_btn"]) { 
+        width: 50% !important; background-color: #2563eb !important; color: white !important; 
+    }
+    
+    /* Run Analysis - Large Blue when active */
+    div.stButton > button[key="run_analysis_btn"] {
+        background-color: #2563eb !important; color: white !important;
+        padding: 0.75rem 3rem !important; font-size: 1.1rem !important;
+        border-radius: 8px !important;
+    }
+    
+    /* Force disabled button to be grey and show 'not-allowed' cursor */
+    div.stButton > button[key="run_analysis_btn"]:disabled {
+        background-color: #e2e8f0 !important;
+        color: #94a3b8 !important;
+        cursor: not-allowed !important;
+    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -117,7 +104,7 @@ def show_login():
         u = st.text_input("Professional Identity", placeholder="Username")
         p = st.text_input("Security Token", type="password")
         st.markdown('<div class="login-center">', unsafe_allow_html=True)
-        if st.button("Initialize Secure Session", key="login_btn"):
+        if st.button("Initialize Secure Session"):
             if u: st.session_state.user_name, st.session_state.authenticated = u, True; st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
 
@@ -128,20 +115,20 @@ def show_app():
         st.divider()
         st.markdown('<p class="sb-sub">🤖 Intelligence Engine</p>', unsafe_allow_html=True)
         
+        # Selected model persists [cite: 2026-02-11]
         engine_name = st.selectbox("Model", list(MODELS.keys()), 
                                    index=list(MODELS.keys()).index(st.session_state.selected_model), 
                                    label_visibility="collapsed")
         if engine_name != st.session_state.selected_model:
-            st.session_state.selected_model = engine_name; st.rerun()
-        st.markdown("<br>", unsafe_allow_html=True)
+            st.session_state.selected_model = engine_name
+            st.rerun()
+        
         st.markdown('<div class="system-spacer"></div>', unsafe_allow_html=True)
-        st.markdown("<br><br>", unsafe_allow_html=True)
-
-     
         st.markdown('<p class="sb-sub">📂 Target System Context</p>', unsafe_allow_html=True)
         st.file_uploader("SysContext", type="pdf", key="sidebar_sys_uploader", label_visibility="collapsed")
         
         st.divider()
+        # White, non-bold text for stats
         st.markdown(f'<p class="sidebar-stats">Operator: {st.session_state.user_name}</p>', unsafe_allow_html=True)
         st.markdown(f'<p class="sidebar-stats">Location: {st.session_state.location}</p>', unsafe_allow_html=True)
         
@@ -149,11 +136,17 @@ def show_app():
             st.session_state.authenticated = False; st.rerun()
 
     st.title("Auto-Generate CSV Documents")
+    
+    # 1. File Uploader
     sop_file = st.file_uploader("Upload SOP (The 'What')", type="pdf", key="main_sop_uploader")
     
+    # 2. Logic to determine if button should be active
     is_ready = sop_file is not None
+    
     st.markdown("<br>", unsafe_allow_html=True)
     
+    # 3. Persistent button that enables/disables based on 'is_ready'
+    # The disabled parameter handles the state logic perfectly
     if st.button("🚀 Run Analysis", key="run_analysis_btn", disabled=not is_ready):
         st.success(f"Analysis sequence initiated using {st.session_state.selected_model}.")
 
