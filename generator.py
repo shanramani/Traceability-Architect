@@ -140,10 +140,11 @@ def show_login():
         
         # 2. Add the Title
         st.markdown("<h1 style='text-align: center;'>🛡️ Validation Doc Assist</h1>", unsafe_allow_html=True)
-        
+        st.markdown("<br>", unsafe_allow_html=True)
         # 3. Text Inputs
         u = st.text_input("Professional Identity", placeholder="Username", label_visibility="collapsed")
         p = st.text_input("Security Token", type="password", placeholder="Password", label_visibility="collapsed")
+        st.markdown("<br>", unsafe_allow_html=True)
         st.markdown("<br>", unsafe_allow_html=True)
         # 4. The Button (centered and matching the 40% column width)
         # Create nested columns inside your 'center_content' to make the button 50% width
