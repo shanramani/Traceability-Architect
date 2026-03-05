@@ -144,12 +144,12 @@ def show_login():
         # 3. Text Inputs
         u = st.text_input("Professional Identity", placeholder="Username", label_visibility="collapsed")
         p = st.text_input("Security Token", type="password", placeholder="Password", label_visibility="collapsed")
-        
+        st.markdown("<br>", unsafe_allow_html=True)
         # 4. The Button (centered and matching the 40% column width)
         # Create nested columns inside your 'center_content' to make the button 50% width
         # [1, 2, 1] means the button takes 2/4 (50%) of the 40% column
         b_left, b_center, b_right = st.columns([1, 2, 1])
-        st.markdown("<br>", unsafe_allow_html=True)
+        
         with b_center:
             if st.button("Initialize Secure Session", key="login_btn", use_container_width=True):
                 if u: 
