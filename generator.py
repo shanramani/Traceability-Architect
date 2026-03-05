@@ -49,9 +49,9 @@ st.markdown("""
 
     /* 1. Target the text input containers */
     [data-testid="stTextInput"] { 
-        width: 320px !important; 
-        margin-left: 0 !important; /* Force to the left instead of 'auto' */
-        margin-right: auto !important;
+    width: 30% !important; 
+    margin-left: 0 !important; 
+    margin-right: auto !important;
     }
 
     /* 2. Style the Login Button to match that left edge */
