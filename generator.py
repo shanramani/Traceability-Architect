@@ -6,10 +6,20 @@ from litellm import completion
 from langchain_community.document_loaders import PyPDFLoader
 import tempfile
 import io
+import requests
 
 # --- 1. PRO-GRADE UI & BRANDING ---
-VERSION = "10.5"
+VERSION = "10.7"
 st.set_page_config(page_title=f"Architect v{VERSION}", layout="wide")
+
+# Helper to get dynamic location
+def get_location():
+    try:
+        response = requests.get('https://ipapi.co/json/', timeout=3)
+        data = response.json()
+        return f"{data.get('city', 'Unknown City')}, {data.get('country_name', 'Unknown Country')}"
+    except:
+        return "Thousand Oaks, USA"
 
 st.markdown("""
     <style>
@@ -19,63 +29,47 @@ st.markdown("""
     .stApp { background-color: #fcfcfd; }
     
     /* Sidebar Aesthetics */
-    [data-testid="stSidebar"] { 
-        background-color: #0f172a; 
-        border-right: 1px solid #1e293b; 
-    }
-    
-    /* Global Sidebar Text Visibility */
+    [data-testid="stSidebar"] { background-color: #0f172a; border-right: 1px solid #1e293b; }
     [data-testid="stSidebar"] p, [data-testid="stSidebar"] span, [data-testid="stSidebar"] label, [data-testid="stSidebar"] h4 { 
         color: #f8fafc !important; 
     }
 
     /* SPECIFIC FIX: Selectbox Visibility */
-    div[data-baseweb="select"] {
-        background-color: white !important;
-        border-radius: 8px !important;
-    }
-    div[data-baseweb="select"] * {
-        color: #0f172a !important; /* Force black text inside selectbox */
-    }
+    div[data-baseweb="select"] { background-color: white !important; border-radius: 8px !important; }
+    div[data-baseweb="select"] * { color: #0f172a !important; }
 
-    /* SPECIFIC FIX: File Uploader Visibility inside Sidebar */
-    /* Target the dropzone background */
+    /* UI TIGHTENING: File Uploader Space & Colors */
     [data-testid="stSidebar"] div[data-testid="stFileUploader"] section {
         background-color: white !important;
-        border: 1px dashed #cbd5e1 !important;
+        border: 1px solid #cbd5e1 !important;
         border-radius: 8px !important;
-        padding: 10px !important;
+        padding: 4px !important; /* Reduced padding to eliminate empty space */
+        min-height: auto !important;
     }
     
-    /* Target the 'Browse Files' button text and the 'Drag and Drop' instructions */
+    /* Hide the 'Limit 200MB' text to save more space */
+    [data-testid="stSidebar"] div[data-testid="stFileUploader"] small { display: none; }
+    
+    /* File Uploader Button - Blue Professional */
     [data-testid="stSidebar"] div[data-testid="stFileUploader"] button {
-        color: #0f172a !important;
-        background-color: #f1f5f9 !important;
-        border: 1px solid #94a3b8 !important;
-    }
-    
-    /* Force the 'Drag and Drop' and 'Limit' text to be dark grey/black */
-    [data-testid="stSidebar"] div[data-testid="stFileUploader"] {
-        color: #0f172a !important;
-    }
-    
-    [data-testid="stSidebar"] div[data-testid="stFileUploader"] small {
-        color: #475569 !important;
+        color: white !important;
+        background-color: #2563eb !important;
+        border: none !important;
+        padding: 5px 10px !important;
     }
 
-    /* Main Action Button Styling */
-    .stButton > button { 
-        background-color: #2563eb !important; 
-        color: white !important; 
-        border-radius: 8px !important; 
-        font-weight: 500 !important;
-        width: 100%;
+    /* FIX: Selected File Name visibility (Blue Font, White Background) */
+    [data-testid="stSidebar"] [data-testid="stFileUploaderFileName"] {
+        color: #2563eb !important;
+        background-color: white !important;
+        font-weight: 600 !important;
+        padding: 2px 5px !important;
+        border-radius: 4px !important;
     }
 
-    /* Tabs */
-    .stTabs [data-baseweb="tab-list"] { gap: 12px; background: #f1f5f9; padding: 8px; border-radius: 12px; }
-    .stTabs [data-baseweb="tab"] { padding: 10px 20px; border-radius: 8px; font-weight: 600; }
-    .stTabs [aria-selected="true"] { background-color: #ffffff !important; color: #0f172a !important; }
+    .banner-text { color: #64748b; font-weight: 600; letter-spacing: 1.5px; text-transform: uppercase; font-size: 0.8rem; margin-bottom: -10px; }
+    .stButton > button { background-color: #2563eb !important; color: white !important; border-radius: 8px !important; font-weight: 500 !important; width: 100%; }
+    .login-box { text-align: center; padding: 3rem; background: white; border-radius: 16px; border: 1px solid #e2e8f0; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -84,6 +78,7 @@ if 'authenticated' not in st.session_state: st.session_state.authenticated = Fal
 if 'master_df' not in st.session_state: st.session_state.master_df = None
 if 'audit_trail' not in st.session_state: st.session_state.audit_trail = []
 if 'selected_model' not in st.session_state: st.session_state.selected_model = "Gemini 1.5 Pro"
+if 'location' not in st.session_state: st.session_state.location = get_location()
 
 def log_event(action):
     st.session_state.audit_trail.append({"Timestamp": datetime.datetime.now().strftime("%H:%M:%S"), "User": st.session_state.user_name, "Action": action})
@@ -99,7 +94,8 @@ MODELS = {
 def show_login():
     _, col, _ = st.columns([1, 1.5, 1])
     with col:
-        st.markdown('<div style="text-align: center; padding: 3rem; background: white; border-radius: 16px; border: 1px solid #e2e8f0;">', unsafe_allow_html=True)
+        st.markdown('<div class="login-box">', unsafe_allow_html=True)
+        st.markdown('<p class="banner-text">AI OPTIMIZED CSV</p>', unsafe_allow_html=True)
         st.title("🛡️ Validation Doc Assist")
         u = st.text_input("Professional Identity", placeholder="Username")
         p = st.text_input("Security Token", type="password")
@@ -118,13 +114,7 @@ def show_app():
         
         st.markdown("#### 🤖 Intelligence Engine")
         current_index = list(MODELS.keys()).index(st.session_state.selected_model)
-        
-        engine_name = st.selectbox(
-            "Select AI Model to use", 
-            list(MODELS.keys()), 
-            index=current_index,
-            key="model_selector"
-        )
+        engine_name = st.selectbox("Select AI Model", list(MODELS.keys()), index=current_index, key="model_selector")
         
         if engine_name != st.session_state.selected_model:
             st.session_state.selected_model = engine_name
@@ -132,12 +122,13 @@ def show_app():
         
         st.divider()
         st.markdown("#### 📂 Target System Context")
-        # The file uploader is now forced to have a white background and dark text
-        system_guide = st.file_uploader("Upload System Guide (SAP/LIMS etc.)", type="pdf", key="sys_guide_sidebar")
+        system_guide = st.file_uploader("Upload System Guide", type="pdf", key="sys_guide_sidebar")
         
         st.divider()
         st.caption(f"Operator: {st.session_state.user_name}")
-        st.caption(f"Location: 91362")
+        # DYNAMIC LOCATION DISPLAY
+        st.caption(f"Location: {st.session_state.location}")
+        
         if st.button("Terminate Session"): 
             st.session_state.authenticated = False
             st.rerun()
