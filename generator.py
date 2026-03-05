@@ -58,7 +58,7 @@ def show_login():
     _, col, _ = st.columns([1, 1.5, 1])
     with col:
         st.markdown('<div class="login-box">', unsafe_allow_html=True)
-        st.title("🛡️ Architect Pro")
+        st.title("🛡️ GxP Validation Documentation Assist")
         st.subheader("GxP Validation Intelligence")
         u = st.text_input("Professional Identity", placeholder="Username")
         p = st.text_input("Security Token", type="password", placeholder="••••••••")
@@ -78,11 +78,11 @@ def show_app():
         
         # Multi-Model Switcher
         st.markdown("#### 🤖 Intelligence Engine")
-        engine_name = st.selectbox("Select Model", list(MODELS.keys()), index=0)
+        engine_name = st.selectbox("Select AI Model to use", list(MODELS.keys()), index=0)
         
         st.divider()
         st.markdown("#### 📂 Target System Context")
-        system_guide = st.file_uploader("Upload System Guide (SAP/LIMS)", type="pdf")
+        system_guide = st.file_uploader("Upload System Guide (SAP/LIMS etc.)", type="pdf")
         
         st.divider()
         st.caption(f"Operator: {st.session_state.user_name}")
@@ -92,8 +92,8 @@ def show_app():
             st.rerun()
 
     # Main Body
-    st.title("System-Specific Traceability")
-    st.info("Ingest Business SOPs to generate context-aware Functional Specs and OQ Protocols.")
+    st.title("Auto-Generate CSV Documents")
+    st.info("Ingest Business SOPs/User Guides to generate context-aware Functional Specs, OQ Protocols and Traceability matrix.")
     
     sop_file = st.file_uploader("Upload SOP (The 'What')", type="pdf")
 
