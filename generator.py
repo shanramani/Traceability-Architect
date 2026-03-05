@@ -192,25 +192,41 @@ def show_app():
     if st.button("🚀 Run Analysis", key="run_analysis_btn", disabled=not is_ready):
         st.info(f"Analysis sequence initiated using {st.session_state.selected_model}...")
         
-        with st.spinner("Extracting SOP content and generating CSV..."):
+        with st.spinner("Executing GAMP-5 aligned analysis..."):
             try:
-                # 1. SAVE UPLOADED PDF TO TEMP FILE
+                # 1. FILE EXTRACTION
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
                     tmp_file.write(sop_file.getvalue())
                     tmp_path = tmp_file.name
 
-                # 2. EXTRACT TEXT FROM PDF
                 loader = PyPDFLoader(tmp_path)
                 pages = loader.load()
                 sop_content = "\n".join([page.page_content for page in pages])
-                os.remove(tmp_path) # Clean up temp file
+                os.remove(tmp_path)
 
-                # 3. CONSTRUCT THE PROMPT (RAG Style)
+                # 2. ENHANCED PHARMA PROMPT
                 model_id = MODELS[st.session_state.selected_model]
-                system_prompt = "You are an expert Pharma/Biotech validation engineer. Convert the following SOP into a CSV-structured list of requirements and test steps."
-                user_prompt = f"SOP CONTENT:\n{sop_content}\n\nINSTRUCTIONS: Generate a CSV formatted table with columns: ID, Requirement, Test Step, Acceptance Criteria."
+                
+                system_prompt = """You are a Principal Validation Engineer in a cGMP environment. 
+                Your task is to parse SOPs and Work Instructions into a structured Requirements Traceability Matrix (RTM).
+                Follow GAMP 5 standards for computerized system validation."""
 
-                # 4. CALL AI ENGINE
+                user_prompt = f"""
+                SOP CONTENT:
+                {sop_content}
+
+                TASK:
+                1. Identify all mandatory 'shall' or 'must' requirements.
+                2. Generate a CSV with exactly these headers: 
+                   Req_ID, Requirement_Description, Risk_Level, Test_Method, Acceptance_Criteria, GxP_Impact
+                
+                FORMATTING RULES:
+                - Do not include conversational text.
+                - Output ONLY the raw CSV data.
+                - Risk_Level should be based on a high-level assessment (High/Medium/Low).
+                """
+
+                # 3. AI COMPLETION
                 response = completion(
                     model=model_id,
                     messages=[
@@ -219,17 +235,25 @@ def show_app():
                     ]
                 )
 
-                # 5. DISPLAY OUTPUT
+                # 4. DISPLAY & DOWNLOAD
                 result = response.choices[0].message.content
-                st.success("Analysis Complete!")
-                st.markdown("### 📊 Generated Requirements")
-                st.code(result, language="csv")
                 
-                # 6. DOWNLOAD BUTTON
-                st.download_button("Download CSV File", data=result, file_name="validation_reqs.csv", mime="text/csv")
+                st.success("Analysis Complete: Validation Logic Extracted.")
+                
+                # Displaying as a Table for a cleaner UI
+                df_result = pd.read_csv(io.StringIO(result))
+                st.dataframe(df_result, use_container_width=True)
+                
+                csv_data = df_result.to_csv(index=False).encode('utf-8')
+                st.download_button(
+                    label="📥 Download Validation CSV",
+                    data=csv_data,
+                    file_name=f"Validation_RTM_{datetime.date.today()}.csv",
+                    mime="text/csv"
+                )
 
             except Exception as e:
-                st.error(f"❌ System Error: {str(e)}")
+                st.error(f"❌ Engineering Error: {str(e)}")
 
 if not st.session_state.authenticated: show_login()
 else: show_app()
