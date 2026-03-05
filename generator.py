@@ -84,6 +84,7 @@ st.markdown("""
     /* SIDEBAR STYLING & KILL KEYBOARD_DOUBLE */
     [data-testid="stSidebar"] {       background-color: #1e2a44;   /* deep muted blue */
     border-right: 1px solid #16203a;   }
+    .sb-title, .sb-sub, .sidebar-stats { color: #ffffff !important; }
     [data-testid="stSidebar"] [data-testid="stHeader"], 
     [data-testid="stSidebarCollapseButton"],
     [title="keyboard_double_arrow_left"] { display: none !important; }
