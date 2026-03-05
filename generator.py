@@ -47,27 +47,24 @@ st.markdown("""
         transition: all 0.2s ease-in-out !important;
     }
 
-
-
-    /* This forces the button to ignore column padding and align with the inputs */
     div.stButton {
         width: 320px !important;
-        margin: 0 auto !important; /* Centering the button's footprint to match the text box */
+        margin: 0 auto !important;
         display: block !important;
     }
 
     div.stButton > button[key="login_btn"] {
         background: linear-gradient(135deg, #3b82f6, #2563eb) !important;
         color: white !important;
-        width: 100% !important; /* Spans the full 320px footprint */
+        width: 100% !important;
         height: 3.2rem !important;
         border-radius: 8px !important;
         border: none !important;
         font-weight: 600 !important;
+        /* Negative margin to counteract column padding */
+        margin-left: -5px !important; 
         box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3) !important;
-        transition: all 0.2s ease-in-out !important;
     }
-
 
     /* RUN ANALYSIS - MODERN BLUE (When Active) */
     div.stButton > button[key="run_analysis_btn"] {
