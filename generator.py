@@ -146,11 +146,16 @@ def show_login():
         p = st.text_input("Security Token", type="password", placeholder="Password", label_visibility="collapsed")
         
         # 4. The Button (centered and matching the 40% column width)
-        if st.button("Initialize Secure Session", key="login_btn"):
-            if u: 
-                st.session_state.user_name = u
-                st.session_state.authenticated = True
-                st.rerun()
+        # Create nested columns inside your 'center_content' to make the button 50% width
+        # [1, 2, 1] means the button takes 2/4 (50%) of the 40% column
+        b_left, b_center, b_right = st.columns([1, 2, 1])
+        
+        with b_center:
+            if st.button("Initialize Secure Session", key="login_btn", use_container_width=True):
+                if u: 
+                    st.session_state.user_name = u
+                    st.session_state.authenticated = True
+                    st.rerun()
 
 # --- 4. MAIN APPLICATION ---
 def show_app():
