@@ -61,7 +61,7 @@ st.markdown("""
     /* 2. Style the button to match the 40% width of the text boxes */
     div.stButton > button[key="login_btn"] {
         width: 40% !important; 
-        margin: 0 auto !important; /* Forces the button to center within its container */
+        margin: left auto !important; /* Forces the button to center within its container */
         display: block !important;
         background: linear-gradient(135deg, #3b82f6, #2563eb) !important;
         color: white !important;
