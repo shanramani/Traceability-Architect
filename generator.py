@@ -47,13 +47,23 @@ st.markdown("""
         transition: all 0.2s ease-in-out !important;
     }
 
-    /* INITIALIZE SECURE SESSION (Login) & SIDEBAR TERMINATE */
+    /* INITIALIZE SECURE SESSION (Login) & SIDEBAR TERMINATE 
     div.stButton > button[key="login_btn"], 
     div.stButton > button[key="terminate_sidebar"] {
         background: linear-gradient(135deg, #3b82f6, #2563eb) !important;
         color: white !important;
         box-shadow: 0 4px 12px rgba(37, 99, 235, 0.2);
+    } */
+
+    /* Targeted Left Alignment for the Login Button */
+    div.stButton > button[key="login_btn"] {
+    display: block !important;
+    margin-left: 25% !important; /* Forces alignment to the 50% width input's start point */
+    margin-right: auto !important;
+    width: 320px !important;
     }
+
+
 
     /* RUN ANALYSIS - MODERN BLUE (When Active) */
     div.stButton > button[key="run_analysis_btn"] {
