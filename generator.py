@@ -9,7 +9,7 @@ import io
 import requests
 
 # --- 1. PRO-GRADE UI & BRANDING ---
-VERSION = "10.14"
+VERSION = "10.15"
 st.set_page_config(page_title=f"Architect v{VERSION}", layout="wide")
 
 def get_location():
@@ -29,23 +29,30 @@ st.markdown("""
     
     .stApp { background-color: #fcfcfd; }
     
-    /* SLEEK MODERN BANNER FIX */
+    /* SLEEK MODERN BANNER */
     .top-banner {
         background-color: white;
         border: 1px solid #eef2f6;
         border-radius: 10px;
-        padding: 12px 0px; /* Thinner padding for a sleek look */
+        padding: 12px 0px;
         text-align: center;
         margin-bottom: 25px;
         box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
     }
     .banner-text-inner {
-        color: #475569; /* Sleek Slate Grey */
-        font-weight: 400; /* Modern thinner weight */
-        letter-spacing: 4px; /* Increased breathing room */
+        color: #475569;
+        font-weight: 400;
+        letter-spacing: 4px;
         text-transform: uppercase;
-        font-size: 0.85rem; /* Smaller, more sophisticated size */
+        font-size: 0.85rem;
         margin: 0;
+    }
+
+    /* LOGIN BOX WIDTH CONTROL */
+    /* Target the text inputs specifically to be half-width and centered */
+    [data-testid="stTextInput"] {
+        width: 50% !important;
+        margin: 0 auto !important;
     }
 
     /* Sidebar Refinement */
@@ -58,16 +65,6 @@ st.markdown("""
     [data-testid="stSidebar"] [data-testid="stIconChild"] { display: none !important; }
     div[data-testid="stTooltipContent"] { display: none !important; }
 
-    /* File Uploader UI - SIDEBAR */
-    [data-testid="stSidebar"] div[data-testid="stFileUploader"] section {
-        background-color: white !important;
-        border: 1px solid #cbd5e1 !important;
-        border-radius: 6px !important;
-        padding: 4px !important;
-        min-height: 40px !important;
-    }
-    [data-testid="stSidebar"] div[data-testid="stFileUploader"] section div div { display: none; }
-    
     /* High-Contrast Sidebar Button */
     [data-testid="stSidebar"] div[data-testid="stFileUploader"] button {
         background-color: #2563eb !important;
@@ -78,9 +75,14 @@ st.markdown("""
         font-weight: 700 !important;
     }
 
-    /* Login & Buttons */
     .login-box { text-align: center; padding: 1rem; }
     .stButton > button { background-color: #2563eb !important; color: white !important; border-radius: 8px !important; font-weight: 600 !important; }
+    
+    /* Centering the Login Button to match half-width inputs */
+    .login-btn-container {
+        width: 50%;
+        margin: 0 auto;
+    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -101,7 +103,6 @@ MODELS = {
 def show_login():
     _, col, _ = st.columns([1, 2, 1])
     with col:
-        # THE MODERN SLEEK BANNER
         st.markdown('''
             <div class="top-banner">
                 <p class="banner-text-inner">AI OPTIMIZED CSV</p>
@@ -110,10 +111,15 @@ def show_login():
         
         st.markdown('<div class="login-box">', unsafe_allow_html=True)
         st.title("🛡️ Validation Doc Assist")
+        
+        # Inputs are now forced to 50% width and centered via CSS above
         u = st.text_input("Professional Identity", placeholder="Username")
         p = st.text_input("Security Token", type="password")
+        
+        st.markdown('<div class="login-btn-container">', unsafe_allow_html=True)
         if st.button("Initialize Secure Session"):
             if u: st.session_state.user_name, st.session_state.authenticated = u, True; st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
 # --- 4. MAIN APPLICATION ---
