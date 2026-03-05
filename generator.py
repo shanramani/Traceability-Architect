@@ -47,25 +47,21 @@ st.markdown("""
         transition: all 0.2s ease-in-out !important;
     } */
 
-    /* 1. Target the text input containers 
-    [data-testid="stTextInput"] { 
-    width: 30% !important; 
-    margin-left: 0 !important; 
-    margin-right: auto !important;
-    } */
+
 
     /* 2. Style the Login Button to match that left edge */
+    /* 1. Center the button's container horizontally */
     div[data-testid="stButton"] {
         display: flex !important;
-        justify-content: flex-start !important;
-        width: 320px !important;
-        margin-left: 0 !important;
+        justify-content: center !important;
+        width: 100% !important;
     }
 
+    /* 2. Set the button width to 40% to match the text boxes */
     div.stButton > button[key="login_btn"] {
+        width: 40% !important;
         background: linear-gradient(135deg, #3b82f6, #2563eb) !important;
         color: white !important;
-        width: 100% !important;
         height: 3.2rem !important;
         border-radius: 8px !important;
         border: none !important;
