@@ -49,24 +49,23 @@ st.markdown("""
 
 
 
-    /* Targeted Left Alignment for the Login Screen */
+    /* This forces the button to ignore column padding and align with the inputs */
     div.stButton {
-        display: flex !important;
-        justify-content: center !important; /* This centers the container... */
-        width: 100% !important;
+        width: 320px !important;
+        margin: 0 auto !important; /* Centering the button's footprint to match the text box */
+        display: block !important;
     }
 
     div.stButton > button[key="login_btn"] {
         background: linear-gradient(135deg, #3b82f6, #2563eb) !important;
         color: white !important;
-        width: 320px !important; /* Match the input width */
-        margin-right: 0px !important; /* Remove right margin */
-        margin-left: -1px !important; /* Slight nudge for pixel-perfect edge alignment */
+        width: 100% !important; /* Spans the full 320px footprint */
+        height: 3.2rem !important;
         border-radius: 8px !important;
         border: none !important;
-        height: 3.2rem !important;
         font-weight: 600 !important;
-        box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
+        box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3) !important;
+        transition: all 0.2s ease-in-out !important;
     }
 
 
