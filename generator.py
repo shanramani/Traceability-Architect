@@ -8,7 +8,7 @@ import tempfile
 import io
 
 # --- 1. PRO-GRADE UI & BRANDING ---
-VERSION = "10.2"
+VERSION = "10.3"
 st.set_page_config(page_title=f"Architect v{VERSION}", layout="wide")
 
 # Custom Professional Theme
@@ -17,14 +17,29 @@ st.markdown("""
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&display=swap');
     html, body, [class*="st-"] { font-family: 'Inter', sans-serif; }
     
-    /* Main Background & Cards */
+    /* Main Background */
     .stApp { background-color: #fcfcfd; }
     .main .block-container { max-width: 1200px; padding-top: 2rem; }
     
-    /* Sidebar Aesthetics */
+    /* Sidebar Aesthetics - Keeping dark for contrast, but text is crisp */
     [data-testid="stSidebar"] { background-color: #0f172a; color: white; border-right: 1px solid #1e293b; }
     [data-testid="stSidebar"] * { color: #f8fafc !important; }
     
+    /* LIGHT MODE RESET for Input Boxes and Buttons */
+    /* This ensures text inputs and buttons remain high-contrast and professional */
+    div[data-baseweb="input"] { background-color: white !important; border-radius: 8px !important; }
+    input { color: #0f172a !important; }
+    
+    /* Button Styling - Blue Professional */
+    .stButton > button { 
+        background-color: #2563eb !important; 
+        color: white !important; 
+        border-radius: 8px !important; 
+        border: none !important;
+        font-weight: 500 !important;
+    }
+    .stButton > button:hover { background-color: #1d4ed8 !important; }
+
     /* Tab Styling */
     .stTabs [data-baseweb="tab-list"] { gap: 12px; background: #f1f5f9; padding: 8px; border-radius: 12px; }
     .stTabs [data-baseweb="tab"] { 
@@ -41,6 +56,8 @@ st.markdown("""
 if 'authenticated' not in st.session_state: st.session_state.authenticated = False
 if 'master_df' not in st.session_state: st.session_state.master_df = None
 if 'audit_trail' not in st.session_state: st.session_state.audit_trail = []
+# PERSISTENCE: Initialize selected_model if not present
+if 'selected_model' not in st.session_state: st.session_state.selected_model = "Gemini 1.5 Pro"
 
 def log_event(action):
     st.session_state.audit_trail.append({"Timestamp": datetime.datetime.now().strftime("%H:%M:%S"), "User": st.session_state.user_name, "Action": action})
@@ -76,9 +93,23 @@ def show_app():
         st.markdown(f"### 🚀 Architect v{VERSION}")
         st.divider()
         
-        # Multi-Model Switcher
+        # PERSISTENCE: Multi-Model Switcher with session state binding
         st.markdown("#### 🤖 Intelligence Engine")
-        engine_name = st.selectbox("Select AI Model to use", list(MODELS.keys()), index=0)
+        
+        # Find index for selectbox persistence
+        current_index = list(MODELS.keys()).index(st.session_state.selected_model)
+        
+        engine_name = st.selectbox(
+            "Select AI Model to use", 
+            list(MODELS.keys()), 
+            index=current_index,
+            key="model_selector"
+        )
+        
+        # Update session state when changed
+        if engine_name != st.session_state.selected_model:
+            st.session_state.selected_model = engine_name
+            log_event(f"Engine switched to {engine_name}")
         
         st.divider()
         st.markdown("#### 📂 Target System Context")
@@ -98,8 +129,7 @@ def show_app():
     sop_file = st.file_uploader("Upload SOP (The 'What')", type="pdf")
 
     if sop_file and st.button("🚀 Run Analysis"):
-        model_id = MODELS[engine_name]
-        # Resolve API Key based on model provider
+        model_id = MODELS[st.session_state.selected_model]
         provider = model_id.split('/')[0]
         api_key = st.secrets.get(f"{provider.upper()}_API_KEY") or st.secrets.get("GEMINI_API_KEY")
 
@@ -114,7 +144,7 @@ def show_app():
 
         try:
             sop_text = " ".join([p.page_content for p in PyPDFLoader(sop_path).load()])[:8000]
-            with st.spinner(f"Requesting {engine_name}..."):
+            with st.spinner(f"Requesting {st.session_state.selected_model}..."):
                 prompt = (
                     f"Requirements: {sop_text}\nTechnical Context: {sys_context}\n\n"
                     "Return pipe-separated: URS_ID | URS_Desc | FS_ID | FS_Detail | OQ_ID | OQ_Protocol | Risk | Ref | Justification"
@@ -123,7 +153,7 @@ def show_app():
                 data = [l.split('|') for l in res.choices[0].message.content.strip().split('\n') if '|' in l]
                 st.session_state.master_df = pd.DataFrame([d[:9] if len(d)>=9 else d+["N/A"]*(9-len(d)) for d in data], 
                                                         columns=["URS_ID", "URS_Description", "FS_ID", "FS_Detail", "OQ_ID", "OQ_Protocol", "Risk", "Ref", "Justification"])
-                log_event(f"Matrix Generated via {engine_name}")
+                log_event(f"Matrix Generated via {st.session_state.selected_model}")
         except Exception as e: st.error(f"Engine Error: {e}")
 
     if st.session_state.master_df is not None:
@@ -141,7 +171,6 @@ def show_app():
             st.dataframe(gaps, use_container_width=True, hide_index=True)
         with t6: st.table(st.session_state.audit_trail)
 
-        # Excel Export
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
             df.to_excel(writer, sheet_name='Traceability', index=False)
