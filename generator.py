@@ -190,7 +190,46 @@ def show_app():
     st.markdown("<br>", unsafe_allow_html=True)
     
     if st.button("🚀 Run Analysis", key="run_analysis_btn", disabled=not is_ready):
-        st.success(f"Analysis sequence initiated using {st.session_state.selected_model}.")
+        st.info(f"Analysis sequence initiated using {st.session_state.selected_model}...")
+        
+        with st.spinner("Extracting SOP content and generating CSV..."):
+            try:
+                # 1. SAVE UPLOADED PDF TO TEMP FILE
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
+                    tmp_file.write(sop_file.getvalue())
+                    tmp_path = tmp_file.name
+
+                # 2. EXTRACT TEXT FROM PDF
+                loader = PyPDFLoader(tmp_path)
+                pages = loader.load()
+                sop_content = "\n".join([page.page_content for page in pages])
+                os.remove(tmp_path) # Clean up temp file
+
+                # 3. CONSTRUCT THE PROMPT (RAG Style)
+                model_id = MODELS[st.session_state.selected_model]
+                system_prompt = "You are an expert Pharma/Biotech validation engineer. Convert the following SOP into a CSV-structured list of requirements and test steps."
+                user_prompt = f"SOP CONTENT:\n{sop_content}\n\nINSTRUCTIONS: Generate a CSV formatted table with columns: ID, Requirement, Test Step, Acceptance Criteria."
+
+                # 4. CALL AI ENGINE
+                response = completion(
+                    model=model_id,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt}
+                    ]
+                )
+
+                # 5. DISPLAY OUTPUT
+                result = response.choices[0].message.content
+                st.success("Analysis Complete!")
+                st.markdown("### 📊 Generated Requirements")
+                st.code(result, language="csv")
+                
+                # 6. DOWNLOAD BUTTON
+                st.download_button("Download CSV File", data=result, file_name="validation_reqs.csv", mime="text/csv")
+
+            except Exception as e:
+                st.error(f"❌ System Error: {str(e)}")
 
 if not st.session_state.authenticated: show_login()
 else: show_app()
