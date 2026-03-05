@@ -146,7 +146,7 @@ def show_login():
         p = st.text_input("Security Token", type="password", placeholder="Password", label_visibility="collapsed")
         
         # 4. The Button (centered and matching the 40% column width)
-        if st.button("Initialize Secure Session", key="login_btn", use_container_width=True):
+        if st.button("Initialize Secure Session", key="login_btn"):
             if u: 
                 st.session_state.user_name = u
                 st.session_state.authenticated = True
