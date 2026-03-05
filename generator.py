@@ -129,18 +129,6 @@ MODELS = {
 }
 
 # --- 3. AUTHENTICATION ---
-/* def show_login():
-    _, col, _ = st.columns([1, 2, 1])
-    with col:
-        st.markdown('<div class="top-banner"><p class="banner-text-inner">AI OPTIMIZED CSV</p></div>', unsafe_allow_html=True)
-        st.title("🛡️ Validation Doc Assist")
-        u = st.text_input("Professional Identity", placeholder="Username")
-        p = st.text_input("Security Token", type="password")
-        st.markdown('<div class="login-center">', unsafe_allow_html=True)
-        if st.button("Initialize Secure Session", key="login_btn"):
-            if u: st.session_state.user_name, st.session_state.authenticated = u, True; st.rerun()
-        st.markdown('</div>', unsafe_allow_html=True)
-*/
 
 def show_login():
     # 1. Create 3 columns. The middle one (40%) matches your text box width.
