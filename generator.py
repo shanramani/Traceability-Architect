@@ -58,7 +58,7 @@ def show_login():
     _, col, _ = st.columns([1, 1.5, 1])
     with col:
         st.markdown('<div class="login-box">', unsafe_allow_html=True)
-        st.title("🛡️ GxP Validation Documentation Assist")
+        st.title("🛡️ Validation Doc Assist")
         st.subheader("GxP Validation Intelligence")
         u = st.text_input("Professional Identity", placeholder="Username")
         p = st.text_input("Security Token", type="password", placeholder="••••••••")
