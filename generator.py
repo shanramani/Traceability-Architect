@@ -47,13 +47,7 @@ st.markdown("""
         transition: all 0.2s ease-in-out !important;
     }
 
-    /* INITIALIZE SECURE SESSION (Login) & SIDEBAR TERMINATE 
-    div.stButton > button[key="login_btn"], 
-    div.stButton > button[key="terminate_sidebar"] {
-        background: linear-gradient(135deg, #3b82f6, #2563eb) !important;
-        color: white !important;
-        box-shadow: 0 4px 12px rgba(37, 99, 235, 0.2);
-    } */
+
 
     /* Targeted Left Alignment for the Login Screen */
     div.stButton {
@@ -74,7 +68,6 @@ st.markdown("""
         font-weight: 600 !important;
         box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
     }
-
 
 
     /* RUN ANALYSIS - MODERN BLUE (When Active) */
