@@ -179,6 +179,7 @@ def show_app():
         st.write()
         st.write()
         st.write()
+        st.markdown()
 
         st.markdown('<p class="sb-sub">📂 Target System Context</p>', unsafe_allow_html=True)
         st.file_uploader("SysContext", type="pdf", key="sidebar_sys_uploader", label_visibility="collapsed")
