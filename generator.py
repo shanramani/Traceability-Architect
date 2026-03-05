@@ -55,12 +55,24 @@ st.markdown("""
         box-shadow: 0 4px 12px rgba(37, 99, 235, 0.2);
     } */
 
-    /* Targeted Left Alignment for the Login Button */
+    /* Targeted Left Alignment for the Login Screen */
+    div.stButton {
+        display: flex !important;
+        justify-content: center !important; /* This centers the container... */
+        width: 100% !important;
+    }
+
     div.stButton > button[key="login_btn"] {
-    display: block !important;
-    margin-left: 25% !important; /* Forces alignment to the 50% width input's start point */
-    margin-right: auto !important;
-    width: 320px !important;
+        background: linear-gradient(135deg, #3b82f6, #2563eb) !important;
+        color: white !important;
+        width: 320px !important; /* Match the input width */
+        margin-right: 0px !important; /* Remove right margin */
+        margin-left: -1px !important; /* Slight nudge for pixel-perfect edge alignment */
+        border-radius: 8px !important;
+        border: none !important;
+        height: 3.2rem !important;
+        font-weight: 600 !important;
+        box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
     }
 
 
