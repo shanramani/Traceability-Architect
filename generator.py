@@ -8,7 +8,7 @@ import tempfile
 import io
 
 # --- 1. PRO-GRADE UI & BRANDING ---
-VERSION = "10.3"
+VERSION = "10.4"
 st.set_page_config(page_title=f"Architect v{VERSION}", layout="wide")
 
 # Custom Professional Theme
@@ -19,36 +19,47 @@ st.markdown("""
     
     /* Main Background */
     .stApp { background-color: #fcfcfd; }
-    .main .block-container { max-width: 1200px; padding-top: 2rem; }
     
-    /* Sidebar Aesthetics - Keeping dark for contrast, but text is crisp */
-    [data-testid="stSidebar"] { background-color: #0f172a; color: white; border-right: 1px solid #1e293b; }
-    [data-testid="stSidebar"] * { color: #f8fafc !important; }
+    /* Sidebar Aesthetics */
+    [data-testid="stSidebar"] { 
+        background-color: #0f172a; 
+        color: white; 
+        border-right: 1px solid #1e293b; 
+    }
     
-    /* LIGHT MODE RESET for Input Boxes and Buttons */
-    /* This ensures text inputs and buttons remain high-contrast and professional */
-    div[data-baseweb="input"] { background-color: white !important; border-radius: 8px !important; }
-    input { color: #0f172a !important; }
+    /* Sidebar Text Visibility Fixes */
+    [data-testid="stSidebar"] p, [data-testid="stSidebar"] span, [data-testid="stSidebar"] label { 
+        color: #f8fafc !important; 
+    }
+
+    /* FIX: Visibility of selected text in Selectbox and File Uploader */
+    div[data-baseweb="select"] > div, div[data-testid="stFileUploadDropzone"] {
+        background-color: white !important;
+        border-radius: 8px !important;
+    }
     
-    /* Button Styling - Blue Professional */
+    /* Ensuring the actual text inside the white boxes is DARK */
+    div[data-baseweb="select"] span, div[data-testid="stFileUploader"] p {
+        color: #0f172a !important;
+    }
+
+    /* Button Styling - High Visibility Blue */
     .stButton > button { 
         background-color: #2563eb !important; 
         color: white !important; 
         border-radius: 8px !important; 
         border: none !important;
         font-weight: 500 !important;
+        width: 100%;
     }
-    .stButton > button:hover { background-color: #1d4ed8 !important; }
 
     /* Tab Styling */
     .stTabs [data-baseweb="tab-list"] { gap: 12px; background: #f1f5f9; padding: 8px; border-radius: 12px; }
-    .stTabs [data-baseweb="tab"] { 
-        padding: 10px 20px; border-radius: 8px; border: none; font-weight: 600; 
-    }
-    .stTabs [aria-selected="true"] { background-color: #ffffff !important; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1); color: #0f172a !important; }
+    .stTabs [data-baseweb="tab"] { padding: 10px 20px; border-radius: 8px; font-weight: 600; }
+    .stTabs [aria-selected="true"] { background-color: #ffffff !important; color: #0f172a !important; }
 
     /* Login Screen Center */
-    .login-box { text-align: center; padding: 3rem; background: white; border-radius: 16px; border: 1px solid #e2e8f0; box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1); }
+    .login-box { text-align: center; padding: 3rem; background: white; border-radius: 16px; border: 1px solid #e2e8f0; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -56,13 +67,11 @@ st.markdown("""
 if 'authenticated' not in st.session_state: st.session_state.authenticated = False
 if 'master_df' not in st.session_state: st.session_state.master_df = None
 if 'audit_trail' not in st.session_state: st.session_state.audit_trail = []
-# PERSISTENCE: Initialize selected_model if not present
 if 'selected_model' not in st.session_state: st.session_state.selected_model = "Gemini 1.5 Pro"
 
 def log_event(action):
     st.session_state.audit_trail.append({"Timestamp": datetime.datetime.now().strftime("%H:%M:%S"), "User": st.session_state.user_name, "Action": action})
 
-# Model Mapping for LiteLLM
 MODELS = {
     "Gemini 1.5 Pro": "gemini/gemini-1.5-pro",
     "Claude 3.5 Sonnet": "anthropic/claude-3-5-sonnet-20240620",
@@ -70,33 +79,29 @@ MODELS = {
     "Groq (Llama 3.3)": "groq/llama-3.3-70b-versatile"
 }
 
-# --- 3. AUTHENTICATION GATE ---
+# --- 3. AUTHENTICATION ---
 def show_login():
     _, col, _ = st.columns([1, 1.5, 1])
     with col:
         st.markdown('<div class="login-box">', unsafe_allow_html=True)
         st.title("🛡️ Validation Doc Assist")
-        st.subheader("GxP Validation Intelligence")
         u = st.text_input("Professional Identity", placeholder="Username")
-        p = st.text_input("Security Token", type="password", placeholder="••••••••")
+        p = st.text_input("Security Token", type="password")
         if st.button("Initialize Secure Session"):
             if u: 
                 st.session_state.user_name = u
                 st.session_state.authenticated = True
-                log_event("Login Success")
                 st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
 
 # --- 4. MAIN APPLICATION ---
 def show_app():
     with st.sidebar:
-        st.markdown(f"### 🚀 Architect v{VERSION}")
+        # Fixed header to remove stray text
+        st.subheader(f"🚀 Architect v{VERSION}")
         st.divider()
         
-        # PERSISTENCE: Multi-Model Switcher with session state binding
         st.markdown("#### 🤖 Intelligence Engine")
-        
-        # Find index for selectbox persistence
         current_index = list(MODELS.keys()).index(st.session_state.selected_model)
         
         engine_name = st.selectbox(
@@ -106,10 +111,9 @@ def show_app():
             key="model_selector"
         )
         
-        # Update session state when changed
         if engine_name != st.session_state.selected_model:
             st.session_state.selected_model = engine_name
-            log_event(f"Engine switched to {engine_name}")
+            st.rerun()
         
         st.divider()
         st.markdown("#### 📂 Target System Context")
@@ -122,7 +126,6 @@ def show_app():
             st.session_state.authenticated = False
             st.rerun()
 
-    # Main Body
     st.title("Auto-Generate CSV Documents")
     st.info("Ingest Business SOPs/User Guides to generate context-aware Functional Specs, OQ Protocols and Traceability matrix.")
     
