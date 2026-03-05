@@ -160,30 +160,27 @@ def show_login():
 
 # --- 4. MAIN APPLICATION ---
 def show_app():
+    # Sidebar remains the same
     with st.sidebar:
         st.markdown(f'<p class="sb-title">CSV Generator v{VERSION}</p>', unsafe_allow_html=True)
         st.divider()
         st.markdown('<p class="sb-sub">🤖 Intelligence Engine</p>', unsafe_allow_html=True)
-        
         engine_name = st.selectbox("Model", list(MODELS.keys()), 
                                    index=list(MODELS.keys()).index(st.session_state.selected_model), 
                                    label_visibility="collapsed")
         if engine_name != st.session_state.selected_model:
             st.session_state.selected_model = engine_name; st.rerun()
-        
         st.markdown('<div class="system-spacer"></div>', unsafe_allow_html=True)
         st.sidebar.markdown("<br><br>", unsafe_allow_html=True)
         st.markdown('<p class="sb-sub">📂 Target System Context</p>', unsafe_allow_html=True)
         st.file_uploader("SysContext", type="pdf", key="sidebar_sys_uploader", label_visibility="collapsed")
-        
         st.divider()
         st.markdown(f'<p class="sidebar-stats">Operator: {st.session_state.user_name}</p>', unsafe_allow_html=True)
         st.markdown(f'<p class="sidebar-stats">Location: {st.session_state.location}</p>', unsafe_allow_html=True)
-        
         if st.button("Terminate Session", key="terminate_sidebar", use_container_width=True):
             st.session_state.authenticated = False; st.rerun()
 
-    st.title("Auto-Generate CSV Documents")
+    st.title("Auto-Generate Validation Package")
     sop_file = st.file_uploader("Upload SOP (The 'What')", type="pdf", key="main_sop_uploader")
     
     is_ready = sop_file is not None
@@ -192,44 +189,65 @@ def show_app():
     if st.button("🚀 Run Analysis", key="run_analysis_btn", disabled=not is_ready):
         st.info(f"Analysis sequence initiated using {st.session_state.selected_model}...")
         
-        with st.spinner("Extracting SOP content and generating CSV..."):
+        with st.spinner("Executing GAMP-5 Analysis & Excel Workbook Generation..."):
             try:
-                # 1. SAVE UPLOADED PDF TO TEMP FILE
+                # 1. PDF EXTRACTION
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
                     tmp_file.write(sop_file.getvalue())
                     tmp_path = tmp_file.name
-
-                # 2. EXTRACT TEXT FROM PDF
                 loader = PyPDFLoader(tmp_path)
                 pages = loader.load()
                 sop_content = "\n".join([page.page_content for page in pages])
-                os.remove(tmp_path) # Clean up temp file
+                os.remove(tmp_path)
 
-                # 3. CONSTRUCT THE PROMPT (RAG Style)
+                # 2. PROMPT FOR MULTI-SHEET LOGIC
                 model_id = MODELS[st.session_state.selected_model]
-                system_prompt = "You are an expert Pharma/Biotech validation engineer. Convert the following SOP into a CSV-structured list of requirements and test steps."
-                user_prompt = f"SOP CONTENT:\n{sop_content}\n\nINSTRUCTIONS: Generate a CSV formatted table with columns: ID, Requirement, Test Step, Acceptance Criteria."
+                system_prompt = "You are a Principal Validation Engineer. You output structured CSV data for validation workbooks."
+                user_prompt = f"""
+                SOP CONTENT:
+                {sop_content}
 
-                # 4. CALL AI ENGINE
+                TASK: Parse this SOP into 4 distinct datasets. 
+                Use the delimiter '|||' between datasets.
+                
+                Dataset 1 (FRS): ID, Requirement_Description, Priority, GxP_Impact
+                Dataset 2 (OQ): Test_ID, Requirement_Link, Test_Step, Expected_Result
+                Dataset 3 (Traceability): Req_ID, Test_ID, Gap_Analysis (Flag [GAP] if requirement is missing a test or is untestable)
+                Dataset 4 (Audit Log): Action, User, Timestamp, Change_Description (Generate a dummy log for this session)
+                
+                Format: Raw CSV only for each dataset, separated by |||.
+                """
+
+                # 3. AI CALL
                 response = completion(
                     model=model_id,
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_prompt}
-                    ]
+                    messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}]
+                )
+                raw_output = response.choices[0].message.content
+
+                # 4. EXCEL GENERATION (In-Memory)
+                datasets = raw_output.split("|||")
+                output = io.BytesIO()
+                
+                with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                    sheet_names = ["FRS", "OQ", "Traceability", "Audit_Log"]
+                    for i, data in enumerate(datasets):
+                        if i < len(sheet_names):
+                            df = pd.read_csv(io.StringIO(data.strip()), on_bad_lines='skip')
+                            df.to_excel(writer, sheet_name=sheet_names[i], index=False)
+
+                st.success("Analysis Complete: Validation Workbook Generated.")
+                
+                # 5. DOWNLOAD BUTTON
+                st.download_button(
+                    label="📥 Download Validation Workbook (.xlsx)",
+                    data=output.getvalue(),
+                    file_name=f"Validation_Package_{datetime.date.today()}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 )
 
-                # 5. DISPLAY OUTPUT
-                result = response.choices[0].message.content
-                st.success("Analysis Complete!")
-                st.markdown("### 📊 Generated Requirements")
-                st.code(result, language="csv")
-                
-                # 6. DOWNLOAD BUTTON
-                st.download_button("Download CSV File", data=result, file_name="validation_reqs.csv", mime="text/csv")
-
             except Exception as e:
-                st.error(f"❌ System Error: {str(e)}")
+                st.error(f"❌ Engineering Error: {str(e)}")
 
 if not st.session_state.authenticated: show_login()
 else: show_app()
