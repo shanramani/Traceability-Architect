@@ -160,29 +160,36 @@ def show_login():
 
 # --- 4. MAIN APPLICATION ---
 def show_app():
-    # Sidebar remains the same
     with st.sidebar:
         st.markdown(f'<p class="sb-title">CSV Generator v{VERSION}</p>', unsafe_allow_html=True)
         st.divider()
         st.markdown('<p class="sb-sub">🤖 Intelligence Engine</p>', unsafe_allow_html=True)
+        
         engine_name = st.selectbox("Model", list(MODELS.keys()), 
                                    index=list(MODELS.keys()).index(st.session_state.selected_model), 
                                    label_visibility="collapsed")
+        
         if engine_name != st.session_state.selected_model:
-            st.session_state.selected_model = engine_name; st.rerun()
+            st.session_state.selected_model = engine_name
+            st.rerun()
+        
         st.markdown('<div class="system-spacer"></div>', unsafe_allow_html=True)
         st.sidebar.markdown("<br><br>", unsafe_allow_html=True)
         st.markdown('<p class="sb-sub">📂 Target System Context</p>', unsafe_allow_html=True)
         st.file_uploader("SysContext", type="pdf", key="sidebar_sys_uploader", label_visibility="collapsed")
+        
         st.divider()
         st.markdown(f'<p class="sidebar-stats">Operator: {st.session_state.user_name}</p>', unsafe_allow_html=True)
         st.markdown(f'<p class="sidebar-stats">Location: {st.session_state.location}</p>', unsafe_allow_html=True)
+        
         if st.button("Terminate Session", key="terminate_sidebar", use_container_width=True):
             st.session_state.authenticated = False; st.rerun()
 
     st.title("Auto-Generate Validation Package")
     sop_file = st.file_uploader("Upload SOP (The 'What')", type="pdf", key="main_sop_uploader")
     
+    # FIX 1 & 2: Button logic. It evaluates the presence of sop_file directly.
+    # If a file is uploaded, this is True. If removed, it's False.
     is_ready = sop_file is not None
     st.markdown("<br>", unsafe_allow_html=True)
     
@@ -200,9 +207,13 @@ def show_app():
                 sop_content = "\n".join([page.page_content for page in pages])
                 os.remove(tmp_path)
 
+                # FIX 3: Dynamic Audit Log variables
+                current_user = st.session_state.user_name
+                current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
                 # 2. PROMPT FOR MULTI-SHEET LOGIC
                 model_id = MODELS[st.session_state.selected_model]
-                system_prompt = "You are a Principal Validation Engineer. You output structured CSV data for validation workbooks."
+                system_prompt = f"You are a Principal Validation Engineer. You output structured CSV data. The current operator is {current_user}."
                 user_prompt = f"""
                 SOP CONTENT:
                 {sop_content}
@@ -213,7 +224,12 @@ def show_app():
                 Dataset 1 (FRS): ID, Requirement_Description, Priority, GxP_Impact
                 Dataset 2 (OQ): Test_ID, Requirement_Link, Test_Step, Expected_Result
                 Dataset 3 (Traceability): Req_ID, Test_ID, Gap_Analysis (Flag [GAP] if requirement is missing a test or is untestable)
-                Dataset 4 (Audit Log): Action, User, Timestamp, Change_Description (Generate a dummy log for this session)
+                Dataset 4 (Audit Log): Action, User, Timestamp, Change_Description
+                
+                AUDIT LOG SPECIFICATIONS:
+                - Use User: {current_user}
+                - Use Timestamp: {current_time}
+                - Action: 'Analysis Execution'
                 
                 Format: Raw CSV only for each dataset, separated by |||.
                 """
@@ -233,7 +249,8 @@ def show_app():
                     sheet_names = ["FRS", "OQ", "Traceability", "Audit_Log"]
                     for i, data in enumerate(datasets):
                         if i < len(sheet_names):
-                            df = pd.read_csv(io.StringIO(data.strip()), on_bad_lines='skip')
+                            # Cleaning whitespace to ensure pd.read_csv works correctly
+                            df = pd.read_csv(io.StringIO(data.strip()), on_bad_lines='skip', quotechar='"')
                             df.to_excel(writer, sheet_name=sheet_names[i], index=False)
 
                 st.success("Analysis Complete: Validation Workbook Generated.")
