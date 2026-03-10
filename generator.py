@@ -22,7 +22,12 @@ import sqlite3
 import re
 import hashlib
 
-import pdfplumber
+# pdfplumber: soft import — works locally with poppler, gracefully skipped on Streamlit Cloud
+try:
+    import pdfplumber
+    PDFPLUMBER_AVAILABLE = True
+except ImportError:
+    PDFPLUMBER_AVAILABLE = False
 from langchain_community.document_loaders import PyPDFLoader
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
@@ -213,43 +218,47 @@ def authenticate_user(username: str, password: str) -> bool:
 
 def extract_pages(file_bytes: bytes) -> list[str]:
     """
-    Returns a list where each element is the extracted text for one PDF page.
-    Tables are reconstructed as pipe-delimited [TABLE] blocks.
-    Falls back to PyPDFLoader if pdfplumber yields < 50 chars total.
+    Extract pages using pdfplumber (with table support) when available,
+    falling back to PyPDFLoader on Streamlit Cloud where poppler may not exist.
     """
     pages_text = []
 
-    with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
-        for page_num, page in enumerate(pdf.pages, start=1):
-            parts = []
-            prose = page.extract_text(x_tolerance=2, y_tolerance=2) or ""
-            if prose.strip():
-                parts.append(prose.strip())
-            for t_idx, table in enumerate(page.extract_tables() or []):
-                if not table:
-                    continue
-                rows_md = []
-                for r_idx, row in enumerate(table):
-                    cells = [str(c).replace("\n", " ").strip() if c else "" for c in row]
-                    rows_md.append(" | ".join(cells))
-                    if r_idx == 0:
-                        rows_md.append(" | ".join(["---"] * len(row)))
-                parts.append(
-                    f"\n[TABLE {t_idx+1} — Page {page_num}]\n"
-                    + "\n".join(rows_md) + "\n[/TABLE]\n"
-                )
-            pages_text.append(f"--- Page {page_num} ---\n" + "\n".join(parts))
-
-    if sum(len(p) for p in pages_text) < 50:
-        # Fallback
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
-            tmp.write(file_bytes); tmp_path = tmp.name
+    if PDFPLUMBER_AVAILABLE:
         try:
-            lc_pages  = PyPDFLoader(tmp_path).load()
-            pages_text = [f"--- Page {i+1} ---\n{p.page_content}"
-                          for i, p in enumerate(lc_pages)]
-        finally:
-            if os.path.exists(tmp_path): os.remove(tmp_path)
+            with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
+                for page_num, page in enumerate(pdf.pages, start=1):
+                    parts = []
+                    prose = page.extract_text(x_tolerance=2, y_tolerance=2) or ""
+                    if prose.strip():
+                        parts.append(prose.strip())
+                    for t_idx, table in enumerate(page.extract_tables() or []):
+                        if not table:
+                            continue
+                        rows_md = []
+                        for r_idx, row in enumerate(table):
+                            cells = [str(c).replace("\n", " ").strip() if c else "" for c in row]
+                            rows_md.append(" | ".join(cells))
+                            if r_idx == 0:
+                                rows_md.append(" | ".join(["---"] * len(row)))
+                        parts.append(
+                            f"\n[TABLE {t_idx+1} — Page {page_num}]\n"
+                            + "\n".join(rows_md) + "\n[/TABLE]\n"
+                        )
+                    pages_text.append(f"--- Page {page_num} ---\n" + "\n".join(parts))
+            if sum(len(p) for p in pages_text) >= 50:
+                return pages_text
+        except Exception:
+            pages_text = []  # fall through to PyPDFLoader
+
+    # PyPDFLoader fallback (always works on Streamlit Cloud)
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+        tmp.write(file_bytes); tmp_path = tmp.name
+    try:
+        lc_pages   = PyPDFLoader(tmp_path).load()
+        pages_text = [f"--- Page {i+1} ---\n{p.page_content}"
+                      for i, p in enumerate(lc_pages)]
+    finally:
+        if os.path.exists(tmp_path): os.remove(tmp_path)
 
     return pages_text
 
@@ -568,40 +577,43 @@ st.markdown("""
     }
 
     /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-       RUN ANALYSIS — "Blue Engine" branding (exact spec)
+       RUN ANALYSIS — iOS-inspired styling
        ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
-    /* 1. Normal state */
+    /* 1. Base state (iOS SF Blue) */
     div.stButton > button[key="run_analysis_btn"] {
-        background: linear-gradient(135deg, #3b82f6, #2563eb) !important;
+        background-color: #007AFF !important;
         color: white !important;
-        padding: 0.75rem 3rem !important;
-        font-size: 1.1rem !important;
-        border-radius: 8px !important;
+        padding: 0.75rem 2.5rem !important;
+        font-size: 1.05rem !important;
+        font-weight: 500 !important;
+        border-radius: 12px !important;
         border: none !important;
-        font-weight: 600 !important;
-        box-shadow: 0 4px 15px rgba(37, 99, 235, 0.3) !important;
-        transition: all 0.2s ease-in-out !important;
+        box-shadow: 0 2px 8px rgba(0, 122, 255, 0.15) !important;
+        transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1) !important;
     }
 
-    /* 2. Hover — subtle lift, glow deepens, slight brightness boost */
+    /* 2. Gentle hover (soft lift) */
     div.stButton > button[key="run_analysis_btn"]:hover:not(:disabled) {
-        transform: translateY(-2px) !important;
-        box-shadow: 0 8px 20px rgba(37, 99, 235, 0.4) !important;
-        filter: brightness(1.1) !important;
+        background-color: #0063CC !important;
+        transform: translateY(-1px) scale(1.02) !important;
+        box-shadow: 0 5px 15px rgba(0, 122, 255, 0.25) !important;
+        filter: none !important;
         cursor: pointer !important;
     }
 
-    /* 3. Active — snaps back to baseline on click */
+    /* 3. Pressed state (tactile sink) */
     div.stButton > button[key="run_analysis_btn"]:active {
-        transform: translateY(0px) !important;
-        box-shadow: 0 2px 10px rgba(37, 99, 235, 0.2) !important;
+        transform: scale(0.96) !important;
+        background-color: #0051A8 !important;
+        box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1) !important;
+        transition: all 0.1s ease !important;
     }
 
-    /* 4. Disabled — GxP safety lock */
+    /* 4. Disabled — GxP safety lock (iOS System Gray) */
     div.stButton > button[key="run_analysis_btn"]:disabled {
-        background: #e2e8f0 !important;
-        color: #94a3b8 !important;
+        background-color: #E9E9EB !important;
+        color: #AEAEB2 !important;
         cursor: not-allowed !important;
         transform: none !important;
         box-shadow: none !important;
@@ -710,8 +722,14 @@ def show_app():
 
     sop_widget = st.file_uploader("Upload SOP (The 'What')", type="pdf", key="main_sop_uploader")
     if sop_widget is not None:
-        st.session_state.sop_file_bytes = sop_widget.getvalue()
-        st.session_state.sop_file_name  = sop_widget.name
+        raw_bytes = sop_widget.getvalue()
+        # Validate it's a real PDF before storing — guards against "No /Root object" error
+        if raw_bytes and raw_bytes[:4] == b'%PDF':
+            st.session_state.sop_file_bytes = raw_bytes
+            st.session_state.sop_file_name  = sop_widget.name
+        else:
+            st.error("⚠️ Uploaded file does not appear to be a valid PDF. Please try again.")
+            st.session_state.sop_file_bytes = None
 
     is_ready = st.session_state.sop_file_bytes is not None
     if is_ready and sop_widget is None:
