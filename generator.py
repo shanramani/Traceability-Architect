@@ -54,8 +54,8 @@ except ImportError:
 # =============================================================================
 # 1. CONFIG
 # =============================================================================
-VERSION        = "16.0"
-PROMPT_VERSION = "v6.0-urs-frs-oq"
+VERSION        = "16.1"
+PROMPT_VERSION = "v6.1-frs-id-oq-link-type"
 TEMPERATURE    = 0.2
 CHUNK_SIZE     = 8
 DB_PATH        = os.path.join(os.path.dirname(os.path.abspath(__file__)), "validation_app.db")
@@ -480,12 +480,13 @@ def build_chunk_prompt(chunk_text: str, chunk_index: int, total_chunks: int,
     context_section = ""
     if sys_context:
         context_section = (
-            f"\nSYSTEM CONTEXT (User Guide / Product Manual):\n{sys_context[:3000]}\n"
+            f"\nSYSTEM USER GUIDE (sidebar upload — describes product features/functions "
+            f"used to derive FRS requirements):\n{sys_context[:3000]}\n"
         )
 
     return f"""
 {context_section}
-URS / SOP CONTENT — Segment {chunk_index + 1} of {total_chunks}:
+URS CONTENT (main upload — defines user requirements) — Segment {chunk_index + 1} of {total_chunks}:
 {chunk_text}
 
 TASK: Parse this segment into exactly 4 CSV datasets separated by |||.
@@ -493,14 +494,22 @@ Output ONLY raw CSV rows — include the header row in EVERY response.
 Wrap any field value containing a comma in double-quotes.
 
 Dataset 1 (FRS): ID,Requirement_Description,Priority,GxP_Impact,Source_URS_Ref
-  - Generate functional requirements derived from the URS and system context.
+  - ID MUST start with "FRS-" followed by a zero-padded number, e.g. FRS-001, FRS-002.
+  - Generate functional requirements derived from the URS (main document) and the
+    system context / user guide (sidebar document).
   - Priority: Critical / High / Medium / Low
   - GxP_Impact: Direct / Indirect / None
+  - Source_URS_Ref: the URS requirement ID or section this FRS row was derived from.
 
-Dataset 2 (OQ): Test_ID,Requirement_Link,Test_Step,Expected_Result,Pass_Fail_Criteria
+Dataset 2 (OQ): Test_ID,Requirement_Link,Requirement_Link_Type,Test_Step,Expected_Result,Pass_Fail_Criteria
+  - Test_ID format: OQ-001, OQ-002, etc.
+  - Requirement_Link: the ID of the requirement being tested (URS or FRS ID).
+  - Requirement_Link_Type: must be exactly "URS" if linking to a URS requirement,
+    or "FRS" if linking to a FRS requirement.
   - Generate one or more test cases per FRS requirement where testable.
 
-Dataset 3 (Traceability): Req_ID,FRS_Ref,Test_ID,Coverage_Status,Gap_Analysis
+Dataset 3 (Traceability): URS_Req_ID,FRS_Ref,Test_ID,Coverage_Status,Gap_Analysis
+  - FRS_Ref MUST be the FRS ID (e.g. FRS-001) from Dataset 1 — never a URS ID here.
   - Coverage_Status: Covered / Partial / Not Covered
   - If a requirement has NO corresponding test, leave Test_ID blank and
     begin Gap_Analysis with exactly: [GAP]
@@ -841,9 +850,9 @@ st.markdown("""
         text-transform: uppercase; font-size: 0.85rem; margin: 0;
     }
 
-    /* ── Login inputs ── */
+    /* ── Login inputs — same width as "Initialize Secure Session" button (40%) ── */
     [data-testid="stTextInput"] {
-        width: 25% !important;
+        width: 40% !important;
         min-width: 220px !important;
         margin: 0 auto !important;
     }
@@ -1049,14 +1058,16 @@ def show_app():
                 )
             st.rerun()
 
-        with st.expander("🗄️ DB Status", expanded=False):
-            st.markdown(f'<p class="sidebar-stats">📁 {DB_PATH}</p>', unsafe_allow_html=True)
-            for table, count in db_diagnostics().items():
-                color = "#4ade80" if isinstance(count, int) and count > 0 else "#94a3b8"
-                st.markdown(
-                    f'<p class="sidebar-stats" style="color:{color}">{table}: {count} rows</p>',
-                    unsafe_allow_html=True
-                )
+        # Admin-only panels
+        if role == "Admin":
+            with st.expander("🗄️ DB Status", expanded=False):
+                st.markdown(f'<p class="sidebar-stats">📁 {DB_PATH}</p>', unsafe_allow_html=True)
+                for table, count in db_diagnostics().items():
+                    color = "#4ade80" if isinstance(count, int) and count > 0 else "#94a3b8"
+                    st.markdown(
+                        f'<p class="sidebar-stats" style="color:{color}">{table}: {count} rows</p>',
+                        unsafe_allow_html=True
+                    )
 
         # Admin-only user management panel
         if role == "Admin":
@@ -1094,8 +1105,11 @@ def show_app():
             st.error("⚠️ Uploaded file does not appear to be a valid PDF. Please try again.")
             st.session_state.sop_file_bytes = None
             st.session_state.sop_file_name  = None
-    elif sop_widget is None and st.session_state.sop_file_bytes is None:
-        st.session_state.sop_file_name = None
+    else:
+        # Widget is empty — user removed the file (clicked X) or never uploaded one.
+        # Always clear retained bytes so the banner never shows a stale filename.
+        st.session_state.sop_file_bytes = None
+        st.session_state.sop_file_name  = None
 
     is_ready = st.session_state.sop_file_bytes is not None
 
