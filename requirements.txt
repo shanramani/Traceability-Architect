@@ -5,8 +5,8 @@ langchain-community
 pypdf
 pandas
 litellm
-python-dotenv
 openpyxl
 streamlit
-pdfplumber
 bcrypt==4.2.1
+langchain-core
+python-dotenv
