@@ -21,6 +21,7 @@ import io
 import sqlite3
 import re
 import hashlib
+import requests
 
 # pdfplumber: soft import — works locally with poppler, gracefully skipped on Streamlit Cloud
 try:
@@ -115,7 +116,18 @@ def db_migrate():
     except Exception as e:
         st.warning(f"DB migration warning: {e}")
 
-
+def get_auto_location():
+    """Fetches location based on the public IP of the current session."""
+    try:
+        # Using a reliable, no-auth-required IP API
+        response = requests.get("http://ip-api.com/json/", timeout=5)
+        data = response.json()
+        if data.status == 'success':
+            return f"{data['city']}, {data['regionName']}, {data['countryCode']}"
+        return "Location Unknown"
+    except Exception:
+        return "Los Angeles, USA" # Your grounded fallback
+    
 def db_diagnostics() -> dict:
     try:
         conn   = db_connect()
@@ -495,7 +507,7 @@ def build_styled_excel(dataframes: dict[str, pd.DataFrame]) -> bytes:
 _defaults = {
     "authenticated":  False,
     "selected_model": "Gemini 1.5 Pro",
-    "location":       get_location(),
+    "location":       get_auto_location(),
     "user_name":      "",
     "sop_file_bytes": None,
     "sop_file_name":  None,
