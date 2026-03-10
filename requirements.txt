@@ -9,4 +9,4 @@ python-dotenv
 openpyxl
 streamlit
 pdfplumber
-bcrypt
+bcrypt==4.2.1
