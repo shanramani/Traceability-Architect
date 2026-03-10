@@ -1,3 +1,5 @@
+# Validation Doc Assist v12 — requirements
+# pip install -r requirements.txt
 streamlit
 pandas
 litellm
@@ -9,5 +11,6 @@ langchain-anthropic
 langchain-community
 plotly
 pypdf
-
+pdfplumber             # NEW: table-aware PDF extraction
+bcrypt                 # NEW: secure password hashing
 
