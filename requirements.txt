@@ -8,6 +8,6 @@ langchain-openai
 langchain-anthropic
 pypdf
 bcrypt==4.2.1
+python-dotenv
 pandas
 openpyxl
-python-dotenv
