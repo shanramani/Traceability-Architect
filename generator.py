@@ -9,7 +9,7 @@ import io
 import sqlite3
 
 # --- 1. PRO-GRADE UI & BRANDING ---
-VERSION = "10.25"
+VERSION = "10.26"
 st.set_page_config(page_title=f"Architect v{VERSION}", layout="wide")
 
 def get_location():
@@ -44,7 +44,7 @@ if 'authenticated' not in st.session_state: st.session_state.authenticated = Fal
 if 'selected_model' not in st.session_state: st.session_state.selected_model = "Gemini 1.5 Pro"
 if 'location' not in st.session_state: st.session_state.location = get_location()
 
-# Styles (Maintain Architect look/feel)
+# Maintaining your exact CSS and styling elements
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
@@ -124,19 +124,18 @@ def show_app():
                 pages = loader.load()
                 os.remove(tmp_path)
 
-                # CHUNKING LOGIC: Process in 10-page segments to prevent stream errors
-                chunk_size = 10
+                # REINFORCED CHUNKING LOGIC to prevent "Stream Ended"
+                chunk_size = 8  # Smaller chunks are safer for large outputs
                 all_results = {"FRS": [], "OQ": [], "Traceability": [], "Audit_Log": []}
                 
                 for i in range(0, len(pages), chunk_size):
                     chunk = pages[i:i+chunk_size]
                     sop_content = "\n".join([p.page_content for p in chunk])
+                    st.write(f"⚙️ Processing Batch: Pages {i+1} to {min(i+chunk_size, len(pages))}...")
                     
-                    st.write(f"⚙️ Processing Pages {i+1} to {min(i+chunk_size, len(pages))}...")
-                    
-                    # 2. PROMPT
                     current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                     model_id = MODELS[st.session_state.selected_model]
+                    
                     user_prompt = f"""
                     SOP CONTENT (SEGMENT): {sop_content}
                     TASK: Parse into 4 datasets separated by '|||'.
@@ -146,14 +145,14 @@ def show_app():
                     Dataset 4 (Audit Log): Action, User, Timestamp, Description
                     
                     AUDIT LOG SPEC: User: {st.session_state.user_name}, Time: {current_time}, Action: 'Segment Analysis'
-                    Format: Raw CSV only for each dataset, separated by |||. Use double quotes for text.
+                    Format: Raw CSV only, separated by |||. Use double quotes for descriptions.
                     """
 
-                    # 3. AI CALL (Reinforced)
+                    # Explicitly disabling streaming to prevent partial-packet crashes
                     response = completion(
                         model=model_id, 
                         messages=[{"role": "system", "content": "Principal Validation Engineer."}, {"role": "user", "content": user_prompt}],
-                        timeout=300, 
+                        timeout=400, 
                         stream=False
                     )
                     
@@ -166,14 +165,13 @@ def show_app():
                 output = io.BytesIO()
                 with pd.ExcelWriter(output, engine='openpyxl') as writer:
                     for sheet_name, csv_list in all_results.items():
-                        # Merge segments and remove duplicate headers
                         combined_csv = "\n".join(csv_list)
                         df = pd.read_csv(io.StringIO(combined_csv), quotechar='"', on_bad_lines='skip')
-                        # Remove header-rows appearing in the middle of chunks
-                        df = df[df.iloc[:, 0] != df.columns[0]]
+                        # Clean duplicate headers from intermediate chunks
+                        df = df[df.iloc[:, 0].astype(str) != df.columns[0]]
                         df.to_excel(writer, sheet_name=sheet_name, index=False)
 
-                # 5. DB LOGGING
+                # 5. DB PERMANENT LOGGING
                 log_audit_activity(st.session_state.user_name, "Generated Validation Package", "SOP_PDF", sop_file.name)
 
                 st.success("Analysis Complete: Validation Workbook Generated & Logged.")
@@ -185,7 +183,7 @@ def show_app():
                 st.error(f"❌ Engineering Error: {str(e)}")
                 log_audit_activity(st.session_state.user_name, "Analysis Failed", "SYSTEM_ERR", str(e)[:100])
 
-    # Display Audit Trail
+    # Display Permanent Audit Trail at the bottom
     st.markdown("---")
     st.subheader("📜 System History (from SQLite)")
     history_df = get_audit_history()
