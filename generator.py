@@ -662,7 +662,7 @@ def show_login():
         st.markdown("<br>", unsafe_allow_html=True)
         u = st.text_input("Professional Identity", placeholder="Username", label_visibility="collapsed")
         p = st.text_input("Security Token", type="password", placeholder="Password", label_visibility="collapsed")
-        st.markdown("<br><br>", unsafe_allow_html=True)
+        st.markdown("<br>", unsafe_allow_html=True)
         b_left, b_center, b_right = st.columns([1, 2, 1])
         with b_center:
             if st.button("Initialize Secure Session", key="login_btn", use_container_width=True):
