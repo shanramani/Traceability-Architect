@@ -1,5 +1,5 @@
 """
-Validation Doc Assist — v14.0
+Validation Doc Assist — v15.0
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Changes over v13:
   1. 8-PAGE SEGMENTED PROCESSING  — prevents "Stream ended unexpectedly" on large SOPs
@@ -41,7 +41,7 @@ except ImportError:
 # =============================================================================
 # 1. CONFIG
 # =============================================================================
-VERSION        = "14.0"
+VERSION        = "15.0"
 PROMPT_VERSION = "v5.0-segmented"
 CHUNK_SIZE     = 8          # pages per AI call — prevents token overflow / stream crash
 DB_PATH        = os.path.join(os.path.dirname(os.path.abspath(__file__)), "validation_app.db")
@@ -723,8 +723,8 @@ def show_app():
     sop_widget = st.file_uploader("Upload SOP (The 'What')", type="pdf", key="main_sop_uploader")
     if sop_widget is not None:
         raw_bytes = sop_widget.getvalue()
-        # Validate it's a real PDF before storing — guards against "No /Root object" error
-        if raw_bytes and raw_bytes[:4] == b'%PDF':
+        # Validate it's a real PDF — %PDF signature can appear within first 1024 bytes
+        if raw_bytes and b'%PDF' in raw_bytes[:1024]:
             st.session_state.sop_file_bytes = raw_bytes
             st.session_state.sop_file_name  = sop_widget.name
         else:
