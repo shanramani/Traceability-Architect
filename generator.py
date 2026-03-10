@@ -50,7 +50,7 @@ DB_PATH        = os.path.join(os.path.dirname(os.path.abspath(__file__)), "valid
 st.set_page_config(page_title=f"Architect v{VERSION}", layout="wide")
 
 def get_location():
-    return "Thousand Oaks, USA"
+    return "Greater LA, USA"
 
 # =============================================================================
 # 2. DATABASE  — schema matches spec exactly
