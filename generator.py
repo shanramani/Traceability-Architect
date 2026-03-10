@@ -515,7 +515,6 @@ _defaults = {
 for _k, _v in _defaults.items():
     if _k not in st.session_state:
         st.session_state[_k] = _v
-
 db_migrate()
 
 # =============================================================================
