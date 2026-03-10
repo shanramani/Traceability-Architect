@@ -9,15 +9,14 @@ import io
 import sqlite3
 
 # --- 1. PRO-GRADE UI & BRANDING ---
-VERSION = "10.24"
+VERSION = "10.25"
 st.set_page_config(page_title=f"Architect v{VERSION}", layout="wide")
 
 def get_location():
     return "Thousand Oaks, USA"
 
-# --- 2. DATABASE LOGIC (GxP COMPLIANCE) ---
+# --- 2. DATABASE LOGIC ---
 def log_audit_activity(user, action, object_type, object_id):
-    """Inserts a record into the binary SQLite database."""
     try:
         conn = sqlite3.connect("validation_app.db")
         cursor = conn.cursor()
@@ -32,7 +31,6 @@ def log_audit_activity(user, action, object_type, object_id):
         st.error(f"Database Logging Error: {e}")
 
 def get_audit_history():
-    """Retrieves the last 10 logs for the UI."""
     try:
         conn = sqlite3.connect("validation_app.db")
         df = pd.read_sql_query("SELECT timestamp, user, action, object_id FROM audit_log ORDER BY id DESC LIMIT 10", conn)
@@ -46,31 +44,17 @@ if 'authenticated' not in st.session_state: st.session_state.authenticated = Fal
 if 'selected_model' not in st.session_state: st.session_state.selected_model = "Gemini 1.5 Pro"
 if 'location' not in st.session_state: st.session_state.location = get_location()
 
+# Styles (Maintain Architect look/feel)
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
     html, body, [class*="st-"] { font-family: 'Inter', sans-serif; }
     .stApp { background-color: #fcfcfd; }
-    .top-banner {
-        background-color: white; border: 1px solid #eef2f6; border-radius: 10px;
-        padding: 12px 0px; text-align: center; margin-bottom: 5px;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
-    }
-    .banner-text-inner {
-        color: #475569; font-weight: 400; letter-spacing: 4px;
-        text-transform: uppercase; font-size: 0.85rem; margin: 0;
-    }
+    .top-banner { background-color: white; border: 1px solid #eef2f6; border-radius: 10px; padding: 12px 0px; text-align: center; margin-bottom: 5px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05); }
+    .banner-text-inner { color: #475569; font-weight: 400; letter-spacing: 4px; text-transform: uppercase; font-size: 0.85rem; margin: 0; }
     div.stButton { width: 100% !important; display: flex !important; justify-content: center !important; }
-    div.stButton > button[key="login_btn"] {
-        width: 40% !important; margin: 0 auto !important; background: linear-gradient(135deg, #3b82f6, #2563eb) !important;
-        color: white !important; height: 3.2rem !important; border-radius: 8px !important; border: none !important;
-        font-weight: 600 !important; box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3) !important;
-    }
-    div.stButton > button[key="run_analysis_btn"] {
-        background: linear-gradient(135deg, #3b82f6, #2563eb) !important;
-        color: white !important; padding: 0.75rem 3rem !important; font-size: 1.1rem !important;
-        border-radius: 8px !important; box-shadow: 0 4px 15px rgba(37, 99, 235, 0.3);
-    }
+    div.stButton > button[key="login_btn"] { width: 40% !important; margin: 0 auto !important; background: linear-gradient(135deg, #3b82f6, #2563eb) !important; color: white !important; height: 3.2rem !important; border-radius: 8px !important; border: none !important; font-weight: 600 !important; }
+    div.stButton > button[key="run_analysis_btn"] { background: linear-gradient(135deg, #3b82f6, #2563eb) !important; color: white !important; padding: 0.75rem 3rem !important; font-size: 1.1rem !important; border-radius: 8px !important; box-shadow: 0 4px 15px rgba(37, 99, 235, 0.3); }
     [data-testid="stSidebar"] { background-color: #0f172a; border-right: 1px solid #1e293b; }
     .sb-title { color: white !important; font-weight: 700 !important; font-size: 1.1rem; }
     .sb-sub { color: white !important; font-weight: 700 !important; font-size: 0.95rem; }
@@ -130,7 +114,7 @@ def show_app():
     if st.button("🚀 Run Analysis", key="run_analysis_btn", disabled=not is_ready):
         st.info(f"Analysis sequence initiated using {st.session_state.selected_model}...")
         
-        with st.spinner("Executing GAMP-5 Analysis & Excel Workbook Generation..."):
+        with st.spinner("Executing GAMP-5 Analysis (Segmented Processing)..."):
             try:
                 # 1. PDF EXTRACTION
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
@@ -138,39 +122,58 @@ def show_app():
                     tmp_path = tmp_file.name
                 loader = PyPDFLoader(tmp_path)
                 pages = loader.load()
-                sop_content = "\n".join([page.page_content for page in pages])
                 os.remove(tmp_path)
 
-                # 2. PROMPT FOR MULTI-SHEET LOGIC
-                current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                model_id = MODELS[st.session_state.selected_model]
-                system_prompt = f"Principal Validation Engineer. Operator: {st.session_state.user_name}."
-                user_prompt = f"""
-                SOP CONTENT: {sop_content}
-                TASK: Parse into 4 datasets separated by '|||'.
-                Dataset 1 (FRS): ID, Requirement_Description, Priority, GxP_Impact
-                Dataset 2 (OQ): Test_ID, Requirement_Link, Test_Step, Expected_Result
-                Dataset 3 (Traceability): Req_ID, Test_ID, Gap_Analysis (Flag [GAP] if missing)
-                Dataset 4 (Audit Log): Action, User, Timestamp, Description
+                # CHUNKING LOGIC: Process in 10-page segments to prevent stream errors
+                chunk_size = 10
+                all_results = {"FRS": [], "OQ": [], "Traceability": [], "Audit_Log": []}
                 
-                AUDIT LOG SPEC: User: {st.session_state.user_name}, Time: {current_time}, Action: 'SOP Analysis'
-                Format: Raw CSV only for each dataset, separated by |||. Wrap text in double quotes.
-                """
+                for i in range(0, len(pages), chunk_size):
+                    chunk = pages[i:i+chunk_size]
+                    sop_content = "\n".join([p.page_content for p in chunk])
+                    
+                    st.write(f"⚙️ Processing Pages {i+1} to {min(i+chunk_size, len(pages))}...")
+                    
+                    # 2. PROMPT
+                    current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    model_id = MODELS[st.session_state.selected_model]
+                    user_prompt = f"""
+                    SOP CONTENT (SEGMENT): {sop_content}
+                    TASK: Parse into 4 datasets separated by '|||'.
+                    Dataset 1 (FRS): ID, Requirement_Description, Priority, GxP_Impact
+                    Dataset 2 (OQ): Test_ID, Requirement_Link, Test_Step, Expected_Result
+                    Dataset 3 (Traceability): Req_ID, Test_ID, Gap_Analysis
+                    Dataset 4 (Audit Log): Action, User, Timestamp, Description
+                    
+                    AUDIT LOG SPEC: User: {st.session_state.user_name}, Time: {current_time}, Action: 'Segment Analysis'
+                    Format: Raw CSV only for each dataset, separated by |||. Use double quotes for text.
+                    """
 
-                # 3. AI CALL
-                response = completion(model=model_id, messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}])
-                datasets = response.choices[0].message.content.split("|||")
+                    # 3. AI CALL (Reinforced)
+                    response = completion(
+                        model=model_id, 
+                        messages=[{"role": "system", "content": "Principal Validation Engineer."}, {"role": "user", "content": user_prompt}],
+                        timeout=300, 
+                        stream=False
+                    )
+                    
+                    datasets = response.choices[0].message.content.split("|||")
+                    for idx, key in enumerate(["FRS", "OQ", "Traceability", "Audit_Log"]):
+                        if idx < len(datasets):
+                            all_results[key].append(datasets[idx].strip())
 
-                # 4. EXCEL GENERATION
+                # 4. CONSOLIDATED EXCEL GENERATION
                 output = io.BytesIO()
                 with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                    names = ["FRS", "OQ", "Traceability", "Audit_Log"]
-                    for i, data in enumerate(datasets):
-                        if i < len(names):
-                            df = pd.read_csv(io.StringIO(data.strip()), quotechar='"', on_bad_lines='skip')
-                            df.to_excel(writer, sheet_name=names[i], index=False)
+                    for sheet_name, csv_list in all_results.items():
+                        # Merge segments and remove duplicate headers
+                        combined_csv = "\n".join(csv_list)
+                        df = pd.read_csv(io.StringIO(combined_csv), quotechar='"', on_bad_lines='skip')
+                        # Remove header-rows appearing in the middle of chunks
+                        df = df[df.iloc[:, 0] != df.columns[0]]
+                        df.to_excel(writer, sheet_name=sheet_name, index=False)
 
-                # 5. DB PERMANENT LOGGING
+                # 5. DB LOGGING
                 log_audit_activity(st.session_state.user_name, "Generated Validation Package", "SOP_PDF", sop_file.name)
 
                 st.success("Analysis Complete: Validation Workbook Generated & Logged.")
@@ -180,8 +183,9 @@ def show_app():
 
             except Exception as e:
                 st.error(f"❌ Engineering Error: {str(e)}")
+                log_audit_activity(st.session_state.user_name, "Analysis Failed", "SYSTEM_ERR", str(e)[:100])
 
-    # Display Audit Trail at the bottom
+    # Display Audit Trail
     st.markdown("---")
     st.subheader("📜 System History (from SQLite)")
     history_df = get_audit_history()
