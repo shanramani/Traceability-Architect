@@ -658,7 +658,7 @@ def show_login():
     with center_content:
         st.markdown('<div class="top-banner"><p class="banner-text-inner">AI OPTIMIZED CSV</p></div>',
                     unsafe_allow_html=True)
-        st.markdown("<h1 style='text-align: center;'>🛡️ FRS · OQ · Traceability · Gap Analysis — 21 CFR Part 11 Ready</h1>", unsafe_allow_html=True)
+        st.markdown("<h1 style='text-align: center;  font-size: 1.2rem;'>🛡️ LLM-Powered GxP Validation </h1>", unsafe_allow_html=True)
         st.markdown("<br>", unsafe_allow_html=True)
         u = st.text_input("Professional Identity", placeholder="Username", label_visibility="collapsed")
         p = st.text_input("Security Token", type="password", placeholder="Password", label_visibility="collapsed")
