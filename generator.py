@@ -53,8 +53,8 @@ except ImportError:
 # =============================================================================
 # 1. CONFIG
 # =============================================================================
-VERSION        = "23.0"
-PROMPT_VERSION = "v11.0-location-lock-preamble-strip-syscontext-pass1"
+VERSION        = "25.0"
+PROMPT_VERSION = "v13.0-two-stage-urs-document-gate"
 TEMPERATURE    = 0.2
 CHUNK_SIZE     = 8
 DB_PATH        = os.path.join(os.path.dirname(os.path.abspath(__file__)), "validation_app.db")
@@ -503,8 +503,175 @@ def extract_pages(file_bytes: bytes) -> list:
     return pages_text
 
 
+
 # =============================================================================
-# 5. PROMPTS  — Two-pass architecture
+# 4b. URS DOCUMENT VALIDATION — Two-stage gate
+#     Stage 1: Fast heuristic (free, instant) — rejects obvious non-URS docs
+#     Stage 2: LLM pre-flight (one cheap call) — catches edge cases
+# =============================================================================
+
+# Positive signals — language expected in a URS / SOP
+_URS_POSITIVE = [
+    r'\bshall\b', r'\bmust\b', r'\brequirement[s]?\b', r'\buser requirement\b',
+    r'\bsystem shall\b', r'\bthe system\b', r'\burs\b', r'\bsop\b',
+    r'\bfunctional requirement\b', r'\buse case\b', r'\bstakeholder\b',
+    r'\bscope\b', r'\bpurpose\b', r'\bspecification\b',
+    r'\bvalidation\b', r'\bcompliance\b', r'\baudit trail\b',
+    r'\breq[-_\s]?\d+\b', r'\burs[-_\s]?\d+\b',   # REQ-001, URS-001 style IDs
+    r'\d+\.\d+[\s]+\w',                              # 1.1 Section style numbering
+]
+
+# Negative signals — language that identifies clearly wrong document types
+_URS_NEGATIVE = [
+    r'\bdate of birth\b', r'\blicense number\b', r'\bdriver.?s license\b',
+    r'\bpassport\b', r'\bstate id\b', r'\bidentification card\b',
+    r'\bexpir(?:es|ation)\b.*\b\d{4}\b',   # "Expires 2027" — ID card pattern
+    r'\bsocial security\b', r'\bssn\b',
+    r'\binvoice\b', r'\bpurchase order\b', r'\breceipt\b',
+    r'\btotal due\b', r'\bamount due\b', r'\bremit payment\b',
+    r'\bdear\b.*\bsincerely\b',            # letter pattern
+    r'\bresume\b', r'\bcurriculum vitae\b',
+    r'\bmenu\b.*\bprice\b',               # restaurant menu
+]
+
+# LLM pre-flight prompt — binary YES/NO, one sentence reasoning
+_PREFLIGHT_PROMPT = """You are a GxP document classifier. Read the document excerpt below.
+
+TASK: Determine if this document is a User Requirements Specification (URS), 
+System Requirements Specification (SRS), Standard Operating Procedure (SOP), 
+or similar GxP/regulatory specification document that describes system or process requirements.
+
+Respond with EXACTLY this format:
+VERDICT: YES
+REASON: <one sentence>
+
+or
+
+VERDICT: NO
+REASON: <one sentence>
+
+Do not add any other text.
+
+DOCUMENT EXCERPT:
+{text}"""
+
+
+def validate_urs_document(
+    file_bytes: bytes,
+    model_id: str,
+) -> tuple[bool, str]:
+    """
+    Two-stage URS document gate. Returns (is_valid: bool, message: str).
+
+    Stage 1 — Heuristic (free, <10ms):
+        Score the first ~3000 chars of extracted text against positive and
+        negative signal patterns. A driver's license, invoice, or letter is
+        rejected here with zero API cost.
+
+        Scoring:
+          +1 per positive pattern matched
+          -3 per negative pattern matched (negatives are stronger signals)
+          Threshold: score >= 2 to pass Stage 1
+
+    Stage 2 — LLM pre-flight (one cheap API call, only if Stage 1 passes):
+        Send the first page to the model with a binary YES/NO prompt.
+        This catches edge cases Stage 1 misses (e.g. a project charter that
+        has "shall" language but is clearly not a URS).
+
+    The combination means:
+      - Driver's license → rejected at Stage 1, zero API cost
+      - Obvious URS → passes Stage 1, confirmed by LLM in Stage 2
+      - Borderline doc → Stage 1 uncertain, LLM decides in Stage 2
+    """
+    # ── Extract text ─────────────────────────────────────────────────────────
+    try:
+        pages = extract_pages(file_bytes)
+    except Exception as e:
+        return False, f"Could not extract text from PDF: {e}"
+
+    if not pages:
+        return False, "The uploaded PDF appears to be empty or image-only (no extractable text)."
+
+    # Use first 2 pages for classification — enough signal, small token cost
+    sample_text = "\n\n".join(pages[:2])
+    sample_lower = sample_text.lower()
+
+    # ── Stage 1: Heuristic scoring ────────────────────────────────────────────
+    pos_hits = [p for p in _URS_POSITIVE if re.search(p, sample_lower, re.IGNORECASE)]
+    neg_hits = [p for p in _URS_NEGATIVE if re.search(p, sample_lower, re.IGNORECASE)]
+
+    score = len(pos_hits) - (3 * len(neg_hits))
+
+    if neg_hits:
+        # Hard rejection — negative signals are definitive
+        matched = [p.replace(r'\b', '').replace('\\', '') for p in neg_hits[:3]]
+        return False, (
+            f"⛔ Document rejected at content screening.\n\n"
+            f"This does not appear to be a URS, SRS, or SOP. "
+            f"Detected non-URS content: **{', '.join(matched)}**.\n\n"
+            f"Please upload a User Requirements Specification, System Requirements "
+            f"Specification, or Standard Operating Procedure."
+        )
+
+    if score < 2:
+        # Insufficient positive signal — too few URS indicators found
+        return False, (
+            f"⛔ Document rejected: insufficient URS content detected.\n\n"
+            f"Only {len(pos_hits)} URS indicator(s) found in the document "
+            f"(minimum 2 required). The document may not be a URS, SRS, or SOP.\n\n"
+            f"Expected content: requirement statements using 'shall'/'must', "
+            f"numbered requirements (URS-001, REQ-001), section headings like "
+            f"'Scope', 'Purpose', 'Functional Requirements'."
+        )
+
+    # ── Stage 2: LLM pre-flight ───────────────────────────────────────────────
+    try:
+        preflight_text = sample_text[:3000]
+        response = completion(
+            model=model_id,
+            stream=False,
+            temperature=0.0,   # deterministic — this is a binary classification
+            max_tokens=100,
+            messages=[
+                {"role": "user", "content": _PREFLIGHT_PROMPT.format(text=preflight_text)}
+            ]
+        )
+        reply = (response.choices[0].message.content or "").strip()
+
+        # Parse VERDICT line
+        verdict_match = re.search(r'VERDICT:\s*(YES|NO)', reply, re.IGNORECASE)
+        reason_match  = re.search(r'REASON:\s*(.+)',      reply, re.IGNORECASE)
+
+        verdict = verdict_match.group(1).upper() if verdict_match else None
+        reason  = reason_match.group(1).strip()  if reason_match  else reply[:200]
+
+        if verdict == "YES":
+            return True, f"Document validated ({len(pos_hits)} URS indicators). LLM: {reason}"
+        elif verdict == "NO":
+            return False, (
+                f"⛔ Document rejected by AI content classifier.\n\n"
+                f"**AI assessment:** {reason}\n\n"
+                f"Please upload a User Requirements Specification, System Requirements "
+                f"Specification, or Standard Operating Procedure."
+            )
+        else:
+            # LLM gave ambiguous response — fall back to Stage 1 result (passed)
+            # We had enough positive signal; don't block on a confused LLM response
+            return True, f"Document accepted (LLM response ambiguous; Stage 1 score={score})."
+
+    except Exception as e:
+        # LLM call failed — if Stage 1 passed with good signal, allow through
+        # with a warning. Don't block valid users due to a rate-limit or API error.
+        if score >= 4:
+            return True, f"LLM pre-flight failed ({e}); accepted on strong Stage 1 signal (score={score})."
+        return False, (
+            f"⛔ Document validation incomplete — LLM pre-flight failed: {e}\n\n"
+            f"Stage 1 score was {score} (threshold: 4 for auto-accept). "
+            f"Please try again or use a different model."
+        )
+
+
+
 #    Pass 1: Structured URS extraction (deterministic input table)
 #    Pass 2: FRS / OQ / Traceability / Gap derived from Pass-1 table
 #            FRS descriptions are ALWAYS written in engineering/implementation
@@ -1017,7 +1184,61 @@ def _renumber_oq_ids(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def _apply_confidence_flags(df: pd.DataFrame) -> pd.DataFrame:
+def _fill_missing_oq(frs_df: pd.DataFrame, oq_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Detect any FRS requirement that has no OQ test case and insert a clearly-flagged
+    placeholder so nothing silently disappears from the test matrix.
+
+    Mirrors _fill_missing_frs — same philosophy: the AI skips quietly, Python catches it.
+    The placeholder is stamped [AI SKIPPED — MANUAL REVIEW REQUIRED] so a validator
+    immediately knows it needs a real test case written. Confidence = 0.50.
+
+    Called AFTER _fill_missing_frs so that FRS placeholder rows (themselves inserted
+    because the AI skipped a URS→FRS) are also caught here and get a matching OQ
+    placeholder. After inserting, _renumber_oq_ids is called again by the caller
+    to assign clean sequential IDs to the expanded set.
+    """
+    if frs_df.empty or "ID" not in frs_df.columns:
+        return oq_df
+
+    # Build set of FRS IDs that already have at least one OQ test
+    linked_frs = set()
+    if not oq_df.empty and "Requirement_Link" in oq_df.columns:
+        linked_frs = set(
+            oq_df["Requirement_Link"].dropna().astype(str).str.strip()
+        )
+
+    placeholders = []
+    for _, row in frs_df.iterrows():
+        fid  = str(row.get("ID", "")).strip()
+        desc = str(row.get("Requirement_Description", "")).strip()[:120]
+        urs  = str(row.get("Source_URS_Ref", "N/A")).strip()
+        if fid and fid not in linked_frs:
+            placeholders.append({
+                "Test_ID":               "OQ-PLACEHOLDER",   # renumbered below
+                "Requirement_Link":      fid,
+                "Requirement_Link_Type": "FRS",
+                "Test_Step":             (
+                    f"[AI SKIPPED — MANUAL REVIEW REQUIRED] "
+                    f"No OQ test was generated for {fid}: '{desc}'. "
+                    f"Write executable test steps for this requirement."
+                ),
+                "Expected_Result":       f"[MANUAL ENTRY REQUIRED] Expected outcome for {fid}",
+                "Pass_Fail_Criteria":    "[MANUAL ENTRY REQUIRED] Define pass/fail criteria",
+                "Source":                f"Derived from {urs}",
+                "Confidence":            "0.50",
+                "Confidence_Flag":       "⚠️ Review Required",
+            })
+
+    if not placeholders:
+        return oq_df
+
+    result = pd.concat([oq_df, pd.DataFrame(placeholders)], ignore_index=True)
+    result.fillna("N/A", inplace=True)
+    return result
+
+
+
     """
     Guarantee Confidence_Flag is set correctly.
     - Confidence < 0.70  → "⚠️ Review Required"
@@ -1181,6 +1402,8 @@ def run_segmented_analysis(
     oq_final  = _renumber_oq_ids(oq_final)
     frs_final = _clean_frs_columns(frs_final)     # strip "Risk: ", "Priority: " prefixes
     frs_final = _fill_missing_frs(urs_final, frs_final)  # insert placeholders for AI-skipped URS
+    oq_final  = _fill_missing_oq(frs_final, oq_final)    # insert placeholders for AI-skipped FRS→OQ
+    oq_final  = _renumber_oq_ids(oq_final)               # renumber after any placeholders added
 
     # Fix Requirement_Link in OQ to match renumbered FRS IDs if possible
     # (In practice IDs are sequential so FRS-001 stays FRS-001 — this is a safety net)
@@ -1754,7 +1977,8 @@ def build_dashboard_sheet(frs_df: pd.DataFrame, oq_df: pd.DataFrame,
         {"KPI": "🟡 Medium Risk Requirements",          "Value": med_risk,              "Status": "Requires ≥2 OQ tests each"},
         {"KPI": "🟢 Low Risk Requirements",             "Value": low_risk,              "Status": "Requires ≥1 OQ test each"},
         {"KPI": "🚨 Missing FRS (AI skipped URS)",     "Value": missing_frs,           "Status": "Critical — re-run or add manually"},
-        {"KPI": "⚠️ AI-Detected Gaps",                 "Value": ai_gaps,               "Status": "See Gap_Analysis sheet"},
+        {"KPI": "⚠️ AI-Detected Gaps",                 "Value": ai_gaps,
+         "Status": "See Gap_Analysis sheet" if ai_gaps > 0 else "✅ None — see Traceability sheet"},
         {"KPI": "🔍 Deterministic Issues (R0–R5)",     "Value": det_gaps,              "Status": "See Det_Validation sheet"},
         {"KPI": "🚫 Non-Testable Requirements",         "Value": non_testable,          "Status": "Rewrite required"},
         {"KPI": "👻 Orphan Tests (No FRS link)",        "Value": orphan_tests,          "Status": "Investigate"},
@@ -1873,20 +2097,24 @@ def build_styled_excel(dataframes: dict) -> bytes:
 # =============================================================================
 
 def get_auto_location():
-    try:
-        response = requests.get("http://ip-api.com/json/", timeout=5)
-        data     = response.json()
-        if data.get("status") == "success":
-            return f"{data['city']}, {data['regionName']}, {data['countryCode']}"
-        return "Location Unknown"
-    except Exception:
-        return "Los Angeles, USA"
+    """
+    IP-based geolocation is intentionally disabled.
+
+    When Streamlit runs on any cloud host (Streamlit Cloud, AWS, GCP, Azure, etc.)
+    ip-api.com resolves the *server's* datacenter IP — not the user's browser IP.
+    This reliably returns the wrong region (e.g. Oregon when the user is in California).
+
+    For GxP 21 CFR Part 11 compliance, a validator should DECLARE their location
+    explicitly rather than have it guessed. Manual entry in the sidebar replaces
+    auto-detection entirely.
+    """
+    return ""
 
 
 _defaults = {
     "authenticated":      False,
     "selected_model":     "Gemini 1.5 Pro",
-    "location":           get_auto_location(),
+    "location":           "",          # set manually in sidebar; never auto-guessed
     "user_name":          "",
     "user_role":          "",
     "last_activity":      None,
@@ -2117,8 +2345,24 @@ def show_app():
         st.divider()
         st.markdown(f'<p class="sidebar-stats">Operator: {user}</p>', unsafe_allow_html=True)
         st.markdown(f'<p class="sidebar-stats">Role: {role}</p>', unsafe_allow_html=True)
-        st.markdown(f'<p class="sidebar-stats">Location: {st.session_state.location}</p>',
-                    unsafe_allow_html=True)
+
+        # GxP Geographic Lock — manual entry required.
+        # IP-based auto-detection is intentionally disabled: cloud servers resolve to
+        # their datacenter region (e.g. Oregon) not the user's actual location.
+        # A validator must declare their location for 21 CFR Part 11 signer traceability.
+        loc_input = st.text_input(
+            "Location",
+            value=st.session_state.location,
+            placeholder="e.g. San Francisco, CA, US",
+            key="location_input",
+            label_visibility="collapsed",
+            help="Enter your physical location for GxP audit trail compliance (21 CFR Part 11)",
+        )
+        # Persist any change immediately
+        if loc_input != st.session_state.location:
+            st.session_state.location = loc_input
+        loc_display = st.session_state.location or "📍 Location not set — enter above"
+        st.markdown(f'<p class="sidebar-stats">📍 {loc_display}</p>', unsafe_allow_html=True)
 
         if st.button("Terminate Session", key="terminate_sidebar", use_container_width=True):
             log_audit(user, "LOGOUT", "SESSION")
@@ -2170,21 +2414,68 @@ def show_app():
     if sop_widget is not None:
         raw_bytes = sop_widget.getvalue()
         if raw_bytes and b'%PDF' in raw_bytes[:1024]:
-            # If a different file is uploaded, clear previous results
-            if st.session_state.sop_file_name != sop_widget.name:
+            new_file = (st.session_state.sop_file_name != sop_widget.name)
+            if new_file:
+                # New file — run Stage 1 heuristic immediately (free, instant)
                 st.session_state.pop("last_result", None)
-            st.session_state.sop_file_bytes = raw_bytes
-            st.session_state.sop_file_name  = sop_widget.name
+                st.session_state.pop("doc_validation_msg", None)
+                try:
+                    pages     = extract_pages(raw_bytes)
+                    sample    = "\n\n".join(pages[:2]).lower() if pages else ""
+                    pos_hits  = [p for p in _URS_POSITIVE if re.search(p, sample, re.IGNORECASE)]
+                    neg_hits  = [p for p in _URS_NEGATIVE if re.search(p, sample, re.IGNORECASE)]
+
+                    if neg_hits:
+                        matched = [p.replace(r'\b','').replace('\\','') for p in neg_hits[:3]]
+                        st.session_state["doc_validation_msg"] = (
+                            "error",
+                            f"⛔ **Document rejected:** non-URS content detected "
+                            f"({', '.join(matched)}). Upload a URS, SRS, or SOP."
+                        )
+                        st.session_state.sop_file_bytes = None
+                        st.session_state.sop_file_name  = None
+                    elif len(pos_hits) < 2:
+                        st.session_state["doc_validation_msg"] = (
+                            "warning",
+                            f"⚠️ **Low URS signal** ({len(pos_hits)} indicator(s) found). "
+                            f"The AI will perform a deeper content check at Run Analysis."
+                        )
+                        st.session_state.sop_file_bytes = raw_bytes
+                        st.session_state.sop_file_name  = sop_widget.name
+                    else:
+                        st.session_state["doc_validation_msg"] = (
+                            "success",
+                            f"✅ **Pre-screen passed** — {len(pos_hits)} URS indicator(s) found. "
+                            f"AI deep-check runs at analysis time."
+                        )
+                        st.session_state.sop_file_bytes = raw_bytes
+                        st.session_state.sop_file_name  = sop_widget.name
+                except Exception:
+                    st.session_state.sop_file_bytes = raw_bytes
+                    st.session_state.sop_file_name  = sop_widget.name
+            else:
+                # Same file retained (e.g. model change rerun)
+                if st.session_state.sop_file_bytes is None:
+                    st.session_state.sop_file_bytes = raw_bytes
         else:
             st.error("⚠️ Uploaded file does not appear to be a valid PDF. Please try again.")
             st.session_state.sop_file_bytes = None
             st.session_state.sop_file_name  = None
     else:
-        # Widget is empty — user removed the file (clicked X) or never uploaded one.
-        # Always clear retained bytes so the banner never shows a stale filename.
         st.session_state.sop_file_bytes = None
         st.session_state.sop_file_name  = None
         st.session_state.pop("last_result", None)
+        st.session_state.pop("doc_validation_msg", None)
+
+    # Show document validation banner
+    val_msg = st.session_state.get("doc_validation_msg")
+    if val_msg:
+        level, msg = val_msg
+        if   level == "error":   st.error(msg)
+        elif level == "warning": st.warning(msg)
+        elif level == "success": st.success(msg)
+
+
 
     is_ready = st.session_state.sop_file_bytes is not None
 
@@ -2202,9 +2493,30 @@ def show_app():
         model_id   = MODELS[st.session_state.selected_model]
         sys_ctx    = st.session_state.get("sys_context_bytes", None)
 
+        # ── Stage 2: LLM document pre-flight ─────────────────────────────────
+        # Stage 1 already ran on upload (heuristic, free). Stage 2 uses the
+        # selected model to confirm this is genuinely a URS/SRS/SOP.
+        # This is the only place an API call is made before the main pipeline.
+        with st.spinner("🔍 Validating document type..."):
+            is_valid_doc, validation_msg = validate_urs_document(file_bytes, model_id)
+
+        if not is_valid_doc:
+            st.error(validation_msg)
+            log_audit(user, "DOCUMENT_REJECTED", "URS_FILE",
+                      new_value=file_name,
+                      reason=f"Document validation failed: {validation_msg[:300]}")
+            st.session_state.sop_file_bytes = None
+            st.session_state.sop_file_name  = None
+            st.session_state["doc_validation_msg"] = (
+                "error",
+                f"⛔ **Document rejected** — not a valid URS/SRS/SOP. "
+                f"Please upload a requirements specification document."
+            )
+            st.stop()
+
         log_audit(user, "ANALYSIS_INITIATED", "URS_FILE",
                   new_value=file_name,
-                  reason=f"Model: {st.session_state.selected_model} | Prompt: {PROMPT_VERSION} | Temp: {TEMPERATURE}")
+                  reason=f"Model: {st.session_state.selected_model} | Prompt: {PROMPT_VERSION} | Temp: {TEMPERATURE} | Validation: {validation_msg[:100]}")
         st.info(f"⚙️ Two-pass analysis started — {st.session_state.selected_model} — chunk size: {CHUNK_SIZE} pages")
 
         progress_bar = st.progress(0)
@@ -2292,16 +2604,32 @@ def show_app():
             )
 
             # Dashboard first so it opens on launch
+            # Gap_Analysis sheet is only included when the LLM detected real gaps.
+            # When empty, gap coverage is already fully represented in the Traceability
+            # Gap_Analysis column and the Det_Validation sheet — a redundant blank sheet
+            # creates confusion during regulatory review.
+            gap_sheet_included = not gap_df.empty
             dataframes = {
                 "Dashboard":      dashboard_df,
                 "URS_Extraction": urs_df,
                 "FRS":            frs_df,
                 "OQ":             oq_df,
                 "Traceability":   trace_df,
-                "Gap_Analysis":   gap_df,
                 "Det_Validation": det_df,
                 "Audit_Log":      audit_df,
             }
+            if gap_sheet_included:
+                # Insert Gap_Analysis before Det_Validation
+                dataframes = {
+                    "Dashboard":      dashboard_df,
+                    "URS_Extraction": urs_df,
+                    "FRS":            frs_df,
+                    "OQ":             oq_df,
+                    "Traceability":   trace_df,
+                    "Gap_Analysis":   gap_df,
+                    "Det_Validation": det_df,
+                    "Audit_Log":      audit_df,
+                }
 
             xlsx_bytes = build_styled_excel(dataframes)
             log_audit(user, "WORKBOOK_EXPORTED", "VALIDATION_PACKAGE",
@@ -2367,9 +2695,11 @@ def show_app():
             )
         if r["gap_count"] > 0:
             st.warning(
-                f"⚠️ Gap Analysis: **{r['gap_count']}** gap(s) flagged "
-                "— see Gap_Analysis tab."
+                f"⚠️ Gap Analysis: **{r['gap_count']}** AI-detected gap(s) "
+                "— see Gap_Analysis tab in the workbook."
             )
+        elif r["det_count"] == 0:
+            st.success("✅ No AI gaps and no deterministic issues. Review Traceability for partial coverage details.")
 
         with st.expander("📋 Preview Generated Sheets", expanded=True):
             for sheet_name, df in r["dataframes"].items():
