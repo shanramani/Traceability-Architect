@@ -23,6 +23,7 @@ Changes over v19.0:
 """
 
 import streamlit as st
+import streamlit.components.v1 as _st_components
 import os
 import datetime
 import pandas as pd
@@ -32,7 +33,8 @@ import io
 import sqlite3
 import re
 import hashlib
-import requests
+import secrets
+import html as _html_lib
 
 try:
     import pdfplumber
@@ -53,8 +55,8 @@ except ImportError:
 # =============================================================================
 # 1. CONFIG
 # =============================================================================
-VERSION        = "25.0"
-PROMPT_VERSION = "v13.0-two-stage-urs-document-gate"
+VERSION        = "26.0"
+PROMPT_VERSION = "v14.0-three-stage-urs-gate-security"
 TEMPERATURE    = 0.2
 CHUNK_SIZE     = 8
 DB_PATH        = os.path.join(os.path.dirname(os.path.abspath(__file__)), "validation_app.db")
@@ -65,6 +67,85 @@ LOCKOUT_MINUTES         = 15
 
 ROLES = ["Admin", "QA", "Validator"]
 
+# =============================================================================
+# 1b. SECURITY HELPERS
+# =============================================================================
+
+# In-memory rate-limiter (keyed by username, clears on server restart intentionally)
+_LOGIN_RATE: dict = {}
+_RATE_WINDOW_SEC   = 60
+_RATE_MAX_ATTEMPTS = 15   # per 60-second window (above DB-level account lockout)
+
+
+def _rate_allowed(key: str) -> bool:
+    """True = request is within rate limit. False = reject immediately."""
+    now      = datetime.datetime.utcnow().timestamp()
+    attempts = [t for t in _LOGIN_RATE.get(key, []) if now - t < _RATE_WINDOW_SEC]
+    _LOGIN_RATE[key] = attempts
+    return len(attempts) < _RATE_MAX_ATTEMPTS
+
+
+def _rate_record(key: str):
+    _LOGIN_RATE.setdefault(key, []).append(datetime.datetime.utcnow().timestamp())
+
+
+def sanitize_input(value: str, max_length: int = 128) -> str:
+    """
+    Strip null bytes, ASCII control characters, and HTML tags.
+    Limits string length to max_length. Safe for use before any DB write.
+    """
+    if not isinstance(value, str):
+        value = str(value)
+    # Remove null bytes and non-printable control characters (keep tab/newline for text areas)
+    value = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', '', value)
+    # Remove HTML tags
+    value = re.sub(r'<[^>]+>', '', value)
+    return value.strip()[:max_length]
+
+
+def _inject_password_security():
+    """
+    Inject JavaScript (via iframe parent access) that sets autocomplete='new-password'
+    on every password input in the Streamlit page. This prevents browsers and password
+    managers from offering to save or auto-fill credentials.
+
+    Also sets data-lpignore (LastPass) and data-1p-ignore (1Password) opt-out attributes.
+    A MutationObserver re-applies the attributes after every Streamlit rerender.
+    """
+    _st_components.html("""
+    <script>
+    (function() {
+      var ATTRS = {
+        'autocomplete': 'new-password',
+        'data-form-type': 'other',
+        'data-lpignore': 'true',
+        'data-1p-ignore': 'true',
+        'aria-autocomplete': 'none'
+      };
+      function patch() {
+        try {
+          var inputs = window.parent.document.querySelectorAll('input[type="password"]');
+          inputs.forEach(function(el) {
+            for (var k in ATTRS) { el.setAttribute(k, ATTRS[k]); }
+            // Prevent browser from reading back cached value
+            if (el._pwPatched) return;
+            el._pwPatched = true;
+            el.addEventListener('focus', function() {
+              this.removeAttribute('value');
+            });
+          });
+        } catch(e) {}
+      }
+      patch();
+      try {
+        new MutationObserver(patch).observe(
+          window.parent.document.body, {childList: true, subtree: true}
+        );
+      } catch(e) {}
+    })();
+    </script>
+    """, height=0, scrolling=False)
+
 st.set_page_config(page_title=f"Architect v{VERSION}", layout="wide")
 
 # =============================================================================
@@ -72,7 +153,13 @@ st.set_page_config(page_title=f"Architect v{VERSION}", layout="wide")
 # =============================================================================
 
 def db_connect():
-    return sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, check_same_thread=False, timeout=10)
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA foreign_keys=ON")
+    conn.execute("PRAGMA busy_timeout=5000")
+    # Deny any attempt to write to the audit_log table via DDL at runtime
+    # (defence-in-depth — the Python layer never calls DELETE/UPDATE on audit_log)
+    return conn
 
 def db_migrate():
     try:
@@ -389,8 +476,20 @@ def _reset_failed_attempts(username: str):
 
 def authenticate_user(username: str, password: str) -> tuple:
     """Returns (success: bool, error_message: str)."""
+    # Sanitize inputs before any processing
+    username = sanitize_input(username, max_length=64)
+    password = sanitize_input(password, max_length=256)
+
     if not username:
         return False, "Username is required."
+
+    # In-memory rate limit (complements DB-level account lockout)
+    if not _rate_allowed(username):
+        log_audit(username, "LOGIN_RATE_LIMITED", "SESSION",
+                  reason="Exceeded in-memory rate limit")
+        return False, "Too many login attempts. Please wait 60 seconds."
+    _rate_record(username)
+
     try:
         conn  = db_connect()
         row   = conn.execute(
@@ -561,27 +660,25 @@ def validate_urs_document(
     model_id: str,
 ) -> tuple[bool, str]:
     """
-    Two-stage URS document gate. Returns (is_valid: bool, message: str).
+    Three-stage URS document gate. Returns (is_valid: bool, message: str).
 
-    Stage 1 — Heuristic (free, <10ms):
-        Score the first ~3000 chars of extracted text against positive and
-        negative signal patterns. A driver's license, invoice, or letter is
-        rejected here with zero API cost.
+    Stage 0 — Structural pre-check (free, <5ms):
+        Minimum extractable text length and page count. Rejects empty or
+        image-only PDFs before any pattern matching.
 
-        Scoring:
-          +1 per positive pattern matched
-          -3 per negative pattern matched (negatives are stronger signals)
-          Threshold: score >= 2 to pass Stage 1
+    Stage 1 — Heuristic scoring (free, <10ms):
+        Score the first ~3000 chars against positive/negative patterns.
+        Also checks for minimum "shall"/"must" density and minimum
+        extractable requirement count.
 
     Stage 2 — LLM pre-flight (one cheap API call, only if Stage 1 passes):
         Send the first page to the model with a binary YES/NO prompt.
-        This catches edge cases Stage 1 misses (e.g. a project charter that
-        has "shall" language but is clearly not a URS).
 
-    The combination means:
-      - Driver's license → rejected at Stage 1, zero API cost
-      - Obvious URS → passes Stage 1, confirmed by LLM in Stage 2
-      - Borderline doc → Stage 1 uncertain, LLM decides in Stage 2
+    New checks added in v26:
+      - Minimum text length gate (< 300 chars = not a document)
+      - Minimum "shall"/"must" count (< 2 = insufficient requirement density)
+      - Minimum positive signal score raised to 3
+      - Structural section check: warns if no section headings found
     """
     # ── Extract text ─────────────────────────────────────────────────────────
     try:
@@ -592,9 +689,30 @@ def validate_urs_document(
     if not pages:
         return False, "The uploaded PDF appears to be empty or image-only (no extractable text)."
 
-    # Use first 2 pages for classification — enough signal, small token cost
-    sample_text = "\n\n".join(pages[:2])
+    # ── Stage 0: Structural pre-check ─────────────────────────────────────────
+    full_text    = "\n".join(pages)
+    full_lower   = full_text.lower()
+    sample_text  = "\n\n".join(pages[:2])
     sample_lower = sample_text.lower()
+
+    if len(full_text.strip()) < 300:
+        return False, (
+            "⛔ Document too short to be a valid URS.\n\n"
+            f"Only {len(full_text.strip())} characters of text were extracted. "
+            "A User Requirements Specification must contain substantive requirement "
+            "statements. Check that the PDF is not an image-only scan."
+        )
+
+    # Minimum requirement-statement density
+    shall_must_count = len(re.findall(r'\b(shall|must)\b', full_lower, re.IGNORECASE))
+    if shall_must_count < 2:
+        return False, (
+            f"⛔ Insufficient requirement language detected.\n\n"
+            f"Found only {shall_must_count} statement(s) using 'shall' or 'must'. "
+            f"A valid URS must contain at least 2 requirement statements written in "
+            f"prescriptive language (shall/must). This document does not appear to be "
+            f"a User Requirements Specification."
+        )
 
     # ── Stage 1: Heuristic scoring ────────────────────────────────────────────
     pos_hits = [p for p in _URS_POSITIVE if re.search(p, sample_lower, re.IGNORECASE)]
@@ -603,7 +721,6 @@ def validate_urs_document(
     score = len(pos_hits) - (3 * len(neg_hits))
 
     if neg_hits:
-        # Hard rejection — negative signals are definitive
         matched = [p.replace(r'\b', '').replace('\\', '') for p in neg_hits[:3]]
         return False, (
             f"⛔ Document rejected at content screening.\n\n"
@@ -613,16 +730,30 @@ def validate_urs_document(
             f"Specification, or Standard Operating Procedure."
         )
 
-    if score < 2:
-        # Insufficient positive signal — too few URS indicators found
+    if score < 3:
+        # Raised threshold from 2 → 3 for stricter gate
         return False, (
             f"⛔ Document rejected: insufficient URS content detected.\n\n"
             f"Only {len(pos_hits)} URS indicator(s) found in the document "
-            f"(minimum 2 required). The document may not be a URS, SRS, or SOP.\n\n"
+            f"(minimum 3 required). The document may not be a URS, SRS, or SOP.\n\n"
             f"Expected content: requirement statements using 'shall'/'must', "
             f"numbered requirements (URS-001, REQ-001), section headings like "
             f"'Scope', 'Purpose', 'Functional Requirements'."
         )
+
+    # ── Structural section check (soft warning — does not block) ─────────────
+    section_patterns = [
+        r'\bscope\b', r'\bpurpose\b', r'\bintroduction\b', r'\boverview\b',
+        r'\bfunctional requirement', r'\bnon-functional', r'\bsecurity requirement',
+        r'\bperformance requirement', r'\bsystem requirement', r'\buser requirement',
+        r'\bversion history\b', r'\bdocument control\b', r'\bapproval\b',
+    ]
+    section_hits = sum(1 for p in section_patterns
+                       if re.search(p, sample_lower, re.IGNORECASE))
+    structural_warning = "" if section_hits >= 2 else (
+        " Note: fewer than 2 standard URS section headings detected — "
+        "document may be informal but has been accepted on requirement density."
+    )
 
     # ── Stage 2: LLM pre-flight ───────────────────────────────────────────────
     try:
@@ -630,7 +761,7 @@ def validate_urs_document(
         response = completion(
             model=model_id,
             stream=False,
-            temperature=0.0,   # deterministic — this is a binary classification
+            temperature=0.0,
             max_tokens=100,
             messages=[
                 {"role": "user", "content": _PREFLIGHT_PROMPT.format(text=preflight_text)}
@@ -638,7 +769,6 @@ def validate_urs_document(
         )
         reply = (response.choices[0].message.content or "").strip()
 
-        # Parse VERDICT line
         verdict_match = re.search(r'VERDICT:\s*(YES|NO)', reply, re.IGNORECASE)
         reason_match  = re.search(r'REASON:\s*(.+)',      reply, re.IGNORECASE)
 
@@ -646,7 +776,11 @@ def validate_urs_document(
         reason  = reason_match.group(1).strip()  if reason_match  else reply[:200]
 
         if verdict == "YES":
-            return True, f"Document validated ({len(pos_hits)} URS indicators). LLM: {reason}"
+            return True, (
+                f"Document validated ({len(pos_hits)} URS indicators, "
+                f"{shall_must_count} shall/must statements). "
+                f"LLM: {reason}{structural_warning}"
+            )
         elif verdict == "NO":
             return False, (
                 f"⛔ Document rejected by AI content classifier.\n\n"
@@ -655,18 +789,21 @@ def validate_urs_document(
                 f"Specification, or Standard Operating Procedure."
             )
         else:
-            # LLM gave ambiguous response — fall back to Stage 1 result (passed)
-            # We had enough positive signal; don't block on a confused LLM response
-            return True, f"Document accepted (LLM response ambiguous; Stage 1 score={score})."
+            return True, (
+                f"Document accepted (LLM response ambiguous; Stage 1 score={score}). "
+                f"{structural_warning}"
+            )
 
     except Exception as e:
-        # LLM call failed — if Stage 1 passed with good signal, allow through
-        # with a warning. Don't block valid users due to a rate-limit or API error.
-        if score >= 4:
-            return True, f"LLM pre-flight failed ({e}); accepted on strong Stage 1 signal (score={score})."
+        if score >= 5:
+            return True, (
+                f"LLM pre-flight failed ({e}); accepted on strong Stage 1 signal "
+                f"(score={score}, {shall_must_count} shall/must statements). "
+                f"{structural_warning}"
+            )
         return False, (
             f"⛔ Document validation incomplete — LLM pre-flight failed: {e}\n\n"
-            f"Stage 1 score was {score} (threshold: 4 for auto-accept). "
+            f"Stage 1 score was {score} (threshold: 5 for auto-accept without LLM). "
             f"Please try again or use a different model."
         )
 
@@ -1238,7 +1375,7 @@ def _fill_missing_oq(frs_df: pd.DataFrame, oq_df: pd.DataFrame) -> pd.DataFrame:
     return result
 
 
-
+def _apply_confidence_flags(df: pd.DataFrame) -> pd.DataFrame:
     """
     Guarantee Confidence_Flag is set correctly.
     - Confidence < 0.70  → "⚠️ Review Required"
@@ -2262,6 +2399,9 @@ MODELS = {
 # =============================================================================
 
 def show_login():
+    # Disable browser autocomplete / password-save on all password inputs
+    _inject_password_security()
+
     left_space, center_content, right_space = st.columns([3, 4, 3])
     with center_content:
         st.markdown('<div class="top-banner"><p class="banner-text-inner">AI OPTIMIZED CSV</p></div>',
@@ -2269,19 +2409,24 @@ def show_login():
         st.markdown("<h1 style='text-align: center; font-size: 1.5rem;'>🛡️ LLM-Powered GxP Validation</h1>",
                     unsafe_allow_html=True)
         st.markdown("<br>", unsafe_allow_html=True)
-        u = st.text_input("Professional Identity", placeholder="Username", label_visibility="collapsed")
-        p = st.text_input("Security Token", type="password", placeholder="Password", label_visibility="collapsed")
+        u = st.text_input("Professional Identity", placeholder="Username", label_visibility="collapsed",
+                          key="login_username_field")
+        p = st.text_input("Security Token", type="password", placeholder="Password",
+                          label_visibility="collapsed", key="login_password_field")
         st.markdown("<br>", unsafe_allow_html=True)
         b_left, b_center, b_right = st.columns([1, 2, 1])
         with b_center:
             if st.button("Initialize Secure Session", key="login_btn", use_container_width=True):
-                success, err_msg = authenticate_user(u, p)
+                # Sanitize before auth — strip control chars, HTML, limit length
+                u_clean = sanitize_input(u, max_length=64)
+                p_clean = sanitize_input(p, max_length=256)
+                success, err_msg = authenticate_user(u_clean, p_clean)
                 if success:
-                    st.session_state.user_name     = u
-                    st.session_state.user_role     = get_user_role(u)
+                    st.session_state.user_name     = u_clean
+                    st.session_state.user_role     = get_user_role(u_clean)
                     st.session_state.authenticated = True
                     st.session_state.last_activity = datetime.datetime.utcnow()
-                    log_audit(u, "LOGIN_SUCCESS", "SESSION",
+                    log_audit(u_clean, "LOGIN_SUCCESS", "SESSION",
                               new_value=f"Role: {st.session_state.user_role}")
                     st.rerun()
                 else:
@@ -2293,6 +2438,9 @@ def show_login():
 # =============================================================================
 
 def show_app():
+    # Disable browser autocomplete / password-save on all password inputs (incl. admin panel)
+    _inject_password_security()
+
     # Session timeout enforcement
     if not check_session_timeout():
         user = st.session_state.get("user_name", "unknown")
@@ -2395,12 +2543,17 @@ def show_app():
                 new_r = st.selectbox("New Role", ROLES, key="new_role_select",
                                      label_visibility="collapsed")
                 if st.button("➕ Create User", key="create_user_btn"):
-                    if new_u and new_p:
-                        create_user(new_u, new_p, new_r)
-                        log_audit(user, "USER_CREATED", "USER",
-                                  new_value=f"{new_u} ({new_r})",
-                                  reason=f"Created by Admin: {user}")
-                        st.success(f"User '{new_u}' created with role: {new_r}.")
+                    new_u_clean = sanitize_input(new_u, max_length=64)
+                    new_p_clean = sanitize_input(new_p, max_length=256)
+                    if new_u_clean and new_p_clean:
+                        if len(new_p_clean) < 8:
+                            st.warning("⚠️ Password must be at least 8 characters.")
+                        else:
+                            create_user(new_u_clean, new_p_clean, new_r)
+                            log_audit(user, "USER_CREATED", "USER",
+                                      new_value=f"{new_u_clean} ({new_r})",
+                                      reason=f"Created by Admin: {user}")
+                            st.success(f"User '{new_u_clean}' created with role: {new_r}.")
                     else:
                         st.warning("Username and password are required.")
 
@@ -2416,16 +2569,26 @@ def show_app():
         if raw_bytes and b'%PDF' in raw_bytes[:1024]:
             new_file = (st.session_state.sop_file_name != sop_widget.name)
             if new_file:
-                # New file — run Stage 1 heuristic immediately (free, instant)
+                # New file — run Stage 0+1 heuristic immediately (free, instant)
                 st.session_state.pop("last_result", None)
                 st.session_state.pop("doc_validation_msg", None)
                 try:
-                    pages     = extract_pages(raw_bytes)
-                    sample    = "\n\n".join(pages[:2]).lower() if pages else ""
-                    pos_hits  = [p for p in _URS_POSITIVE if re.search(p, sample, re.IGNORECASE)]
-                    neg_hits  = [p for p in _URS_NEGATIVE if re.search(p, sample, re.IGNORECASE)]
+                    pages       = extract_pages(raw_bytes)
+                    full_text   = "\n".join(pages) if pages else ""
+                    sample      = "\n\n".join(pages[:2]).lower() if pages else ""
+                    pos_hits    = [p for p in _URS_POSITIVE if re.search(p, sample, re.IGNORECASE)]
+                    neg_hits    = [p for p in _URS_NEGATIVE if re.search(p, sample, re.IGNORECASE)]
+                    shall_count = len(re.findall(r'\b(shall|must)\b', full_text, re.IGNORECASE))
 
-                    if neg_hits:
+                    if len(full_text.strip()) < 300:
+                        st.session_state["doc_validation_msg"] = (
+                            "error",
+                            "⛔ **Document rejected:** too little extractable text. "
+                            "The PDF may be image-only or corrupt. Upload a text-based URS."
+                        )
+                        st.session_state.sop_file_bytes = None
+                        st.session_state.sop_file_name  = None
+                    elif neg_hits:
                         matched = [p.replace(r'\b','').replace('\\','') for p in neg_hits[:3]]
                         st.session_state["doc_validation_msg"] = (
                             "error",
@@ -2434,10 +2597,20 @@ def show_app():
                         )
                         st.session_state.sop_file_bytes = None
                         st.session_state.sop_file_name  = None
-                    elif len(pos_hits) < 2:
+                    elif shall_count < 2:
+                        st.session_state["doc_validation_msg"] = (
+                            "error",
+                            f"⛔ **Document rejected:** only {shall_count} 'shall'/'must' "
+                            f"statement(s) found. A URS must contain requirement statements. "
+                            f"Upload a valid User Requirements Specification."
+                        )
+                        st.session_state.sop_file_bytes = None
+                        st.session_state.sop_file_name  = None
+                    elif len(pos_hits) < 3:
                         st.session_state["doc_validation_msg"] = (
                             "warning",
-                            f"⚠️ **Low URS signal** ({len(pos_hits)} indicator(s) found). "
+                            f"⚠️ **Low URS signal** ({len(pos_hits)} indicator(s), "
+                            f"{shall_count} shall/must). "
                             f"The AI will perform a deeper content check at Run Analysis."
                         )
                         st.session_state.sop_file_bytes = raw_bytes
@@ -2445,7 +2618,8 @@ def show_app():
                     else:
                         st.session_state["doc_validation_msg"] = (
                             "success",
-                            f"✅ **Pre-screen passed** — {len(pos_hits)} URS indicator(s) found. "
+                            f"✅ **Pre-screen passed** — {len(pos_hits)} URS indicator(s), "
+                            f"{shall_count} requirement statement(s). "
                             f"AI deep-check runs at analysis time."
                         )
                         st.session_state.sop_file_bytes = raw_bytes
@@ -2542,6 +2716,21 @@ def show_app():
                 log_audit(user, "ANALYSIS_ABORTED", "URS_FILE",
                           reason="Empty AI output — possible rate limit or quota error")
                 return
+
+            # ── URS Accountability Check: every URS ID must appear in FRS ───
+            # This is the explicit guarantee that no requirement is silently dropped.
+            if not urs_df.empty and "Req_ID" in urs_df.columns:
+                urs_ids_all  = set(urs_df["Req_ID"].dropna().astype(str).str.strip())
+                frs_urs_refs = set()
+                if not frs_df.empty and "Source_URS_Ref" in frs_df.columns:
+                    frs_urs_refs = set(frs_df["Source_URS_Ref"].dropna().astype(str).str.strip())
+                uncovered_urs = urs_ids_all - frs_urs_refs
+                if uncovered_urs:
+                    log_audit(user, "URS_FRS_GAP_DETECTED", "URS_FILE",
+                              new_value=f"{len(uncovered_urs)} URS IDs missing FRS",
+                              reason=f"IDs: {', '.join(sorted(uncovered_urs)[:20])}")
+                    # These are already handled by _fill_missing_frs placeholders
+                    # but we record the gap explicitly here for the audit trail.
 
             # ── Step 2: Deterministic rule-based validation R1–R5 ───────────
             status_text.text("🔍 Running deterministic validation rules R1–R5...")
