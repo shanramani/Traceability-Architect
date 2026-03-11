@@ -1,29 +1,24 @@
 """
-Validation Doc Assist — v19.0
+Validation Doc Assist — v20.0
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Changes over v18.1:
-  BUG FIXES (commercial-quality):
-  1. FRS ID COLUMN FIX       — Post-process renumber: every FRS row
-                               gets a clean FRS-001, FRS-002 ID.
-                               The LLM is now told to emit IDs on a
-                               SEPARATE column, never inside the
-                               description. Prompt tightened.
-  2. CONFIDENCE FLAG FIX     — _apply_confidence_flags now correctly
-                               casts float/None, writes "⚠️ Review
-                               Required" for < 0.70, blank otherwise.
-                               None values never reach Excel.
-  3. ROBUST CSV PARSER       — _safe_parse_chunk replaced with
-                               _robust_split_datasets() which finds
-                               the four dataset boundaries by matching
-                               known header lines (not ||| splitting
-                               which breaks when LLM embeds newlines
-                               in quoted fields). OQ/Traceability/
-                               Gap_Analysis now populate correctly.
-  4. PROMPT HARDENING        — Multi-line values in OQ Test_Step,
-                               Expected_Result are now explicitly
-                               forbidden (single-line only). The
-                               ||| separator is the only valid
-                               boundary token.
+Changes over v19.0:
+  ROOT CAUSE FIX — Phantom Test_ID in Traceability:
+  1. PYTHON-OWNED TRACEABILITY  — LLM no longer generates the
+                                   Traceability dataset at all.
+                                   _build_traceability() rebuilds
+                                   it from actual OQ rows only.
+                                   If OQ-004 doesn't exist in the
+                                   OQ sheet, it CANNOT appear as
+                                   "Covered" in Traceability.
+  2. PASS 2 NOW 3 DATASETS      — FRS, OQ, Gap_Analysis only.
+                                   Traceability dataset removed
+                                   from prompt entirely.
+  3. COVERAGE_STATUS GUARANTEED — Covered / Partial / Not Covered
+                                   set by Python cross-reference,
+                                   never by LLM claim.
+  4. DASHBOARD + METRICS        — All coverage stats now read from
+                                   Python-built Traceability sheet,
+                                   not from OQ.Requirement_Link.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 """
 
@@ -650,8 +645,11 @@ CRITICAL OUTPUT RULES — MUST FOLLOW OR THE FILE WILL BE CORRUPT:
    The ID is NEVER a sentence. If you are writing more than 8 characters in the ID
    column, you are putting the description in the wrong column.
 
-TASK: Generate exactly 4 CSV datasets separated by |||.
+TASK: Generate exactly 3 CSV datasets separated by |||.
 Output ONLY raw CSV rows — include the header row in EVERY dataset.
+
+NOTE: Do NOT generate a Traceability dataset. Traceability is computed by the
+application after your output is validated. Your job is FRS, OQ, and Gap only.
 
 Dataset 1 (FRS): ID,Requirement_Description,Priority,Risk,GxP_Impact,Source_URS_Ref,Source_Text,Source_Page,Confidence,Confidence_Flag
   - ID: short code only — FRS-001, FRS-002, FRS-003. Max 7 characters. NEVER a sentence.
@@ -681,15 +679,9 @@ Dataset 2 (OQ): Test_ID,Requirement_Link,Requirement_Link_Type,Test_Step,Expecte
   - Confidence_Flag: "Review Required" if Confidence < 0.70, else blank
   - Rule: High-Risk FRS → ≥3 OQ rows. Medium → ≥2. Low → ≥1.
 
-Dataset 3 (Traceability): URS_Req_ID,FRS_Ref,Test_ID,Coverage_Status,Gap_Analysis
-  - FRS_Ref: FRS-NNN only (never a URS ID, never a sentence)
-  - Coverage_Status: Covered / Partial / Not Covered
-  - If no test: leave Test_ID blank; Gap_Analysis must start with [GAP]
-  - If partial: Gap_Analysis must start with [PARTIAL GAP]
-
-Dataset 4 (Gap_Analysis): Req_ID,Gap_Type,Description,Recommendation,Severity
+Dataset 3 (Gap_Analysis): Req_ID,Gap_Type,Description,Recommendation,Severity
   - Gap_Type: Untestable / No_Test_Coverage / Orphan_Test / Ambiguous / Duplicate
-  - Only include rows where a gap exists.
+  - Only include rows where a gap exists in the URS requirements themselves.
   - Severity: Critical / High / Medium / Low
   - Description and Recommendation: single line each
 
@@ -709,9 +701,7 @@ _PASS2_HEADERS = [
     r"^ID[,\t]Requirement_Description",
     # Dataset 2 — OQ
     r"^Test_ID[,\t]Requirement_Link",
-    # Dataset 3 — Traceability
-    r"^URS_Req_ID[,\t]FRS_Ref",
-    # Dataset 4 — Gap_Analysis
+    # Dataset 3 — Gap_Analysis (LLM-detected URS-level gaps only)
     r"^Req_ID[,\t]Gap_Type",
 ]
 
@@ -950,7 +940,7 @@ def run_segmented_analysis(
     status_text.text("✅ Pass 1 complete — structured URS table built. Running Pass 2...")
 
     # ── PASS 2: Generate FRS / OQ / Traceability / Gap from URS table ────────
-    frs_frames, oq_frames, trace_frames, gap_frames = [], [], [], []
+    frs_frames, oq_frames, gap_frames = [], [], []
 
     if urs_final.empty:
         st.warning("⚠️ No URS requirements extracted in Pass 1. Pass 2 skipped.")
@@ -986,13 +976,12 @@ def run_segmented_analysis(
                 st.warning(f"⚠️ Pass 2 batch {p2_idx+1} failed ({e}) — skipping.")
                 continue
 
-            # ── Robust split by header detection ────────────────────────
+            # ── Robust split by header detection (3 datasets) ───────────
             sections = _robust_split_datasets(raw_p2, _PASS2_HEADERS)
-            frs_csv, oq_csv, trace_csv, gap_csv = sections[0], sections[1], sections[2], sections[3]
+            frs_csv, oq_csv, gap_csv = sections[0], sections[1], sections[2]
             for frames, csv_text in [
                 (frs_frames,   frs_csv),
                 (oq_frames,    oq_csv),
-                (trace_frames, trace_csv),
                 (gap_frames,   gap_csv),
             ]:
                 df = _csv_to_df(csv_text)
@@ -1004,7 +993,6 @@ def run_segmented_analysis(
 
     frs_final   = _combine(frs_frames)
     oq_final    = _combine(oq_frames)
-    trace_final = _combine(trace_frames)
     gap_final   = _combine(gap_frames)
 
     # ── Post-processing: ID normalisation ────────────────────────────────────
@@ -1020,23 +1008,88 @@ def run_segmented_analysis(
     urs_final = _apply_confidence_flags(urs_final)
 
     # ── Post-processing: fill all NaN with "" for clean Excel output ─────────
-    for df in [frs_final, oq_final, trace_final, gap_final, urs_final]:
+    for df in [frs_final, oq_final, gap_final, urs_final]:
         df.fillna("", inplace=True)
 
-    # ── Python-enforced [GAP] prefix on trace rows with no test ──────────────
-    if (not trace_final.empty
-            and "Gap_Analysis" in trace_final.columns
-            and "Test_ID" in trace_final.columns):
-        mask = (trace_final["Test_ID"].isna()
-                | (trace_final["Test_ID"].astype(str).str.strip() == ""))
-        trace_final.loc[mask, "Gap_Analysis"] = trace_final.loc[mask, "Gap_Analysis"].apply(
-            lambda v: v if str(v).startswith("[GAP]") else f"[GAP] {v}"
-        )
+    # ── CRITICAL: Rebuild Traceability entirely in Python ─────────────────────
+    # The LLM's traceability output is DISCARDED. We cross-reference the actual
+    # OQ rows that exist against the actual FRS rows. This makes it structurally
+    # impossible for a phantom Test_ID (one the LLM invented but never generated)
+    # to appear as "Covered".
+    trace_final = _build_traceability(urs_final, frs_final, oq_final)
 
     progress_bar.progress(1.0)
     status_text.text("✅ All segments processed — compiling workbook...")
 
     return urs_final, frs_final, oq_final, trace_final, gap_final
+
+
+def _build_traceability(urs_df: pd.DataFrame,
+                        frs_df: pd.DataFrame,
+                        oq_df:  pd.DataFrame) -> pd.DataFrame:
+    """
+    Rebuild the Traceability Matrix purely from Python.
+    LLM traceability output is never used — only actual FRS and OQ rows count.
+
+    Logic per FRS row:
+      - Find every OQ row where Requirement_Link == FRS-NNN
+      - Real tests found  → Covered / Partial (based on risk test-count rule)
+      - Zero real tests   → Not Covered  + [GAP]
+
+    URS_Req_ID is carried from the FRS Source_URS_Ref column.
+    """
+    if frs_df.empty:
+        return pd.DataFrame(columns=[
+            "URS_Req_ID", "FRS_Ref", "Test_IDs", "Test_Count",
+            "Coverage_Status", "Gap_Analysis"
+        ])
+
+    # Build a lookup: FRS_ID → list of real OQ Test_IDs that link to it
+    oq_map: dict = {}   # FRS_ID → [OQ_ID, ...]
+    if not oq_df.empty and "Requirement_Link" in oq_df.columns and "Test_ID" in oq_df.columns:
+        for _, row in oq_df.iterrows():
+            link    = str(row.get("Requirement_Link", "")).strip()
+            test_id = str(row.get("Test_ID", "")).strip()
+            if link and test_id:
+                oq_map.setdefault(link, []).append(test_id)
+
+    # Risk thresholds — must match deterministic engine
+    MIN_TESTS = {"high": 3, "medium": 2, "low": 1}
+
+    rows = []
+    for _, frs_row in frs_df.iterrows():
+        frs_id   = str(frs_row.get("ID", "")).strip()
+        urs_ref  = str(frs_row.get("Source_URS_Ref", "")).strip()
+        risk     = str(frs_row.get("Risk", "low")).strip().lower()
+        min_req  = MIN_TESTS.get(risk, 1)
+
+        real_tests = oq_map.get(frs_id, [])
+        count      = len(real_tests)
+        test_str   = "; ".join(sorted(real_tests)) if real_tests else ""
+
+        if count == 0:
+            status   = "Not Covered"
+            gap      = f"[GAP] FRS {frs_id} has no OQ test case. 0/{min_req} tests for {risk.title()} risk."
+        elif count < min_req:
+            status   = "Partial"
+            gap      = (f"[PARTIAL GAP] FRS {frs_id} has {count}/{min_req} tests required "
+                        f"for {risk.title()} risk level.")
+        else:
+            status   = "Covered"
+            gap      = ""
+
+        rows.append({
+            "URS_Req_ID":       urs_ref or "—",
+            "FRS_Ref":          frs_id,
+            "Test_IDs":         test_str,
+            "Test_Count":       str(count),
+            "Coverage_Status":  status,
+            "Gap_Analysis":     gap,
+        })
+
+    result = pd.DataFrame(rows)
+    result.fillna("", inplace=True)
+    return result
 
 
 # =============================================================================
@@ -1099,6 +1152,7 @@ def run_deterministic_validation(
             oq_test_ids = set(oq_df["Test_ID"].dropna().astype(str).str.strip())
 
     # ── R1: FRS req without any OQ test ──────────────────────────────────────
+    # Source of truth is the actual OQ rows — never the traceability matrix.
     for frs_id in sorted(frs_ids):
         if frs_id not in oq_req_links:
             issues.append({
@@ -1109,11 +1163,8 @@ def run_deterministic_validation(
                 "Recommendation":  "Create at least one OQ test case for this FRS requirement.",
                 "Severity":        "High",
             })
-            if not trace_df.empty and "FRS_Ref" in trace_df.columns:
-                mask = (trace_df["FRS_Ref"].astype(str).str.strip() == frs_id)
-                no_test = mask & (trace_df["Test_ID"].isna() |
-                                  (trace_df["Test_ID"].astype(str).str.strip() == ""))
-                trace_df.loc[no_test, "Gap_Analysis"] = "[GAP] R1: No test coverage (deterministic)"
+            # Traceability is Python-built; Coverage_Status is already "Not Covered".
+            # No mutation needed here — _build_traceability already set [GAP].
 
     # ── R2: Orphan OQ tests ───────────────────────────────────────────────────
     if not oq_df.empty and "Requirement_Link" in oq_df.columns:
@@ -1336,11 +1387,10 @@ def build_dashboard_sheet(frs_df: pd.DataFrame, oq_df: pd.DataFrame,
     total_reqs  = len(frs_df) if not frs_df.empty else 0
     total_tests = len(oq_df)  if not oq_df.empty  else 0
 
-    # Coverage: requirements that have at least one OQ test
+    # Coverage: from Python-built traceability — the only reliable source
     covered = 0
-    if not frs_df.empty and not oq_df.empty and "Requirement_Link" in oq_df.columns and "ID" in frs_df.columns:
-        linked = set(oq_df["Requirement_Link"].dropna().astype(str).str.strip())
-        covered = sum(1 for r in frs_df["ID"].dropna().astype(str).str.strip() if r in linked)
+    if not trace_df.empty and "Coverage_Status" in trace_df.columns:
+        covered = int((trace_df["Coverage_Status"] == "Covered").sum())
     coverage_pct = round((covered / total_reqs * 100), 1) if total_reqs > 0 else 0.0
 
     # Gap counts
@@ -1917,10 +1967,10 @@ def show_app():
             col1, col2, col3, col4, col5 = st.columns(5)
             total_reqs  = len(frs_df)
             total_tests = len(oq_df)
+            # Coverage from Python-built traceability — the only reliable source
             covered = 0
-            if not frs_df.empty and not oq_df.empty and "Requirement_Link" in oq_df.columns and "ID" in frs_df.columns:
-                linked  = set(oq_df["Requirement_Link"].dropna().astype(str).str.strip())
-                covered = sum(1 for r in frs_df["ID"].dropna().astype(str).str.strip() if r in linked)
+            if not trace_df.empty and "Coverage_Status" in trace_df.columns:
+                covered = int((trace_df["Coverage_Status"] == "Covered").sum())
             cov_pct = round(covered / total_reqs * 100, 1) if total_reqs > 0 else 0
 
             col1.metric("📄 URS Requirements", len(urs_df))
