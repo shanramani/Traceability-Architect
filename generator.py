@@ -53,7 +53,7 @@ except ImportError:
 # =============================================================================
 # 1. CONFIG
 # =============================================================================
-VERSION        = "22.1"
+VERSION        = "22.0"
 PROMPT_VERSION = "v10.0-completeness-enforced-na-clean"
 TEMPERATURE    = 0.2
 CHUNK_SIZE     = 8
