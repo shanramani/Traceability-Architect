@@ -2078,6 +2078,13 @@ def show_app():
             status_text.empty()
             progress_bar.empty()
 
+            # ── Compute coverage metrics for session state ────────────────────
+            covered = 0
+            if not trace_df.empty and "Coverage_Status" in trace_df.columns:
+                covered = int((trace_df["Coverage_Status"] == "Covered").sum())
+            total_reqs = len(frs_df)
+            cov_pct    = round(covered / total_reqs * 100, 1) if total_reqs > 0 else 0.0
+
             # ── Persist to session state so download button rerun doesn't clear ──
             st.session_state["last_result"] = {
                 "xlsx_bytes":   xlsx_bytes,
