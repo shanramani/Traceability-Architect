@@ -55,8 +55,8 @@ except ImportError:
 # =============================================================================
 # 1. CONFIG
 # =============================================================================
-VERSION        = "27.0"
-PROMPT_VERSION = "v15.0-failstop-no-location-syscontext"
+VERSION        = "28.0"
+PROMPT_VERSION = "v16.0-chain-of-custody-hitl-labels"
 TEMPERATURE    = 0.2
 CHUNK_SIZE     = 8
 DB_PATH        = os.path.join(os.path.dirname(os.path.abspath(__file__)), "validation_app.db")
@@ -1268,7 +1268,7 @@ def _fill_missing_frs(urs_df: pd.DataFrame, frs_df: pd.DataFrame) -> pd.DataFram
             frs_id = f"FRS-{next_n:03d}"
             placeholders.append({
                 "ID":                      frs_id,
-                "Requirement_Description": f"[AI SKIPPED — MANUAL REVIEW REQUIRED] "
+                "Requirement_Description": f"[HUMAN-IN-THE-LOOP SAFEGUARD — MANUAL REVIEW REQUIRED] "
                                            f"No FRS was generated for URS requirement: '{desc}'. "
                                            f"Please define the engineering implementation.",
                 "Priority":                "N/A",
@@ -1370,7 +1370,7 @@ def _fill_missing_oq(frs_df: pd.DataFrame, oq_df: pd.DataFrame) -> pd.DataFrame:
                 "Requirement_Link":      fid,
                 "Requirement_Link_Type": "FRS",
                 "Test_Step":             (
-                    f"[AI SKIPPED — MANUAL REVIEW REQUIRED] "
+                    f"[HUMAN-IN-THE-LOOP SAFEGUARD — MANUAL REVIEW REQUIRED] "
                     f"No OQ test was generated for {fid}: '{desc}'. "
                     f"Write executable test steps for this requirement."
                 ),
@@ -2034,11 +2034,24 @@ def build_audit_log_sheet(user: str, file_name: str, model_name: str,
                           frs_df: pd.DataFrame, oq_df: pd.DataFrame,
                           gap_df: pd.DataFrame, det_df: pd.DataFrame,
                           version_frs: int, version_oq: int,
-                          doc_ids: str = "") -> pd.DataFrame:
+                          doc_ids: str = "",
+                          sys_context_name: str = "") -> pd.DataFrame:
     now_str   = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
     role      = get_user_role(user)
     gap_count = len(gap_df) if not gap_df.empty else 0
     det_count = len(det_df) if not det_df.empty else 0
+
+    urs_entry = {
+        "Event":            "DOCUMENT_UPLOADED",
+        "User":             user,
+        "Role":             role,
+        "Timestamp":        now_str,
+        "Object_Changed":   "URS/SOP",
+        "Old_Value":        "",
+        "New_Value":        file_name,
+        "Reason":           "URS file submitted for analysis",
+        "AI_Metadata":      "",
+    }
 
     rows = [
         {
@@ -2052,17 +2065,24 @@ def build_audit_log_sheet(user: str, file_name: str, model_name: str,
             "Reason":           "User authenticated successfully",
             "AI_Metadata":      "",
         },
-        {
-            "Event":            "DOCUMENT_UPLOADED",
+        urs_entry,
+    ]
+
+    # Chain-of-Custody: record User Guide if one was provided
+    if sys_context_name:
+        rows.append({
+            "Event":            "SYSCONTEXT_UPLOADED",
             "User":             user,
             "Role":             role,
             "Timestamp":        now_str,
-            "Object_Changed":   "URS/SOP",
+            "Object_Changed":   "USER_GUIDE",
             "Old_Value":        "",
-            "New_Value":        file_name,
-            "Reason":           "URS file submitted for analysis",
-            "AI_Metadata":      "",
-        },
+            "New_Value":        sys_context_name,
+            "Reason":           "System User Guide injected as Reference Material for FRS/OQ generation",
+            "AI_Metadata":      f"guide_file={sys_context_name}",
+        })
+
+    rows += [
         {
             "Event":            "AI_ANALYSIS_INITIATED",
             "User":             user,
@@ -2071,9 +2091,11 @@ def build_audit_log_sheet(user: str, file_name: str, model_name: str,
             "Object_Changed":   "ANALYSIS_ENGINE",
             "Old_Value":        "",
             "New_Value":        f"Model: {model_name} | Prompt: {PROMPT_VERSION} | Temp: {TEMPERATURE}",
-            "Reason":           "GAMP-5 segmented analysis started",
+            "Reason":           "GAMP-5 segmented analysis started"
+                                + (f" with User Guide: {sys_context_name}" if sys_context_name else ""),
             "AI_Metadata":      f"prompt_version={PROMPT_VERSION} | model={model_name} | "
-                                f"temperature={TEMPERATURE} | doc_ids={doc_ids}",
+                                f"temperature={TEMPERATURE} | doc_ids={doc_ids}"
+                                + (f" | guide={sys_context_name}" if sys_context_name else ""),
         },
         {
             "Event":            "FRS_GENERATED",
@@ -2083,7 +2105,8 @@ def build_audit_log_sheet(user: str, file_name: str, model_name: str,
             "Object_Changed":   f"FRS v{version_frs}.0",
             "Old_Value":        f"v{version_frs - 1}.0" if version_frs > 1 else "N/A",
             "New_Value":        f"v{version_frs}.0 — {len(frs_df)} requirements",
-            "Reason":           "Functional requirements derived from URS + user guide",
+            "Reason":           "Functional requirements derived from URS"
+                                + (f" + {sys_context_name}" if sys_context_name else ""),
             "AI_Metadata":      f"model={model_name} | prompt={PROMPT_VERSION} | temp={TEMPERATURE}",
         },
         {
@@ -2181,9 +2204,9 @@ def build_dashboard_sheet(frs_df: pd.DataFrame, oq_df: pd.DataFrame,
         {"KPI": "✅ Fully Covered (all tests met)",    "Value": covered,               "Status": "N/A"},
         {"KPI": "🔶 Partially Covered (some tests)",   "Value": partial,               "Status": "See Traceability sheet"},
         {"KPI": "❌ Not Covered / Missing FRS",         "Value": missing,               "Status": "Immediate action required"},
-        {"KPI": "📊 Coverage % (Covered+Partial)",     "Value": f"{coverage_pct}%",
+        {"KPI": "📊 Basic Traceability % (Any Test Exists)",   "Value": f"{coverage_pct}%",
          "Status": "✅ PASS" if coverage_pct >= 80 else ("⚠️ REVIEW" if coverage_pct >= 60 else "❌ FAIL")},
-        {"KPI": "📊 Fully Covered %",                  "Value": f"{fully_covered_pct}%",
+        {"KPI": "🎯 Risk-Adjusted Compliance % (Fully Covered)", "Value": f"{fully_covered_pct}%",
          "Status": "✅ PASS" if fully_covered_pct >= 80 else ("⚠️ REVIEW" if fully_covered_pct >= 60 else "❌ FAIL")},
         {"KPI": "🔴 High Risk Requirements",            "Value": high_risk,             "Status": "Requires ≥3 OQ tests each"},
         {"KPI": "🟡 Medium Risk Requirements",          "Value": med_risk,              "Status": "Requires ≥2 OQ tests each"},
@@ -2781,7 +2804,12 @@ def show_app():
 
         log_audit(user, "ANALYSIS_INITIATED", "URS_FILE",
                   new_value=file_name,
-                  reason=f"Model: {st.session_state.selected_model} | Prompt: {PROMPT_VERSION} | Temp: {TEMPERATURE} | Validation: {validation_msg[:100]}")
+                  reason=(
+                      f"Model: {st.session_state.selected_model} | Prompt: {PROMPT_VERSION} | "
+                      f"Temp: {TEMPERATURE} | Validation: {validation_msg[:100]}"
+                      + (f" | Guide: {st.session_state.get('sys_context_name','')}"
+                         if st.session_state.get("sys_context_name") else "")
+                  ))
         st.info(f"⚙️ Two-pass analysis started — {st.session_state.selected_model} — chunk size: {CHUNK_SIZE} pages")
 
         progress_bar = st.progress(0)
@@ -2876,7 +2904,8 @@ def show_app():
 
             audit_df     = build_audit_log_sheet(
                 user, file_name, st.session_state.selected_model,
-                frs_df, oq_df, gap_df, det_df, ver_frs, ver_oq, doc_ids
+                frs_df, oq_df, gap_df, det_df, ver_frs, ver_oq, doc_ids,
+                sys_context_name=st.session_state.get("sys_context_name") or ""
             )
             dashboard_df = build_dashboard_sheet(
                 frs_df, oq_df, gap_df, det_df, trace_df, file_name,
