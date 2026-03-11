@@ -53,7 +53,7 @@ except ImportError:
 # =============================================================================
 # 1. CONFIG
 # =============================================================================
-VERSION        = "19.0"
+VERSION        = "20.0"
 PROMPT_VERSION = "v9.0-robust-parse-frs-id-confidence"
 TEMPERATURE    = 0.2
 CHUNK_SIZE     = 8
