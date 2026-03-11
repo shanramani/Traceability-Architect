@@ -55,8 +55,8 @@ except ImportError:
 # =============================================================================
 # 1. CONFIG
 # =============================================================================
-VERSION        = "26.0"
-PROMPT_VERSION = "v14.0-three-stage-urs-gate-security"
+VERSION        = "27.0"
+PROMPT_VERSION = "v15.0-failstop-no-location-syscontext"
 TEMPERATURE    = 0.2
 CHUNK_SIZE     = 8
 DB_PATH        = os.path.join(os.path.dirname(os.path.abspath(__file__)), "validation_app.db")
@@ -274,6 +274,29 @@ def db_migrate():
 
         conn.commit()
         conn.close()
+
+        # ── Append-only enforcement: block UPDATE + DELETE on audit_log ──────
+        # These triggers make the audit trail structurally immutable at the
+        # database level — a defence-in-depth layer on top of the Python
+        # "never call UPDATE/DELETE" convention.
+        conn2 = db_connect()
+        conn2.execute("""
+            CREATE TRIGGER IF NOT EXISTS trg_audit_no_update
+            BEFORE UPDATE ON audit_log
+            BEGIN
+                SELECT RAISE(ABORT, '21CFR11: audit_log rows are immutable — UPDATE denied');
+            END
+        """)
+        conn2.execute("""
+            CREATE TRIGGER IF NOT EXISTS trg_audit_no_delete
+            BEFORE DELETE ON audit_log
+            BEGIN
+                SELECT RAISE(ABORT, '21CFR11: audit_log rows are immutable — DELETE denied');
+            END
+        """)
+        conn2.commit()
+        conn2.close()
+
     except Exception as e:
         st.warning(f"DB migration warning: {e}")
 
@@ -290,21 +313,12 @@ def db_diagnostics() -> dict:
 
 
 def log_audit(user: str, action: str, object_changed: str = "",
-              old_value: str = "", new_value: str = "", reason: str = "",
-              location: str = ""):
+              old_value: str = "", new_value: str = "", reason: str = ""):
     """
     Append-only audit write. This function must never UPDATE or DELETE rows.
-
-    GxP Geographic Lock: `location` is automatically pulled from
-    st.session_state when not explicitly provided, so every event is
-    stamped with the operator's resolved IP location without any call-site
-    changes. This satisfies 21 CFR Part 11 signer-location requirements.
+    Location column is preserved in the schema for schema compatibility but is
+    no longer surfaced in the UI or generated output (removed in v27).
     """
-    if not location:
-        try:
-            location = st.session_state.get("location", "Location Unknown")
-        except Exception:
-            location = "Location Unknown"
     try:
         conn = db_connect()
         conn.execute(
@@ -318,7 +332,7 @@ def log_audit(user: str, action: str, object_changed: str = "",
              str(old_value)[:2000]  if old_value  else "",
              str(new_value)[:2000]  if new_value  else "",
              str(reason)[:1000]     if reason     else "",
-             str(location)[:200])
+             "")          # location intentionally blank — removed from UI in v27
         )
         conn.commit()
         conn.close()
@@ -1417,22 +1431,62 @@ def run_segmented_analysis(
     sys_context_bytes: bytes = None
 ) -> tuple:
     """
-    Two-pass analysis:
-    Pass 1 — per-chunk URS extraction: produces a clean structured URS table
-    Pass 2 — single call with full URS table: produces FRS / OQ / Trace / Gap
-    Returns: (urs_df, frs_df, oq_df, trace_df, gap_df)
-    """
-    all_pages   = extract_pages(file_bytes)
-    chunks      = [all_pages[i:i + CHUNK_SIZE] for i in range(0, len(all_pages), CHUNK_SIZE)]
-    total       = len(chunks)
-    sys_context = ""
+    Two-pass analysis with Fail-Stop Protocol (v27).
 
+    Pass 1 — per-chunk URS extraction: produces a clean structured URS table.
+    Pass 2 — single call with full URS table: produces FRS / OQ / Gap.
+    Returns: (urs_df, frs_df, oq_df, trace_df, gap_df)
+
+    Fail-Stop Protocol (21 CFR Part 11 / GxP compliance):
+      If ANY Pass-1 segment fails, the entire analysis is aborted and a
+      SegmentFailureError is raised. A validation package with missing
+      pages would fail a regulatory audit — 100% coverage or nothing.
+      The exception is caught in show_app() which logs the failure and
+      shows a compliance-grade error message.
+
+    SysContext (User Guide) injection:
+      If sys_context_bytes is provided, the first 6 pages of the guide are
+      extracted and injected into BOTH Pass-1 and Pass-2 system prompts so
+      the LLM can reference actual screen names, module names, and field
+      names when writing FRS descriptions and OQ test steps.
+
+    Cross-chunk ID resequencing:
+      After combining chunks, FRS IDs and OQ IDs are globally resequenced
+      so FRS-001…FRS-N and OQ-001…OQ-M are always unique and sequential
+      regardless of how many chunks the document was split into.
+    """
+    class SegmentFailureError(RuntimeError):
+        pass
+
+    all_pages = extract_pages(file_bytes)
+    if not all_pages:
+        raise SegmentFailureError(
+            "No pages could be extracted from the uploaded PDF. "
+            "The file may be image-only (scanned) or corrupt. "
+            "Per ALCOA+ standards, non-searchable PDFs cannot be AI-validated."
+        )
+
+    # OCR / searchability gate: require minimum text density
+    joined_text = "\n".join(all_pages)
+    if len(joined_text.strip()) < 100:
+        raise SegmentFailureError(
+            "⛔ Compliance Warning: Document is not OCR-searchable.\n"
+            "Non-searchable PDFs cannot be validated by the AI engine per ALCOA+ standards.\n"
+            "Please convert the document to a text-based PDF using OCR software before uploading."
+        )
+
+    chunks = [all_pages[i:i + CHUNK_SIZE] for i in range(0, len(all_pages), CHUNK_SIZE)]
+    total  = len(chunks)
+
+    # ── SysContext (User Guide) extraction ───────────────────────────────────
+    sys_context = ""
     if sys_context_bytes:
         try:
             sys_pages   = extract_pages(sys_context_bytes)
-            sys_context = "\n\n".join(sys_pages[:6])
-        except Exception:
-            pass
+            sys_context = "\n\n".join(sys_pages[:6])   # first 6 pages ≈ 4-8k chars
+            status_text.text("📖 User Guide loaded — injecting into analysis context...")
+        except Exception as e:
+            st.warning(f"⚠️ Could not extract User Guide context: {e} — proceeding without it.")
 
     # ── PASS 1: Extract structured URS table from each chunk ─────────────────
     urs_frames = []
@@ -1452,7 +1506,6 @@ def run_segmented_analysis(
                 ]
             )
             raw_urs = response.choices[0].message.content or ""
-            # Strip markdown fences then any prose preamble before the CSV header
             raw_urs = re.sub(r'^```[a-zA-Z]*\n?', '', raw_urs, flags=re.MULTILINE)
             raw_urs = re.sub(r'```\s*$',          '', raw_urs, flags=re.MULTILINE)
             raw_urs = _strip_preamble(raw_urs.strip())
@@ -1460,7 +1513,13 @@ def run_segmented_analysis(
             if not df_urs.empty:
                 urs_frames.append(df_urs)
         except Exception as e:
-            st.warning(f"⚠️ Pass 1 segment {idx+1} failed ({e}) — skipping.")
+            # FAIL-STOP: any segment failure aborts the entire run
+            raise SegmentFailureError(
+                f"Pass 1 segment {idx + 1}/{total} failed: {e}\n\n"
+                f"Analysis aborted. Per GxP Fail-Stop Protocol, an incomplete analysis "
+                f"(missing pages {idx * CHUNK_SIZE + 1}–{min((idx + 1) * CHUNK_SIZE, len(all_pages))}) "
+                f"cannot be used as a validation artifact. Please retry."
+            ) from e
 
     def _combine(frames):
         if not frames:
@@ -1472,97 +1531,125 @@ def run_segmented_analysis(
 
     urs_final = _combine(urs_frames)
 
-    # Ensure Confidence_Flag on URS
+    # ── Cross-chunk URS ID resequencing ──────────────────────────────────────
+    # Each chunk's LLM may restart numbering at URS-001. Renumber globally.
+    if not urs_final.empty and "Req_ID" in urs_final.columns:
+        urs_final = urs_final.copy()
+        urs_final["Req_ID"] = [f"URS-{i+1:03d}" for i in range(len(urs_final))]
+
     urs_final = _apply_confidence_flags(urs_final)
 
     progress_bar.progress(0.5)
     status_text.text("✅ Pass 1 complete — structured URS table built. Running Pass 2...")
 
-    # ── PASS 2: Generate FRS / OQ / Traceability / Gap from URS table ────────
+    # ── PASS 2: Generate FRS / OQ / Gap from URS table ────────────────────────
     frs_frames, oq_frames, gap_frames = [], [], []
 
     if urs_final.empty:
-        st.warning("⚠️ No URS requirements extracted in Pass 1. Pass 2 skipped.")
-    else:
-        urs_csv_str = urs_final.to_csv(index=False)
-        # Chunk the URS CSV if very large (> 4000 chars) to avoid token limits
-        urs_lines   = urs_csv_str.split("\n")
-        header_line = urs_lines[0]
-        data_lines  = urs_lines[1:]
-        PASS2_CHUNK = 40   # rows per pass-2 call
-        p2_chunks   = [data_lines[i:i+PASS2_CHUNK] for i in range(0, len(data_lines), PASS2_CHUNK)]
-        p2_total    = len(p2_chunks)
+        raise SegmentFailureError(
+            "Pass 1 extracted zero requirements. The document may be empty, "
+            "image-only, or contain no recognisable requirement statements. "
+            "Analysis cannot continue."
+        )
 
-        for p2_idx, p2_rows in enumerate(p2_chunks):
-            p2_csv = header_line + "\n" + "\n".join(p2_rows)
-            status_text.text(
-                f"🔬 Pass 2 — Generating FRS/OQ/Trace/Gap: batch {p2_idx+1} of {p2_total}..."
+    urs_csv_str = urs_final.to_csv(index=False)
+    urs_lines   = urs_csv_str.split("\n")
+    header_line = urs_lines[0]
+    data_lines  = urs_lines[1:]
+    PASS2_CHUNK = 40
+    p2_chunks   = [data_lines[i:i+PASS2_CHUNK] for i in range(0, len(data_lines), PASS2_CHUNK)]
+    p2_total    = len(p2_chunks)
+
+    for p2_idx, p2_rows in enumerate(p2_chunks):
+        p2_csv = header_line + "\n" + "\n".join(p2_rows)
+        status_text.text(
+            f"🔬 Pass 2 — Generating FRS/OQ/Gap: batch {p2_idx+1} of {p2_total}..."
+        )
+        progress_bar.progress(0.5 + (p2_idx / p2_total) * 0.45)
+
+        try:
+            response = completion(
+                model=model_id,
+                stream=False,
+                temperature=TEMPERATURE,
+                messages=[
+                    {"role": "system", "content": _make_system_prompt(sys_context)},
+                    {"role": "user",   "content": build_pass2_prompt(p2_csv, sys_context)}
+                ]
             )
-            progress_bar.progress(0.5 + (p2_idx / p2_total) * 0.45)
+            raw_p2 = response.choices[0].message.content or ""
+        except Exception as e:
+            # FAIL-STOP: abort — do not produce a partial FRS/OQ
+            raise SegmentFailureError(
+                f"Pass 2 batch {p2_idx + 1}/{p2_total} failed: {e}\n\n"
+                f"Analysis aborted. A partial FRS/OQ package covering only "
+                f"{p2_idx * PASS2_CHUNK} of {len(data_lines)} requirements "
+                f"would be invalid as a GxP validation artifact. Please retry."
+            ) from e
 
-            try:
-                response = completion(
-                    model=model_id,
-                    stream=False,
-                    temperature=TEMPERATURE,
-                    messages=[
-                        {"role": "system", "content": _make_system_prompt(sys_context)},
-                        {"role": "user",   "content": build_pass2_prompt(p2_csv, sys_context)}
-                    ]
-                )
-                raw_p2 = response.choices[0].message.content or ""
-            except Exception as e:
-                st.warning(f"⚠️ Pass 2 batch {p2_idx+1} failed ({e}) — skipping.")
-                continue
-
-            # ── Robust split by header detection (3 datasets) ───────────
-            sections = _robust_split_datasets(raw_p2, _PASS2_HEADERS)
-            frs_csv, oq_csv, gap_csv = sections[0], sections[1], sections[2]
-            for frames, csv_text in [
-                (frs_frames,   frs_csv),
-                (oq_frames,    oq_csv),
-                (gap_frames,   gap_csv),
-            ]:
-                df = _csv_to_df(csv_text)
-                if not df.empty:
-                    frames.append(df)
+        sections = _robust_split_datasets(raw_p2, _PASS2_HEADERS)
+        frs_csv, oq_csv, gap_csv = sections[0], sections[1], sections[2]
+        for frames, csv_text in [
+            (frs_frames,  frs_csv),
+            (oq_frames,   oq_csv),
+            (gap_frames,  gap_csv),
+        ]:
+            df = _csv_to_df(csv_text)
+            if not df.empty:
+                frames.append(df)
 
     progress_bar.progress(0.95)
     status_text.text("✅ Both passes complete — running deterministic checks...")
 
-    frs_final   = _combine(frs_frames)
-    oq_final    = _combine(oq_frames)
-    gap_final   = _combine(gap_frames)
+    frs_final = _combine(frs_frames)
+    oq_final  = _combine(oq_frames)
+    gap_final = _combine(gap_frames)
 
-    # ── Post-processing: ID normalisation ────────────────────────────────────
+    # ── Post-processing: global ID resequencing (cross-chunk dedup) ──────────
+    # Each Pass-2 batch restarts FRS/OQ numbering. Renumber globally BEFORE
+    # any cross-reference so FRS-001…FRS-N are unique across all batches.
     frs_final = _renumber_frs_ids(frs_final)
     oq_final  = _renumber_oq_ids(oq_final)
-    frs_final = _clean_frs_columns(frs_final)     # strip "Risk: ", "Priority: " prefixes
-    frs_final = _fill_missing_frs(urs_final, frs_final)  # insert placeholders for AI-skipped URS
-    oq_final  = _fill_missing_oq(frs_final, oq_final)    # insert placeholders for AI-skipped FRS→OQ
-    oq_final  = _renumber_oq_ids(oq_final)               # renumber after any placeholders added
 
-    # Fix Requirement_Link in OQ to match renumbered FRS IDs if possible
-    # (In practice IDs are sequential so FRS-001 stays FRS-001 — this is a safety net)
+    # Patch OQ Requirement_Link to the renumbered FRS IDs using Source_URS_Ref mapping.
+    # Build a map: Source_URS_Ref → new FRS ID (after renumber)
+    if not frs_final.empty and "ID" in frs_final.columns and "Source_URS_Ref" in frs_final.columns:
+        urs_to_frs = {}
+        for _, r in frs_final.iterrows():
+            u = str(r.get("Source_URS_Ref", "")).strip()
+            f = str(r.get("ID", "")).strip()
+            if u and f:
+                urs_to_frs[u] = f
+        # Update OQ Requirement_Link using Source column ("Derived from URS-NNN")
+        if not oq_final.empty and "Requirement_Link" in oq_final.columns and "Source" in oq_final.columns:
+            def _remap_link(row):
+                link = str(row.get("Requirement_Link", "")).strip()
+                src  = str(row.get("Source", "")).strip()
+                # If link looks like a FRS ID already and it exists, keep it
+                if re.match(r'^FRS-\d+$', link, re.IGNORECASE) and link in set(frs_final["ID"]):
+                    return link
+                # Try to extract URS ref from Source field
+                m = re.search(r'URS-(\d+)', src, re.IGNORECASE)
+                if m:
+                    urs_ref = f"URS-{int(m.group(1)):03d}"
+                    return urs_to_frs.get(urs_ref, link)
+                return link
+            oq_final["Requirement_Link"] = oq_final.apply(_remap_link, axis=1)
 
-    # ── Post-processing: confidence flags (Python-enforced) ──────────────────
+    frs_final = _clean_frs_columns(frs_final)
+    frs_final = _fill_missing_frs(urs_final, frs_final)
+    oq_final  = _fill_missing_oq(frs_final, oq_final)
+    oq_final  = _renumber_oq_ids(oq_final)
+
     frs_final = _apply_confidence_flags(frs_final)
     oq_final  = _apply_confidence_flags(oq_final)
     urs_final = _apply_confidence_flags(urs_final)
 
-    # ── Post-processing: fill all NaN with "N/A" for clean Excel output ─────────
     for df in [frs_final, oq_final, urs_final]:
         df.fillna("N/A", inplace=True)
         df.replace("", "N/A", inplace=True)
 
-    # Clean and validate LLM gap analysis output
-    gap_final = _clean_gap_analysis(gap_final)
-
-    # ── CRITICAL: Rebuild Traceability entirely in Python ─────────────────────
-    # The LLM's traceability output is DISCARDED. We cross-reference the actual
-    # OQ rows that exist against the actual FRS rows. This makes it structurally
-    # impossible for a phantom Test_ID (one the LLM invented but never generated)
-    # to appear as "Covered".
+    gap_final   = _clean_gap_analysis(gap_final)
     trace_final = _build_traceability(urs_final, frs_final, oq_final)
 
     progress_bar.progress(1.0)
@@ -1948,15 +2035,10 @@ def build_audit_log_sheet(user: str, file_name: str, model_name: str,
                           gap_df: pd.DataFrame, det_df: pd.DataFrame,
                           version_frs: int, version_oq: int,
                           doc_ids: str = "") -> pd.DataFrame:
-    now_str    = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
-    role       = get_user_role(user)
-    gap_count  = len(gap_df) if not gap_df.empty else 0
-    det_count  = len(det_df) if not det_df.empty else 0
-    # GxP geographic lock — pulled from Python session_state, never from LLM
-    try:
-        location = st.session_state.get("location", "Location Unknown")
-    except Exception:
-        location = "Location Unknown"
+    now_str   = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+    role      = get_user_role(user)
+    gap_count = len(gap_df) if not gap_df.empty else 0
+    det_count = len(det_df) if not det_df.empty else 0
 
     rows = [
         {
@@ -1964,7 +2046,6 @@ def build_audit_log_sheet(user: str, file_name: str, model_name: str,
             "User":             user,
             "Role":             role,
             "Timestamp":        now_str,
-            "Location":         location,
             "Object_Changed":   "SESSION",
             "Old_Value":        "",
             "New_Value":        "AUTHENTICATED",
@@ -1976,7 +2057,6 @@ def build_audit_log_sheet(user: str, file_name: str, model_name: str,
             "User":             user,
             "Role":             role,
             "Timestamp":        now_str,
-            "Location":         location,
             "Object_Changed":   "URS/SOP",
             "Old_Value":        "",
             "New_Value":        file_name,
@@ -1988,7 +2068,6 @@ def build_audit_log_sheet(user: str, file_name: str, model_name: str,
             "User":             user,
             "Role":             role,
             "Timestamp":        now_str,
-            "Location":         location,
             "Object_Changed":   "ANALYSIS_ENGINE",
             "Old_Value":        "",
             "New_Value":        f"Model: {model_name} | Prompt: {PROMPT_VERSION} | Temp: {TEMPERATURE}",
@@ -2001,7 +2080,6 @@ def build_audit_log_sheet(user: str, file_name: str, model_name: str,
             "User":             user,
             "Role":             role,
             "Timestamp":        now_str,
-            "Location":         location,
             "Object_Changed":   f"FRS v{version_frs}.0",
             "Old_Value":        f"v{version_frs - 1}.0" if version_frs > 1 else "N/A",
             "New_Value":        f"v{version_frs}.0 — {len(frs_df)} requirements",
@@ -2013,7 +2091,6 @@ def build_audit_log_sheet(user: str, file_name: str, model_name: str,
             "User":             user,
             "Role":             role,
             "Timestamp":        now_str,
-            "Location":         location,
             "Object_Changed":   f"OQ v{version_oq}.0",
             "Old_Value":        f"v{version_oq - 1}.0" if version_oq > 1 else "N/A",
             "New_Value":        f"v{version_oq}.0 — {len(oq_df)} test cases",
@@ -2025,7 +2102,6 @@ def build_audit_log_sheet(user: str, file_name: str, model_name: str,
             "User":             user,
             "Role":             role,
             "Timestamp":        now_str,
-            "Location":         location,
             "Object_Changed":   "TRACEABILITY_MATRIX",
             "Old_Value":        "",
             "New_Value":        f"AI gaps: {gap_count} | Deterministic issues: {det_count}",
@@ -2037,7 +2113,6 @@ def build_audit_log_sheet(user: str, file_name: str, model_name: str,
             "User":             user,
             "Role":             role,
             "Timestamp":        now_str,
-            "Location":         location,
             "Object_Changed":   "VALIDATION_PACKAGE",
             "Old_Value":        "",
             "New_Value":        f"Validation_Package_{datetime.date.today()}.xlsx",
@@ -2251,7 +2326,6 @@ def get_auto_location():
 _defaults = {
     "authenticated":      False,
     "selected_model":     "Gemini 1.5 Pro",
-    "location":           "",          # set manually in sidebar; never auto-guessed
     "user_name":          "",
     "user_role":          "",
     "last_activity":      None,
@@ -2259,6 +2333,7 @@ _defaults = {
     "sop_file_name":      None,
     "sys_context_bytes":  None,
     "sys_context_name":   None,
+    "uploader_key_n":     0,       # incremented to reset the file-uploader widget
 }
 for _k, _v in _defaults.items():
     if _k not in st.session_state:
@@ -2379,11 +2454,24 @@ st.markdown("""
 
     .sb-title           { color: white !important; font-weight: 700 !important; font-size: 1.1rem; }
     .sb-sub             { color: white !important; font-weight: 700 !important; font-size: 0.95rem; }
+    .sb-filename        { color: #94d2f5 !important; font-weight: 400 !important; font-size: 0.80rem;
+                          margin: 4px 0 0 0; word-break: break-word; }
     .system-spacer      { margin-top: 80px; }
     .sys-context-spacer { margin-top: 2.4rem; }
     .sidebar-stats      { color: white !important; font-weight: 400 !important; font-size: 0.85rem; margin-bottom: 5px; }
 
     div.stButton > button[key="terminate_sidebar"] { width: 100% !important; }
+
+    /* ── New Analysis button — neutral grey, right-aligned with download ── */
+    div.stButton > button[key="clear_results_btn"] {
+        background: #334155 !important; color: #e2e8f0 !important;
+        border: 1px solid #475569 !important; border-radius: 8px !important;
+        height: 2.6rem !important; font-size: 0.88rem !important;
+    }
+    div.stButton > button[key="clear_results_btn"]:hover:not(:disabled) {
+        background: #475569 !important; color: white !important;
+        border-color: #64748b !important;
+    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -2404,10 +2492,10 @@ def show_login():
 
     left_space, center_content, right_space = st.columns([3, 4, 3])
     with center_content:
-        st.markdown('<div class="top-banner"><p class="banner-text-inner">AI OPTIMIZED CSV</p></div>',
-                    unsafe_allow_html=True)
-        st.markdown("<h1 style='text-align: center; font-size: 1.5rem;'>🛡️ LLM-Powered GxP Validation</h1>",
-                    unsafe_allow_html=True)
+        st.markdown(
+            '<div class="top-banner"><p class="banner-text-inner">GxP Validation — CSV Accelerator</p></div>',
+            unsafe_allow_html=True
+        )
         st.markdown("<br>", unsafe_allow_html=True)
         u = st.text_input("Professional Identity", placeholder="Username", label_visibility="collapsed",
                           key="login_username_field")
@@ -2417,7 +2505,6 @@ def show_login():
         b_left, b_center, b_right = st.columns([1, 2, 1])
         with b_center:
             if st.button("Initialize Secure Session", key="login_btn", use_container_width=True):
-                # Sanitize before auth — strip control chars, HTML, limit length
                 u_clean = sanitize_input(u, max_length=64)
                 p_clean = sanitize_input(p, max_length=256)
                 success, err_msg = authenticate_user(u_clean, p_clean)
@@ -2431,6 +2518,18 @@ def show_login():
                     st.rerun()
                 else:
                     st.error(err_msg or "Invalid credentials.")
+
+        # ── Branding footer — small, italic, grey ───────────────────────────
+        st.markdown("<br><br>", unsafe_allow_html=True)
+        st.markdown(
+            "<p style='text-align:center; font-style:italic; font-size:0.78rem; color:#94a3b8;'>"
+            "LLM-Powered GxP Validation</p>"
+            "<p style='text-align:center; font-size:0.72rem; color:#b0bec5; margin-top:-6px;'>"
+            "Parse URS &amp; User Guide · Generate FRS, OQ Test Steps &amp; Traceability Matrix · "
+            "Detect Validation Gaps"
+            "</p>",
+            unsafe_allow_html=True
+        )
 
 
 # =============================================================================
@@ -2471,7 +2570,6 @@ def show_app():
             label_visibility="collapsed",
             key="model_selectbox"
         )
-        # Update selected model WITHOUT rerun — preserves sop_file_bytes in session state
         st.session_state.selected_model = engine_name
 
         st.markdown('<div class="system-spacer"></div>', unsafe_allow_html=True)
@@ -2490,27 +2588,17 @@ def show_app():
             st.session_state["sys_context_bytes"] = None
             st.session_state["sys_context_name"]  = None
 
+        # Show filename in white when a guide is loaded
+        ctx_name = st.session_state.get("sys_context_name")
+        if ctx_name:
+            st.markdown(
+                f'<p class="sb-filename">📄 {ctx_name}</p>',
+                unsafe_allow_html=True
+            )
+
         st.divider()
         st.markdown(f'<p class="sidebar-stats">Operator: {user}</p>', unsafe_allow_html=True)
         st.markdown(f'<p class="sidebar-stats">Role: {role}</p>', unsafe_allow_html=True)
-
-        # GxP Geographic Lock — manual entry required.
-        # IP-based auto-detection is intentionally disabled: cloud servers resolve to
-        # their datacenter region (e.g. Oregon) not the user's actual location.
-        # A validator must declare their location for 21 CFR Part 11 signer traceability.
-        loc_input = st.text_input(
-            "Location",
-            value=st.session_state.location,
-            placeholder="e.g. San Francisco, CA, US",
-            key="location_input",
-            label_visibility="collapsed",
-            help="Enter your physical location for GxP audit trail compliance (21 CFR Part 11)",
-        )
-        # Persist any change immediately
-        if loc_input != st.session_state.location:
-            st.session_state.location = loc_input
-        loc_display = st.session_state.location or "📍 Location not set — enter above"
-        st.markdown(f'<p class="sidebar-stats">📍 {loc_display}</p>', unsafe_allow_html=True)
 
         if st.button("Terminate Session", key="terminate_sidebar", use_container_width=True):
             log_audit(user, "LOGOUT", "SESSION")
@@ -2532,7 +2620,6 @@ def show_app():
                         unsafe_allow_html=True
                     )
 
-        # Admin-only user management panel
         if role == "Admin":
             with st.expander("👤 User Management", expanded=False):
                 st.markdown('<p class="sidebar-stats">Create New User</p>', unsafe_allow_html=True)
@@ -2560,8 +2647,12 @@ def show_app():
     # ── Main area ──
     st.title("Auto-Generate Validation Package")
 
+    # Dynamic key allows the file-uploader widget to be fully reset after a
+    # completed run. Incrementing uploader_key_n forces Streamlit to mount
+    # a brand-new widget instance, which clears any retained file state.
+    uploader_key = f"main_sop_uploader_{st.session_state.uploader_key_n}"
     sop_widget = st.file_uploader(
-        "Upload URS / SOP (The 'What')", type="pdf", key="main_sop_uploader"
+        "Upload URS / SOP (The 'What')", type="pdf", key=uploader_key
     )
 
     if sop_widget is not None:
@@ -2854,10 +2945,15 @@ def show_app():
             }
 
         except Exception as e:
-            log_audit(user, "ANALYSIS_ERROR", "URS_FILE", reason=str(e)[:500])
-            st.error(f"❌ Engineering Error: {str(e)}")
-            import traceback
-            st.error(traceback.format_exc())
+            err_msg = str(e)
+            log_audit(user, "ANALYSIS_ERROR", "URS_FILE", reason=err_msg[:500])
+            # Distinguish Fail-Stop from unexpected errors
+            if "Pass 1" in err_msg or "Pass 2" in err_msg or "ALCOA+" in err_msg or "segment" in err_msg.lower():
+                st.error(f"🛑 **GxP Fail-Stop Protocol Activated**\n\n{err_msg}")
+            else:
+                st.error(f"❌ Engineering Error: {err_msg}")
+                import traceback
+                st.error(traceback.format_exc())
 
     # ── Render results from session state (persists across download reruns) ──
     if "last_result" in st.session_state:
@@ -2895,13 +2991,27 @@ def show_app():
                 st.markdown(f"**{sheet_name}** — {len(df)} rows")
                 st.dataframe(df, use_container_width=True)
 
-        st.download_button(
-            label="📥 Download Validation Workbook (.xlsx)",
-            data=r["xlsx_bytes"],
-            file_name=f"Validation_Package_{r['file_name'].replace('.pdf','')}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            key="download_xlsx_btn",
-        )
+        dl_col, clear_col = st.columns([3, 1])
+        with dl_col:
+            st.download_button(
+                label="📥 Download Validation Workbook (.xlsx)",
+                data=r["xlsx_bytes"],
+                file_name=f"Validation_Package_{r['file_name'].replace('.pdf','')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key="download_xlsx_btn",
+            )
+        with clear_col:
+            if st.button("🔄 New Analysis", key="clear_results_btn", use_container_width=True,
+                         help="Clear results and upload a new URS document"):
+                # Increment key counter to force a fresh file-uploader widget instance
+                st.session_state["uploader_key_n"] = st.session_state.get("uploader_key_n", 0) + 1
+                st.session_state.sop_file_bytes = None
+                st.session_state.sop_file_name  = None
+                st.session_state.pop("last_result",        None)
+                st.session_state.pop("doc_validation_msg", None)
+                log_audit(user, "NEW_ANALYSIS_STARTED", "SESSION",
+                          reason="User cleared previous results to start a new analysis")
+                st.rerun()
 
 
 # =============================================================================
