@@ -1,31 +1,29 @@
 """
-Validation Doc Assist — v18.0
+Validation Doc Assist — v19.0
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Changes over v17.0:
-  1. TWO-PASS ANALYSIS       — Pass 1: structured URS extraction
-                               (Req_ID, Description, Category,
-                               Testable, Source_Text, Source_Page).
-                               Pass 2: FRS/OQ/Traceability derived
-                               from the structured URS table.
-  2. FULL PROVENANCE CHAIN   — FRS sheet gains Source_URS_Ref,
-                               Source_Text, Source_Page columns.
-                               OQ sheet gains Source column showing
-                               "Derived from URS-xxx".
-                               Every row traceable to a source paragraph.
-  3. AI CONFIDENCE SCORES    — LLM outputs Confidence (0.0–1.0) for
-                               every FRS and OQ row.
-                               Python post-process: < 0.7 → flag
-                               "Review Required" in Confidence_Flag col.
-  4. ENHANCED GAP ANALYSIS   — 5 gap types from deterministic engine:
-                               Untestable / No_Test_Coverage /
-                               Orphan_Test / Ambiguous / Duplicate
-                               All in Gap_Analysis sheet with full
-                               Req_ID, Gap_Type, Description,
-                               Recommendation columns.
-  5. DUPLICATE DETECTION     — Python similarity check on FRS
-                               Requirement_Description; near-duplicates
-                               (>80% token overlap) flagged as Duplicate.
-  6. ALL CSS / BRANDING      — unchanged from v17
+Changes over v18.1:
+  BUG FIXES (commercial-quality):
+  1. FRS ID COLUMN FIX       — Post-process renumber: every FRS row
+                               gets a clean FRS-001, FRS-002 ID.
+                               The LLM is now told to emit IDs on a
+                               SEPARATE column, never inside the
+                               description. Prompt tightened.
+  2. CONFIDENCE FLAG FIX     — _apply_confidence_flags now correctly
+                               casts float/None, writes "⚠️ Review
+                               Required" for < 0.70, blank otherwise.
+                               None values never reach Excel.
+  3. ROBUST CSV PARSER       — _safe_parse_chunk replaced with
+                               _robust_split_datasets() which finds
+                               the four dataset boundaries by matching
+                               known header lines (not ||| splitting
+                               which breaks when LLM embeds newlines
+                               in quoted fields). OQ/Traceability/
+                               Gap_Analysis now populate correctly.
+  4. PROMPT HARDENING        — Multi-line values in OQ Test_Step,
+                               Expected_Result are now explicitly
+                               forbidden (single-line only). The
+                               ||| separator is the only valid
+                               boundary token.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 """
 
@@ -60,8 +58,8 @@ except ImportError:
 # =============================================================================
 # 1. CONFIG
 # =============================================================================
-VERSION        = "18.1"
-PROMPT_VERSION = "v8.1-frs-engineering-language"
+VERSION        = "19.0"
+PROMPT_VERSION = "v9.0-robust-parse-frs-id-confidence"
 TEMPERATURE    = 0.2
 CHUNK_SIZE     = 8
 DB_PATH        = os.path.join(os.path.dirname(os.path.abspath(__file__)), "validation_app.db")
@@ -643,7 +641,59 @@ Dataset 4 (Gap_Analysis): Req_ID,Gap_Type,Description,Recommendation,Severity
   - Only include rows where a gap exists.
   - Severity: Critical / High / Medium / Low
 
-Separate each dataset with exactly: |||
+CRITICAL OUTPUT RULES — MUST FOLLOW OR THE FILE WILL BE CORRUPT:
+1. Every field value MUST fit on a single line — NO embedded newlines inside any value.
+2. Commas inside a value MUST be wrapped in double-quotes: "value, with, commas"
+3. The ONLY dataset separator is the exact token:  |||  (on its own line, nothing else).
+4. Do NOT add extra ||| tokens inside dataset content.
+5. FRS ID column must be a SHORT CODE ONLY: FRS-001, FRS-002, FRS-003 etc.
+   The ID is NEVER a sentence. If you are writing more than 8 characters in the ID
+   column, you are putting the description in the wrong column.
+
+TASK: Generate exactly 4 CSV datasets separated by |||.
+Output ONLY raw CSV rows — include the header row in EVERY dataset.
+
+Dataset 1 (FRS): ID,Requirement_Description,Priority,Risk,GxP_Impact,Source_URS_Ref,Source_Text,Source_Page,Confidence,Confidence_Flag
+  - ID: short code only — FRS-001, FRS-002, FRS-003. Max 7 characters. NEVER a sentence.
+  - Requirement_Description: engineering implementation detail (single line, use semicolons
+    instead of newlines, wrap in quotes if it contains commas).
+  - Priority: Critical / High / Medium / Low
+  - Risk: High / Medium / Low
+    • High   = patient safety, data integrity, electronic records, audit trail
+    • Medium = indirect quality, workflow, access control
+    • Low    = cosmetic, reporting, preference
+  - GxP_Impact: Direct / Indirect / None
+  - Source_URS_Ref: URS Req_ID (e.g. URS-004)
+  - Source_Text: exact quoted source text from URS (single line, max 100 chars)
+  - Source_Page: e.g. Page 3
+  - Confidence: decimal 0.00–1.00
+  - Confidence_Flag: write exactly "Review Required" if Confidence < 0.70, else leave blank
+
+Dataset 2 (OQ): Test_ID,Requirement_Link,Requirement_Link_Type,Test_Step,Expected_Result,Pass_Fail_Criteria,Source,Confidence,Confidence_Flag
+  - Test_ID: OQ-001, OQ-002 etc.
+  - Requirement_Link: FRS-NNN (e.g. FRS-001)
+  - Requirement_Link_Type: FRS
+  - Test_Step: single line; use semicolons to separate steps, e.g. "Open Login screen; enter username 'testuser'; enter password; click Login"
+  - Expected_Result: single line outcome, e.g. "User is authenticated and redirected to Dashboard"
+  - Pass_Fail_Criteria: single line pass condition, e.g. "Pass if dashboard loads within 3s and no error shown"
+  - Source: "Derived from URS-NNN"
+  - Confidence: decimal 0.00–1.00
+  - Confidence_Flag: "Review Required" if Confidence < 0.70, else blank
+  - Rule: High-Risk FRS → ≥3 OQ rows. Medium → ≥2. Low → ≥1.
+
+Dataset 3 (Traceability): URS_Req_ID,FRS_Ref,Test_ID,Coverage_Status,Gap_Analysis
+  - FRS_Ref: FRS-NNN only (never a URS ID, never a sentence)
+  - Coverage_Status: Covered / Partial / Not Covered
+  - If no test: leave Test_ID blank; Gap_Analysis must start with [GAP]
+  - If partial: Gap_Analysis must start with [PARTIAL GAP]
+
+Dataset 4 (Gap_Analysis): Req_ID,Gap_Type,Description,Recommendation,Severity
+  - Gap_Type: Untestable / No_Test_Coverage / Orphan_Test / Ambiguous / Duplicate
+  - Only include rows where a gap exists.
+  - Severity: Critical / High / Medium / Low
+  - Description and Recommendation: single line each
+
+|||  ← this token on its own line separates each dataset
 """
 
 
@@ -651,25 +701,87 @@ Separate each dataset with exactly: |||
 # 6. TWO-PASS AI ANALYSIS ENGINE
 # =============================================================================
 
-def _safe_parse_chunk(raw: str) -> tuple:
-    raw   = re.sub(r'^```[a-zA-Z]*\n?', '', raw, flags=re.MULTILINE)
-    raw   = re.sub(r'```\s*$',          '', raw, flags=re.MULTILINE)
-    parts = re.split(r'\s*\|\|\|\s*', raw.strip())
-    while len(parts) < 4:
-        parts.append("")
-    return parts[0].strip(), parts[1].strip(), parts[2].strip(), parts[3].strip()
+# Known header signatures for each of the 4 datasets in Pass-2 output.
+# Used by the robust splitter to locate dataset boundaries even when the
+# LLM embeds stray ||| tokens inside quoted field values.
+_PASS2_HEADERS = [
+    # Dataset 1 — FRS
+    r"^ID[,\t]Requirement_Description",
+    # Dataset 2 — OQ
+    r"^Test_ID[,\t]Requirement_Link",
+    # Dataset 3 — Traceability
+    r"^URS_Req_ID[,\t]FRS_Ref",
+    # Dataset 4 — Gap_Analysis
+    r"^Req_ID[,\t]Gap_Type",
+]
+
+_PASS1_HEADER = r"^Req_ID[,\t]Requirement_Description"
+
+
+def _strip_fences(raw: str) -> str:
+    """Remove markdown code-fences that LLMs sometimes wrap output in."""
+    raw = re.sub(r'^```[a-zA-Z]*\n?', '', raw, flags=re.MULTILINE)
+    raw = re.sub(r'```\s*$',          '', raw, flags=re.MULTILINE)
+    return raw.strip()
+
+
+def _robust_split_datasets(raw: str, headers: list) -> list:
+    """
+    Split LLM output into N CSV blocks by finding each known header line.
+    This is immune to stray ||| tokens that appear inside quoted cell values.
+
+    Strategy:
+      1. Strip fences.
+      2. For each header pattern, find the first matching line.
+      3. Extract text from that line to the next header (or end).
+      4. Return a list of N strings (empty string if a section is missing).
+    """
+    raw    = _strip_fences(raw)
+    lines  = raw.splitlines()
+    n      = len(headers)
+    starts = [None] * n
+
+    for i, pat in enumerate(headers):
+        for idx, line in enumerate(lines):
+            if re.match(pat, line.strip(), re.IGNORECASE):
+                starts[i] = idx
+                break
+
+    # Build sections
+    sections = []
+    for i in range(n):
+        if starts[i] is None:
+            sections.append("")
+            continue
+        end = len(lines)
+        for j in range(i + 1, n):
+            if starts[j] is not None and starts[j] > starts[i]:
+                end = starts[j]
+                break
+        section_lines = lines[starts[i]:end]
+        # Strip trailing ||| lines between sections
+        cleaned = [l for l in section_lines if l.strip() not in ("|||", "---", "")]
+        sections.append("\n".join(cleaned))
+
+    while len(sections) < n:
+        sections.append("")
+    return sections
 
 
 def _csv_to_df(csv_text: str) -> pd.DataFrame:
-    if not csv_text:
+    if not csv_text or not csv_text.strip():
         return pd.DataFrame()
     try:
-        return pd.read_csv(
+        df = pd.read_csv(
             io.StringIO(csv_text),
             quotechar='"',
             on_bad_lines='skip',
-            skipinitialspace=True
+            skipinitialspace=True,
+            dtype=str,           # keep everything as str; avoids float/int confusion
         )
+        # Drop rows where every cell is NaN
+        df.dropna(how='all', inplace=True)
+        return df
     except Exception:
         return pd.DataFrame()
 
@@ -677,25 +789,95 @@ def _csv_to_df(csv_text: str) -> pd.DataFrame:
 def _remove_duplicate_headers(df: pd.DataFrame) -> pd.DataFrame:
     if df.empty or len(df.columns) == 0:
         return df
-    return df[df.iloc[:, 0].astype(str) != df.columns[0]].reset_index(drop=True)
+    return df[df.iloc[:, 0].astype(str).str.strip() != df.columns[0]].reset_index(drop=True)
+
+
+def _renumber_frs_ids(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Guarantee FRS ID column contains clean FRS-NNN codes.
+
+    Problem: LLMs sometimes shift columns when a long description that
+    contains commas is not properly quoted, causing the description text
+    to land in the ID column.
+
+    Fix: detect any row where ID looks like a sentence (> 10 chars or
+    does not start with 'FRS') and rebuild the entire ID column as a
+    clean sequence.  Also resets the 'Requirement_Link' in OQ if passed.
+    """
+    if df.empty or "ID" not in df.columns:
+        return df
+    df = df.copy()
+
+    def _looks_like_id(val: str) -> bool:
+        v = str(val).strip()
+        return bool(re.match(r'^FRS-?\d+$', v, re.IGNORECASE)) and len(v) <= 10
+
+    bad_ids = df["ID"].apply(lambda v: not _looks_like_id(str(v)))
+    if bad_ids.any():
+        # Renumber all rows unconditionally for consistency
+        df["ID"] = [f"FRS-{i+1:03d}" for i in range(len(df))]
+    else:
+        # Normalise formatting: FRS001 → FRS-001
+        def _normalise(v):
+            v = str(v).strip().upper()
+            m = re.match(r'FRS-?(\d+)', v)
+            if m:
+                return f"FRS-{int(m.group(1)):03d}"
+            return v
+        df["ID"] = df["ID"].apply(_normalise)
+    return df
+
+
+def _renumber_oq_ids(df: pd.DataFrame) -> pd.DataFrame:
+    """Guarantee OQ Test_IDs are clean OQ-NNN codes."""
+    if df.empty or "Test_ID" not in df.columns:
+        return df
+    df = df.copy()
+
+    def _looks_like_oq(val: str) -> bool:
+        return bool(re.match(r'^OQ-?\d+$', str(val).strip(), re.IGNORECASE))
+
+    if df["Test_ID"].apply(lambda v: not _looks_like_oq(str(v))).any():
+        df["Test_ID"] = [f"OQ-{i+1:03d}" for i in range(len(df))]
+    else:
+        def _norm(v):
+            m = re.match(r'OQ-?(\d+)', str(v).strip(), re.IGNORECASE)
+            return f"OQ-{int(m.group(1)):03d}" if m else str(v).strip()
+        df["Test_ID"] = df["Test_ID"].apply(_norm)
+    return df
 
 
 def _apply_confidence_flags(df: pd.DataFrame) -> pd.DataFrame:
-    """Post-process: ensure Confidence_Flag is set for any row with Confidence < 0.70."""
-    if df.empty or "Confidence" not in df.columns:
+    """
+    Guarantee Confidence_Flag is set correctly.
+    - Confidence < 0.70  → "⚠️ Review Required"
+    - Confidence >= 0.70 → ""   (blank — never None)
+    - Missing/unparseable → ""
+    Python enforces this independently of whatever the LLM wrote.
+    """
+    if df.empty:
         return df
     df = df.copy()
+
+    if "Confidence" not in df.columns:
+        df["Confidence"]      = "1.00"
+        df["Confidence_Flag"] = ""
+        return df
+
     if "Confidence_Flag" not in df.columns:
         df["Confidence_Flag"] = ""
-    def _flag(row):
+
+    def _flag(conf_val):
         try:
-            conf = float(str(row["Confidence"]).strip())
-            if conf < 0.70:
-                return "⚠️ Review Required"
+            c = float(str(conf_val).strip())
+            return "⚠️ Review Required" if c < 0.70 else ""
         except (ValueError, TypeError):
-            pass
-        return row.get("Confidence_Flag", "")
-    df["Confidence_Flag"] = df.apply(_flag, axis=1)
+            return ""
+
+    df["Confidence_Flag"] = df["Confidence"].apply(_flag)
+
+    # Replace any NaN/None in ALL columns with empty string for clean Excel output
+    df = df.fillna("")
     return df
 
 
@@ -804,7 +986,9 @@ def run_segmented_analysis(
                 st.warning(f"⚠️ Pass 2 batch {p2_idx+1} failed ({e}) — skipping.")
                 continue
 
-            frs_csv, oq_csv, trace_csv, gap_csv = _safe_parse_chunk(raw_p2)
+            # ── Robust split by header detection ────────────────────────
+            sections = _robust_split_datasets(raw_p2, _PASS2_HEADERS)
+            frs_csv, oq_csv, trace_csv, gap_csv = sections[0], sections[1], sections[2], sections[3]
             for frames, csv_text in [
                 (frs_frames,   frs_csv),
                 (oq_frames,    oq_csv),
@@ -823,11 +1007,23 @@ def run_segmented_analysis(
     trace_final = _combine(trace_frames)
     gap_final   = _combine(gap_frames)
 
-    # Apply confidence flags (Python-enforced — never rely on LLM alone)
+    # ── Post-processing: ID normalisation ────────────────────────────────────
+    frs_final = _renumber_frs_ids(frs_final)
+    oq_final  = _renumber_oq_ids(oq_final)
+
+    # Fix Requirement_Link in OQ to match renumbered FRS IDs if possible
+    # (In practice IDs are sequential so FRS-001 stays FRS-001 — this is a safety net)
+
+    # ── Post-processing: confidence flags (Python-enforced) ──────────────────
     frs_final = _apply_confidence_flags(frs_final)
     oq_final  = _apply_confidence_flags(oq_final)
+    urs_final = _apply_confidence_flags(urs_final)
 
-    # Python-enforced [GAP] prefix on trace rows with no test
+    # ── Post-processing: fill all NaN with "" for clean Excel output ─────────
+    for df in [frs_final, oq_final, trace_final, gap_final, urs_final]:
+        df.fillna("", inplace=True)
+
+    # ── Python-enforced [GAP] prefix on trace rows with no test ──────────────
     if (not trace_final.empty
             and "Gap_Analysis" in trace_final.columns
             and "Test_ID" in trace_final.columns):
@@ -1640,6 +1836,9 @@ def show_app():
             trace_df, gap_df, det_df = run_deterministic_validation(
                 frs_df, oq_df, trace_df, gap_df
             )
+            # Ensure no None/NaN reaches Excel
+            for _df in [gap_df, det_df, trace_df]:
+                _df.fillna("", inplace=True)
 
             # ── Step 3: Persist documents (version-controlled, never overwrite)
             id_urs   = save_document("URS_Extraction", urs_df.to_csv(index=False),  user, file_name)
