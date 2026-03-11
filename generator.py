@@ -60,8 +60,8 @@ except ImportError:
 # =============================================================================
 # 1. CONFIG
 # =============================================================================
-VERSION        = "18.0"
-PROMPT_VERSION = "v8.0-two-pass-provenance-confidence"
+VERSION        = "18.1"
+PROMPT_VERSION = "v8.1-frs-engineering-language"
 TEMPERATURE    = 0.2
 CHUNK_SIZE     = 8
 DB_PATH        = os.path.join(os.path.dirname(os.path.abspath(__file__)), "validation_app.db")
@@ -495,13 +495,11 @@ def extract_pages(file_bytes: bytes) -> list:
 
 
 # =============================================================================
-# 5. PROMPTS
-# =============================================================================
-
-# =============================================================================
 # 5. PROMPTS  — Two-pass architecture
 #    Pass 1: Structured URS extraction (deterministic input table)
 #    Pass 2: FRS / OQ / Traceability / Gap derived from Pass-1 table
+#            FRS descriptions are ALWAYS written in engineering/implementation
+#            language — never a copy of the URS wording.
 # =============================================================================
 
 SYSTEM_PROMPT = (
@@ -540,17 +538,62 @@ Rules:
 
 # ── PASS 2 PROMPT: generate FRS / OQ / Traceability / Gap from URS table ─────
 def build_pass2_prompt(urs_csv: str, sys_context: str = "") -> str:
-    context_section = ""
+
     if sys_context:
-        context_section = (
-            f"\nSYSTEM USER GUIDE (product manual — use to enrich FRS requirements):\n"
-            f"{sys_context[:3000]}\n"
+        context_block = (
+            f"SYSTEM USER GUIDE (product manual uploaded by user — use this to shape "
+            f"implementation details in FRS descriptions):\n{sys_context[:3000]}\n\n"
+        )
+        system_guidance = (
+            "Use the System User Guide above to determine the specific screens, fields, "
+            "modules, and workflows that the system uses to implement each URS requirement. "
+            "FRS descriptions must reference the actual product terminology from that guide."
+        )
+    else:
+        context_block = ""
+        system_guidance = (
+            "NO system user guide was provided. "
+            "Infer the system type from the URS content (e.g. LIMS, SAP, Veeva Vault, ERP, "
+            "MES, QMS, CTMS, eTMF, or similar GxP platform). "
+            "Then write FRS descriptions as a BEST-PRACTICE implementation for that system type. "
+            "Use plausible but generic screen names, field names, and module names appropriate "
+            "for that platform category (e.g. 'Sample Registration screen', 'Batch Record module', "
+            "'Audit Trail viewer'). The goal is a solid, credible FRS that a real validation "
+            "engineer would recognise as correctly scoped for that type of system."
         )
 
     return f"""
-{context_section}
-STRUCTURED URS TABLE (extracted in Pass 1):
+{context_block}STRUCTURED URS TABLE (extracted in Pass 1):
 {urs_csv}
+
+{system_guidance}
+
+CRITICAL RULE FOR FRS DESCRIPTIONS — READ CAREFULLY:
+The FRS Requirement_Description MUST NEVER be a copy or light paraphrase of the URS text.
+A URS describes WHAT the user needs (business language).
+An FRS describes HOW the system implements it (engineering/technical language).
+
+TRANSFORMATION EXAMPLES:
+  URS: "The system must record sample identifiers for all tests."
+  FRS: "The Sample Registration screen shall provide a mandatory alphanumeric Sample_ID
+        field (max 50 chars). On Save, the system shall validate uniqueness against the
+        sample master table and reject duplicates with error code ERR-SAM-001."
+
+  URS: "Users must be able to search for batch records."
+  FRS: "The Batch Record Search module shall expose filter criteria: Batch_Number
+        (wildcard), Product_Code (dropdown), Date_Range (date-picker), and Status
+        (multi-select). Results shall be paginated (25 rows/page) and sortable by
+        any column. Search response time shall be ≤ 3 seconds for up to 10,000 records."
+
+  URS: "The system shall support electronic signatures."
+  FRS: "The e-Signature widget shall capture Signer_ID, Password (masked), Meaning
+        (dropdown: Approved / Reviewed / Verified), and Timestamp (UTC, system-generated).
+        Signature records shall be stored in the audit trail table as immutable entries
+        per 21 CFR Part 11 §11.50 and shall not be editable or deletable by any user role."
+
+Apply this transformation to EVERY URS row. If no system guide is provided, use the
+inferred system type to determine appropriate field names, module names, and technical
+constraints.
 
 TASK: Generate exactly 4 CSV datasets separated by |||.
 Output ONLY raw CSV rows — include the header row in EVERY dataset.
@@ -558,43 +601,47 @@ Wrap any comma-containing value in double-quotes.
 
 Dataset 1 (FRS): ID,Requirement_Description,Priority,Risk,GxP_Impact,Source_URS_Ref,Source_Text,Source_Page,Confidence,Confidence_Flag
   - ID: FRS-NNN (e.g. FRS-001, FRS-002)
-  - Derive one or more FRS rows from EACH testable URS row.
+  - Requirement_Description: ENGINEERING/IMPLEMENTATION language (see CRITICAL RULE above).
+    Must describe: specific screen or module, field names, data types, validation logic,
+    error handling, or integration behaviour. Never copy URS wording.
   - Priority: Critical / High / Medium / Low
   - Risk: High / Medium / Low
-    • High  = patient safety, data integrity, or regulatory impact
-    • Medium = indirect quality or operational impact
-    • Low   = cosmetic, preference, or informational
+    • High   = patient safety, data integrity, electronic records, audit trail
+    • Medium = indirect quality, workflow, access control
+    • Low    = cosmetic, reporting, preference
   - GxP_Impact: Direct / Indirect / None
-  - Source_URS_Ref: the URS Req_ID this FRS row was derived from (e.g. URS-004)
-  - Source_Text: copy the Source_Text from the URS row verbatim
-  - Source_Page: copy the Source_Page from the URS row
-  - Confidence: 0.00–1.00 — how confident the FRS accurately captures the URS intent
-  - Confidence_Flag: write "Review Required" if Confidence < 0.70, else leave blank
+  - Source_URS_Ref: URS Req_ID this FRS was derived from (e.g. URS-004)
+  - Source_Text: copy Source_Text verbatim from the URS table
+  - Source_Page: copy Source_Page from the URS table
+  - Confidence: 0.00–1.00 confidence that this FRS accurately implements the URS intent
+  - Confidence_Flag: "Review Required" if Confidence < 0.70, else blank
 
 Dataset 2 (OQ): Test_ID,Requirement_Link,Requirement_Link_Type,Test_Step,Expected_Result,Pass_Fail_Criteria,Source,Confidence,Confidence_Flag
   - Test_ID: OQ-NNN
-  - Requirement_Link: FRS ID being tested
-  - Requirement_Link_Type: "FRS" (always FRS at this stage)
-  - Source: write "Derived from <URS Req_ID>" e.g. "Derived from URS-004"
-  - Confidence: 0.00–1.00 — how well this test covers the linked FRS requirement
+  - Requirement_Link: FRS ID being tested (e.g. FRS-001)
+  - Requirement_Link_Type: "FRS"
+  - Test_Step: concrete, executable action (e.g. "Navigate to Sample Registration screen.
+    Enter 'SMP-0042' in Sample_ID field. Click Save.")
+  - Expected_Result: specific, measurable outcome (e.g. "Record saved. Sample_ID 'SMP-0042'
+    appears in the sample master table. No error message shown.")
+  - Pass_Fail_Criteria: objective pass condition (e.g. "Pass if record confirmed in DB within
+    3 seconds and no ERR- codes returned.")
+  - Source: "Derived from <URS Req_ID>" e.g. "Derived from URS-004"
+  - Confidence: 0.00–1.00 test coverage confidence
   - Confidence_Flag: "Review Required" if Confidence < 0.70, else blank
-  - IMPORTANT: High-Risk FRS → at least 3 OQ tests. Medium → 2. Low → 1.
+  - Coverage rule: High-Risk FRS → ≥3 OQ tests (positive, negative, boundary).
+    Medium → ≥2 (positive + negative). Low → ≥1 (positive path).
 
 Dataset 3 (Traceability): URS_Req_ID,FRS_Ref,Test_ID,Coverage_Status,Gap_Analysis
   - FRS_Ref: FRS ID (e.g. FRS-001) — never a URS ID
   - Coverage_Status: Covered / Partial / Not Covered
-  - If no test: leave Test_ID blank, begin Gap_Analysis with [GAP]
-  - If partial: begin Gap_Analysis with [PARTIAL GAP]
+  - If no test: leave Test_ID blank, start Gap_Analysis with [GAP]
+  - If partial: start Gap_Analysis with [PARTIAL GAP]
 
 Dataset 4 (Gap_Analysis): Req_ID,Gap_Type,Description,Recommendation,Severity
   - Gap_Type: Untestable / No_Test_Coverage / Orphan_Test / Ambiguous / Duplicate
   - Only include rows where a gap exists.
   - Severity: Critical / High / Medium / Low
-  - Untestable: requirement uses vague non-testable language
-  - No_Test_Coverage: requirement has no OQ test case
-  - Orphan_Test: OQ test has no matching FRS/URS requirement
-  - Ambiguous: requirement can be interpreted in more than one way
-  - Duplicate: requirement appears to duplicate another requirement
 
 Separate each dataset with exactly: |||
 """
