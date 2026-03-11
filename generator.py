@@ -1952,7 +1952,10 @@ def show_login():
                     st.rerun()
                 else:
                     st.error(err_msg or "Invalid credentials.")
-
+       st.markdown("<h3 style='text-align: center; font-size: 1.5rem;'>21CFRPart11 Compliant </h3>",
+                    unsafe_allow_html=True)
+       st.markdown("<h3 style='text-align: center; font-size: 1.5rem;'>21CFRPart11 Compliant Auto generate FRS, OQ Test steps and Traceability with Gap analysis</h3>",
+                    unsafe_allow_html=True)
 
 # =============================================================================
 # 12. MAIN APPLICATION
