@@ -1,25 +1,31 @@
 """
-Validation Doc Assist — v16.0
+Validation Doc Assist — v18.0
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Changes over v15:
-  1. AUTHENTICATION HARDENING  — hashed passwords (bcrypt/sha256),
-                                  roles (Admin/QA/Validator), session
-                                  timeout (30 min inactivity), account
-                                  lockout (5 failed attempts → 15 min)
-  2. FULL AUDIT TRAIL SCHEMA   — event_id, user, timestamp, action,
-                                  object_changed, old_value, new_value,
-                                  reason. INSERT-only, never editable.
-  3. DOCUMENT VERSIONING       — every artifact stored with auto-
-                                  incremented version; previous versions
-                                  never overwritten.
-  4. AI GENERATION RECORD      — model, prompt_version, temperature,
-                                  timestamp stored per generation run.
-  5. GAP ANALYSIS              — [GAP] enforcement + Gap_Analysis tab
-                                  showing untestable / uncovered reqs.
-  6. URS → FRS GENERATION      — FRS built from URS + optional user guide
-  7. DUAL UPLOADER             — main URS/SOP + sidebar system-context PDF
-  8. RETAINED FILE MESSAGE FIX — banner hidden when no file is present
-  9. ALL CSS / BRANDING        — unchanged from v15
+Changes over v17.0:
+  1. TWO-PASS ANALYSIS       — Pass 1: structured URS extraction
+                               (Req_ID, Description, Category,
+                               Testable, Source_Text, Source_Page).
+                               Pass 2: FRS/OQ/Traceability derived
+                               from the structured URS table.
+  2. FULL PROVENANCE CHAIN   — FRS sheet gains Source_URS_Ref,
+                               Source_Text, Source_Page columns.
+                               OQ sheet gains Source column showing
+                               "Derived from URS-xxx".
+                               Every row traceable to a source paragraph.
+  3. AI CONFIDENCE SCORES    — LLM outputs Confidence (0.0–1.0) for
+                               every FRS and OQ row.
+                               Python post-process: < 0.7 → flag
+                               "Review Required" in Confidence_Flag col.
+  4. ENHANCED GAP ANALYSIS   — 5 gap types from deterministic engine:
+                               Untestable / No_Test_Coverage /
+                               Orphan_Test / Ambiguous / Duplicate
+                               All in Gap_Analysis sheet with full
+                               Req_ID, Gap_Type, Description,
+                               Recommendation columns.
+  5. DUPLICATE DETECTION     — Python similarity check on FRS
+                               Requirement_Description; near-duplicates
+                               (>80% token overlap) flagged as Duplicate.
+  6. ALL CSS / BRANDING      — unchanged from v17
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 """
 
@@ -54,8 +60,8 @@ except ImportError:
 # =============================================================================
 # 1. CONFIG
 # =============================================================================
-VERSION        = "16.1"
-PROMPT_VERSION = "v6.1-frs-id-oq-link-type"
+VERSION        = "18.0"
+PROMPT_VERSION = "v8.0-two-pass-provenance-confidence"
 TEMPERATURE    = 0.2
 CHUNK_SIZE     = 8
 DB_PATH        = os.path.join(os.path.dirname(os.path.abspath(__file__)), "validation_app.db")
@@ -108,25 +114,29 @@ def db_migrate():
         conn.execute("""
             CREATE TABLE IF NOT EXISTS documents (
                 id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                doc_type    TEXT    NOT NULL,
+                name        TEXT    NOT NULL,
+                type        TEXT    NOT NULL,
                 version     INTEGER NOT NULL,
+                uploaded_by TEXT,
+                timestamp   TEXT,
+                file_path   TEXT,
+                status      TEXT    DEFAULT 'Active',
                 content     TEXT,
-                created_by  TEXT,
-                created_at  TEXT,
                 project_ref TEXT
             )
         """)
 
         conn.execute("""
             CREATE TABLE IF NOT EXISTS ai_gen_log (
-                id             INTEGER PRIMARY KEY AUTOINCREMENT,
-                model          TEXT,
-                prompt_version TEXT,
-                temperature    REAL,
-                timestamp      TEXT,
-                generated_by   TEXT,
-                project_ref    TEXT,
-                input_file     TEXT
+                id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                model            TEXT,
+                prompt_version   TEXT,
+                temperature      REAL,
+                timestamp        TEXT,
+                generated_by     TEXT,
+                project_ref      TEXT,
+                input_file       TEXT,
+                document_ids_used TEXT
             )
         """)
 
@@ -154,14 +164,28 @@ def db_migrate():
                     pass
 
         doc_cols = [r[1] for r in conn.execute("PRAGMA table_info(documents)").fetchall()]
-        if "project_ref" not in doc_cols:
-            conn.execute("ALTER TABLE documents ADD COLUMN project_ref TEXT")
+        for col, defn in [
+            ("name",        "TEXT"),
+            ("type",        "TEXT"),
+            ("file_path",   "TEXT"),
+            ("status",      "TEXT DEFAULT 'Active'"),
+            ("project_ref", "TEXT"),
+            ("content",     "TEXT"),
+            ("uploaded_by", "TEXT"),
+            ("timestamp",   "TEXT"),
+        ]:
+            if col not in doc_cols:
+                try:
+                    conn.execute(f"ALTER TABLE documents ADD COLUMN {col} {defn}")
+                except Exception:
+                    pass
 
         ai_cols = [r[1] for r in conn.execute("PRAGMA table_info(ai_gen_log)").fetchall()]
         for col, defn in [
-            ("temperature",  "REAL"),
-            ("project_ref",  "TEXT"),
-            ("input_file",   "TEXT"),
+            ("temperature",       "REAL"),
+            ("project_ref",       "TEXT"),
+            ("input_file",        "TEXT"),
+            ("document_ids_used", "TEXT"),
         ]:
             if col not in ai_cols:
                 conn.execute(f"ALTER TABLE ai_gen_log ADD COLUMN {col} {defn}")
@@ -207,16 +231,18 @@ def log_audit(user: str, action: str, object_changed: str = "",
 
 
 def log_ai_generation(user: str, model: str, prompt_version: str,
-                      temperature: float, input_file: str = "", project_ref: str = ""):
+                      temperature: float, input_file: str = "",
+                      project_ref: str = "", document_ids_used: str = ""):
     try:
         conn = db_connect()
         conn.execute(
             """INSERT INTO ai_gen_log
-               (model, prompt_version, temperature, timestamp, generated_by, project_ref, input_file)
-               VALUES (?,?,?,?,?,?,?)""",
+               (model, prompt_version, temperature, timestamp, generated_by,
+                project_ref, input_file, document_ids_used)
+               VALUES (?,?,?,?,?,?,?,?)""",
             (model, prompt_version, temperature,
              datetime.datetime.utcnow().isoformat(),
-             user, project_ref, input_file)
+             user, project_ref, input_file, document_ids_used)
         )
         conn.commit()
         conn.close()
@@ -228,7 +254,7 @@ def get_next_doc_version(doc_type: str) -> int:
     try:
         conn = db_connect()
         row  = conn.execute(
-            "SELECT MAX(version) FROM documents WHERE doc_type=?", (doc_type,)
+            "SELECT MAX(version) FROM documents WHERE type=?", (doc_type,)
         ).fetchone()
         conn.close()
         return (row[0] or 0) + 1
@@ -236,23 +262,29 @@ def get_next_doc_version(doc_type: str) -> int:
         return 1
 
 
-def save_document(doc_type: str, content: str, created_by: str, project_ref: str = "") -> int:
-    """Always inserts a new version — never overwrites previous."""
+def save_document(doc_type: str, content: str, created_by: str,
+                  project_ref: str = "", file_path: str = "") -> int:
+    """Always inserts a new version — never overwrites. Returns new doc ID."""
     version = get_next_doc_version(doc_type)
+    name    = f"{doc_type}_v{version}.0_{datetime.date.today()}"
     try:
         conn = db_connect()
-        conn.execute(
+        cur  = conn.execute(
             """INSERT INTO documents
-               (doc_type, version, content, created_by, created_at, project_ref)
-               VALUES (?,?,?,?,?,?)""",
-            (doc_type, version, content[:10000], created_by,
-             datetime.datetime.utcnow().isoformat(), project_ref)
+               (name, type, version, uploaded_by, timestamp, file_path,
+                status, content, project_ref)
+               VALUES (?,?,?,?,?,?,?,?,?)""",
+            (name, doc_type, version, created_by,
+             datetime.datetime.utcnow().isoformat(),
+             file_path, "Active", content[:10000], project_ref)
         )
+        doc_id = cur.lastrowid
         conn.commit()
         conn.close()
+        return doc_id
     except Exception as e:
         st.warning(f"Document save failed: {e}")
-    return version
+        return -1
 
 
 # =============================================================================
@@ -466,65 +498,110 @@ def extract_pages(file_bytes: bytes) -> list:
 # 5. PROMPTS
 # =============================================================================
 
+# =============================================================================
+# 5. PROMPTS  — Two-pass architecture
+#    Pass 1: Structured URS extraction (deterministic input table)
+#    Pass 2: FRS / OQ / Traceability / Gap derived from Pass-1 table
+# =============================================================================
+
 SYSTEM_PROMPT = (
     "You are a Principal Validation Engineer specializing in GAMP 5 and 21 CFR Part 11. "
     "You output ONLY structured CSV data — no explanations, no markdown, no preamble. "
     "Always wrap field values that contain commas in double-quotes. "
     "The document text may contain [TABLE N] blocks in pipe-delimited format. "
-    "Extract requirements from both prose AND table cells."
+    "Extract requirements from both prose AND table cells. "
+    "Confidence scores must be a decimal between 0.00 and 1.00."
 )
 
+# ── PASS 1 PROMPT: extract a clean, structured URS table ─────────────────────
+def build_pass1_prompt(chunk_text: str, chunk_index: int, total_chunks: int) -> str:
+    return f"""
+URS DOCUMENT — Segment {chunk_index + 1} of {total_chunks}:
+{chunk_text}
 
-def build_chunk_prompt(chunk_text: str, chunk_index: int, total_chunks: int,
-                       sys_context: str = "") -> str:
+TASK: Extract every user requirement from this segment into a single CSV.
+Output ONLY the CSV — include the header row. Wrap comma-containing values in double-quotes.
+
+CSV columns:
+Req_ID,Requirement_Description,Category,Testable,Source_Text,Source_Page,Confidence
+
+Rules:
+- Req_ID: sequential URS-NNN format (e.g. URS-001). Continue numbering across segments.
+- Category: Functional / Performance / Security / Compliance / Usability / Data / Interface
+- Testable: Yes / No
+  Mark No if the requirement contains vague language:
+  "user friendly", "easy", "fast", "quickly", "seamless", "simple", "intuitive",
+  "efficient", "smooth", "modern", "flexible", "robust", "scalable", "reliable",
+  "convenient", "accessible", "appealing", "pleasant", "elegant".
+- Source_Text: copy the EXACT sentence or phrase from the document that this requirement came from (max 120 chars).
+- Source_Page: the page number where the source text appears (e.g. Page 3). Write "Unknown" if unclear.
+- Confidence: your confidence that this is a valid requirement, 0.00–1.00.
+"""
+
+# ── PASS 2 PROMPT: generate FRS / OQ / Traceability / Gap from URS table ─────
+def build_pass2_prompt(urs_csv: str, sys_context: str = "") -> str:
     context_section = ""
     if sys_context:
         context_section = (
-            f"\nSYSTEM USER GUIDE (sidebar upload — describes product features/functions "
-            f"used to derive FRS requirements):\n{sys_context[:3000]}\n"
+            f"\nSYSTEM USER GUIDE (product manual — use to enrich FRS requirements):\n"
+            f"{sys_context[:3000]}\n"
         )
 
     return f"""
 {context_section}
-URS CONTENT (main upload — defines user requirements) — Segment {chunk_index + 1} of {total_chunks}:
-{chunk_text}
+STRUCTURED URS TABLE (extracted in Pass 1):
+{urs_csv}
 
-TASK: Parse this segment into exactly 4 CSV datasets separated by |||.
-Output ONLY raw CSV rows — include the header row in EVERY response.
-Wrap any field value containing a comma in double-quotes.
+TASK: Generate exactly 4 CSV datasets separated by |||.
+Output ONLY raw CSV rows — include the header row in EVERY dataset.
+Wrap any comma-containing value in double-quotes.
 
-Dataset 1 (FRS): ID,Requirement_Description,Priority,GxP_Impact,Source_URS_Ref
-  - ID MUST start with "FRS-" followed by a zero-padded number, e.g. FRS-001, FRS-002.
-  - Generate functional requirements derived from the URS (main document) and the
-    system context / user guide (sidebar document).
+Dataset 1 (FRS): ID,Requirement_Description,Priority,Risk,GxP_Impact,Source_URS_Ref,Source_Text,Source_Page,Confidence,Confidence_Flag
+  - ID: FRS-NNN (e.g. FRS-001, FRS-002)
+  - Derive one or more FRS rows from EACH testable URS row.
   - Priority: Critical / High / Medium / Low
+  - Risk: High / Medium / Low
+    • High  = patient safety, data integrity, or regulatory impact
+    • Medium = indirect quality or operational impact
+    • Low   = cosmetic, preference, or informational
   - GxP_Impact: Direct / Indirect / None
-  - Source_URS_Ref: the URS requirement ID or section this FRS row was derived from.
+  - Source_URS_Ref: the URS Req_ID this FRS row was derived from (e.g. URS-004)
+  - Source_Text: copy the Source_Text from the URS row verbatim
+  - Source_Page: copy the Source_Page from the URS row
+  - Confidence: 0.00–1.00 — how confident the FRS accurately captures the URS intent
+  - Confidence_Flag: write "Review Required" if Confidence < 0.70, else leave blank
 
-Dataset 2 (OQ): Test_ID,Requirement_Link,Requirement_Link_Type,Test_Step,Expected_Result,Pass_Fail_Criteria
-  - Test_ID format: OQ-001, OQ-002, etc.
-  - Requirement_Link: the ID of the requirement being tested (URS or FRS ID).
-  - Requirement_Link_Type: must be exactly "URS" if linking to a URS requirement,
-    or "FRS" if linking to a FRS requirement.
-  - Generate one or more test cases per FRS requirement where testable.
+Dataset 2 (OQ): Test_ID,Requirement_Link,Requirement_Link_Type,Test_Step,Expected_Result,Pass_Fail_Criteria,Source,Confidence,Confidence_Flag
+  - Test_ID: OQ-NNN
+  - Requirement_Link: FRS ID being tested
+  - Requirement_Link_Type: "FRS" (always FRS at this stage)
+  - Source: write "Derived from <URS Req_ID>" e.g. "Derived from URS-004"
+  - Confidence: 0.00–1.00 — how well this test covers the linked FRS requirement
+  - Confidence_Flag: "Review Required" if Confidence < 0.70, else blank
+  - IMPORTANT: High-Risk FRS → at least 3 OQ tests. Medium → 2. Low → 1.
 
 Dataset 3 (Traceability): URS_Req_ID,FRS_Ref,Test_ID,Coverage_Status,Gap_Analysis
-  - FRS_Ref MUST be the FRS ID (e.g. FRS-001) from Dataset 1 — never a URS ID here.
+  - FRS_Ref: FRS ID (e.g. FRS-001) — never a URS ID
   - Coverage_Status: Covered / Partial / Not Covered
-  - If a requirement has NO corresponding test, leave Test_ID blank and
-    begin Gap_Analysis with exactly: [GAP]
-  - If partially covered, prefix Gap_Analysis with: [PARTIAL GAP]
+  - If no test: leave Test_ID blank, begin Gap_Analysis with [GAP]
+  - If partial: begin Gap_Analysis with [PARTIAL GAP]
 
-Dataset 4 (Gap_Summary): Req_ID,Requirement_Description,Gap_Type,Gap_Reason,Recommended_Action
-  - Gap_Type: Untestable / No_Test_Coverage / Partial_Coverage / Out_of_Scope
-  - Only include requirements with coverage gaps here.
+Dataset 4 (Gap_Analysis): Req_ID,Gap_Type,Description,Recommendation,Severity
+  - Gap_Type: Untestable / No_Test_Coverage / Orphan_Test / Ambiguous / Duplicate
+  - Only include rows where a gap exists.
+  - Severity: Critical / High / Medium / Low
+  - Untestable: requirement uses vague non-testable language
+  - No_Test_Coverage: requirement has no OQ test case
+  - Orphan_Test: OQ test has no matching FRS/URS requirement
+  - Ambiguous: requirement can be interpreted in more than one way
+  - Duplicate: requirement appears to duplicate another requirement
 
 Separate each dataset with exactly: |||
 """
 
 
 # =============================================================================
-# 6. SEGMENTED AI ANALYSIS
+# 6. TWO-PASS AI ANALYSIS ENGINE
 # =============================================================================
 
 def _safe_parse_chunk(raw: str) -> tuple:
@@ -556,6 +633,25 @@ def _remove_duplicate_headers(df: pd.DataFrame) -> pd.DataFrame:
     return df[df.iloc[:, 0].astype(str) != df.columns[0]].reset_index(drop=True)
 
 
+def _apply_confidence_flags(df: pd.DataFrame) -> pd.DataFrame:
+    """Post-process: ensure Confidence_Flag is set for any row with Confidence < 0.70."""
+    if df.empty or "Confidence" not in df.columns:
+        return df
+    df = df.copy()
+    if "Confidence_Flag" not in df.columns:
+        df["Confidence_Flag"] = ""
+    def _flag(row):
+        try:
+            conf = float(str(row["Confidence"]).strip())
+            if conf < 0.70:
+                return "⚠️ Review Required"
+        except (ValueError, TypeError):
+            pass
+        return row.get("Confidence_Flag", "")
+    df["Confidence_Flag"] = df.apply(_flag, axis=1)
+    return df
+
+
 def run_segmented_analysis(
     file_bytes: bytes,
     model_id: str,
@@ -563,6 +659,12 @@ def run_segmented_analysis(
     status_text,
     sys_context_bytes: bytes = None
 ) -> tuple:
+    """
+    Two-pass analysis:
+    Pass 1 — per-chunk URS extraction: produces a clean structured URS table
+    Pass 2 — single call with full URS table: produces FRS / OQ / Trace / Gap
+    Returns: (urs_df, frs_df, oq_df, trace_df, gap_df)
+    """
     all_pages   = extract_pages(file_bytes)
     chunks      = [all_pages[i:i + CHUNK_SIZE] for i in range(0, len(all_pages), CHUNK_SIZE)]
     total       = len(chunks)
@@ -575,12 +677,12 @@ def run_segmented_analysis(
         except Exception:
             pass
 
-    frs_frames, oq_frames, trace_frames, gap_frames = [], [], [], []
-
+    # ── PASS 1: Extract structured URS table from each chunk ─────────────────
+    urs_frames = []
     for idx, chunk_pages in enumerate(chunks):
         chunk_text = "\n\n".join(chunk_pages)
-        status_text.text(f"🔍 Analysing segment {idx + 1} of {total}  ({len(chunk_pages)} pages)...")
-        progress_bar.progress(idx / total)
+        status_text.text(f"📄 Pass 1 — Extracting URS: segment {idx + 1} of {total}...")
+        progress_bar.progress((idx) / (total * 2))
 
         try:
             response = completion(
@@ -589,45 +691,96 @@ def run_segmented_analysis(
                 temperature=TEMPERATURE,
                 messages=[
                     {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user",   "content": build_chunk_prompt(
-                        chunk_text, idx, total, sys_context
-                    )}
+                    {"role": "user",   "content": build_pass1_prompt(chunk_text, idx, total)}
                 ]
             )
-            raw = response.choices[0].message.content or ""
+            raw_urs = response.choices[0].message.content or ""
+            # Strip markdown fences
+            raw_urs = re.sub(r'^```[a-zA-Z]*\n?', '', raw_urs, flags=re.MULTILINE)
+            raw_urs = re.sub(r'```\s*$',          '', raw_urs, flags=re.MULTILINE)
+            df_urs  = _csv_to_df(raw_urs.strip())
+            if not df_urs.empty:
+                urs_frames.append(df_urs)
         except Exception as e:
-            st.warning(f"⚠️ Segment {idx+1} failed ({e}) — skipping.")
-            continue
+            st.warning(f"⚠️ Pass 1 segment {idx+1} failed ({e}) — skipping.")
 
-        frs_csv, oq_csv, trace_csv, gap_csv = _safe_parse_chunk(raw)
-
-        for frames, csv_text in [
-            (frs_frames,   frs_csv),
-            (oq_frames,    oq_csv),
-            (trace_frames, trace_csv),
-            (gap_frames,   gap_csv),
-        ]:
-            df = _csv_to_df(csv_text)
-            if not df.empty:
-                frames.append(df)
-
-    progress_bar.progress(1.0)
-    status_text.text("✅ All segments processed — compiling workbook...")
-
-    def _combine(frames: list) -> pd.DataFrame:
+    def _combine(frames):
         if not frames:
             return pd.DataFrame()
-        combined = pd.concat(frames, ignore_index=True)
-        combined = _remove_duplicate_headers(combined)
-        combined.dropna(how='all', inplace=True)
-        return combined
+        c = pd.concat(frames, ignore_index=True)
+        c = _remove_duplicate_headers(c)
+        c.dropna(how='all', inplace=True)
+        return c
+
+    urs_final = _combine(urs_frames)
+
+    # Ensure Confidence_Flag on URS
+    urs_final = _apply_confidence_flags(urs_final)
+
+    progress_bar.progress(0.5)
+    status_text.text("✅ Pass 1 complete — structured URS table built. Running Pass 2...")
+
+    # ── PASS 2: Generate FRS / OQ / Traceability / Gap from URS table ────────
+    frs_frames, oq_frames, trace_frames, gap_frames = [], [], [], []
+
+    if urs_final.empty:
+        st.warning("⚠️ No URS requirements extracted in Pass 1. Pass 2 skipped.")
+    else:
+        urs_csv_str = urs_final.to_csv(index=False)
+        # Chunk the URS CSV if very large (> 4000 chars) to avoid token limits
+        urs_lines   = urs_csv_str.split("\n")
+        header_line = urs_lines[0]
+        data_lines  = urs_lines[1:]
+        PASS2_CHUNK = 40   # rows per pass-2 call
+        p2_chunks   = [data_lines[i:i+PASS2_CHUNK] for i in range(0, len(data_lines), PASS2_CHUNK)]
+        p2_total    = len(p2_chunks)
+
+        for p2_idx, p2_rows in enumerate(p2_chunks):
+            p2_csv = header_line + "\n" + "\n".join(p2_rows)
+            status_text.text(
+                f"🔬 Pass 2 — Generating FRS/OQ/Trace/Gap: batch {p2_idx+1} of {p2_total}..."
+            )
+            progress_bar.progress(0.5 + (p2_idx / p2_total) * 0.45)
+
+            try:
+                response = completion(
+                    model=model_id,
+                    stream=False,
+                    temperature=TEMPERATURE,
+                    messages=[
+                        {"role": "system", "content": SYSTEM_PROMPT},
+                        {"role": "user",   "content": build_pass2_prompt(p2_csv, sys_context)}
+                    ]
+                )
+                raw_p2 = response.choices[0].message.content or ""
+            except Exception as e:
+                st.warning(f"⚠️ Pass 2 batch {p2_idx+1} failed ({e}) — skipping.")
+                continue
+
+            frs_csv, oq_csv, trace_csv, gap_csv = _safe_parse_chunk(raw_p2)
+            for frames, csv_text in [
+                (frs_frames,   frs_csv),
+                (oq_frames,    oq_csv),
+                (trace_frames, trace_csv),
+                (gap_frames,   gap_csv),
+            ]:
+                df = _csv_to_df(csv_text)
+                if not df.empty:
+                    frames.append(df)
+
+    progress_bar.progress(0.95)
+    status_text.text("✅ Both passes complete — running deterministic checks...")
 
     frs_final   = _combine(frs_frames)
     oq_final    = _combine(oq_frames)
     trace_final = _combine(trace_frames)
     gap_final   = _combine(gap_frames)
 
-    # Python-enforced [GAP] prefix — never rely solely on the LLM
+    # Apply confidence flags (Python-enforced — never rely on LLM alone)
+    frs_final = _apply_confidence_flags(frs_final)
+    oq_final  = _apply_confidence_flags(oq_final)
+
+    # Python-enforced [GAP] prefix on trace rows with no test
     if (not trace_final.empty
             and "Gap_Analysis" in trace_final.columns
             and "Test_ID" in trace_final.columns):
@@ -637,106 +790,397 @@ def run_segmented_analysis(
             lambda v: v if str(v).startswith("[GAP]") else f"[GAP] {v}"
         )
 
-    return frs_final, oq_final, trace_final, gap_final
+    progress_bar.progress(1.0)
+    status_text.text("✅ All segments processed — compiling workbook...")
+
+    return urs_final, frs_final, oq_final, trace_final, gap_final
 
 
 # =============================================================================
-# 7. AUDIT LOG SHEET  (Python-owned, never hallucinated)
+# 6b. DETERMINISTIC GAP VALIDATION ENGINE  (R1–R5)
 # =============================================================================
+
+NON_TESTABLE_KEYWORDS = [
+    "user friendly", "user-friendly", "easy to use", "easy-to-use",
+    "intuitive", "fast", "quickly", "seamlessly", "simple", "straightforward",
+    "efficient", "smooth", "pleasant", "elegant", "modern", "robust",
+    "flexible", "scalable", "reliable", "stable", "responsive",
+    "convenient", "accessible", "appealing",
+]
+
+AMBIGUOUS_KEYWORDS = [
+    "appropriate", "adequate", "sufficient", "reasonable", "as needed",
+    "if necessary", "where applicable", "etc", "and/or", "various",
+    "many", "several", "some", "other", "etc.", "normal", "standard",
+    "should consider", "may need", "could be",
+]
+
+
+def _token_overlap(a: str, b: str) -> float:
+    """Simple Jaccard token overlap for duplicate detection."""
+    ta = set(re.findall(r'\w+', a.lower()))
+    tb = set(re.findall(r'\w+', b.lower()))
+    if not ta or not tb:
+        return 0.0
+    return len(ta & tb) / len(ta | tb)
+
+
+def run_deterministic_validation(
+    frs_df: pd.DataFrame,
+    oq_df: pd.DataFrame,
+    trace_df: pd.DataFrame,
+    gap_df: pd.DataFrame,
+) -> tuple:
+    """
+    Rules:
+      R1 — FRS req without any OQ test          → Gap_Type: No_Test_Coverage
+      R2 — OQ test with no matching FRS req      → Gap_Type: Orphan_Test
+      R3 — Non-testable keywords in description  → Gap_Type: Untestable
+      R4 — High-risk req with < required tests   → Gap_Type: No_Test_Coverage (risk)
+      R5 — Near-duplicate FRS descriptions       → Gap_Type: Duplicate
+
+    Returns: (enriched_trace_df, enriched_gap_df, det_issues_df)
+    """
+    issues = []
+
+    frs_ids = set()
+    if not frs_df.empty and "ID" in frs_df.columns:
+        frs_ids = set(frs_df["ID"].dropna().astype(str).str.strip())
+
+    oq_req_links = set()
+    oq_test_ids  = set()
+    if not oq_df.empty:
+        if "Requirement_Link" in oq_df.columns:
+            oq_req_links = set(oq_df["Requirement_Link"].dropna().astype(str).str.strip())
+        if "Test_ID" in oq_df.columns:
+            oq_test_ids = set(oq_df["Test_ID"].dropna().astype(str).str.strip())
+
+    # ── R1: FRS req without any OQ test ──────────────────────────────────────
+    for frs_id in sorted(frs_ids):
+        if frs_id not in oq_req_links:
+            issues.append({
+                "Rule":            "R1",
+                "Req_ID":          frs_id,
+                "Gap_Type":        "No_Test_Coverage",
+                "Description":     f"{frs_id} has no OQ test case linked to it.",
+                "Recommendation":  "Create at least one OQ test case for this FRS requirement.",
+                "Severity":        "High",
+            })
+            if not trace_df.empty and "FRS_Ref" in trace_df.columns:
+                mask = (trace_df["FRS_Ref"].astype(str).str.strip() == frs_id)
+                no_test = mask & (trace_df["Test_ID"].isna() |
+                                  (trace_df["Test_ID"].astype(str).str.strip() == ""))
+                trace_df.loc[no_test, "Gap_Analysis"] = "[GAP] R1: No test coverage (deterministic)"
+
+    # ── R2: Orphan OQ tests ───────────────────────────────────────────────────
+    if not oq_df.empty and "Requirement_Link" in oq_df.columns:
+        for _, row in oq_df.iterrows():
+            link    = str(row.get("Requirement_Link", "")).strip()
+            test_id = str(row.get("Test_ID", "")).strip()
+            if link and link not in frs_ids:
+                issues.append({
+                    "Rule":            "R2",
+                    "Req_ID":          test_id,
+                    "Gap_Type":        "Orphan_Test",
+                    "Description":     f"OQ test {test_id} links to '{link}' which has no FRS entry.",
+                    "Recommendation":  "Verify the requirement reference or remove/reassign this test.",
+                    "Severity":        "Medium",
+                })
+
+    # ── R3: Non-testable + Ambiguous keyword detection ────────────────────────
+    desc_col = "Requirement_Description" if not frs_df.empty and "Requirement_Description" in frs_df.columns else None
+    if desc_col:
+        for _, row in frs_df.iterrows():
+            desc = str(row.get(desc_col, "")).lower()
+            fid  = str(row.get("ID", "")).strip()
+
+            nt_found  = [kw for kw in NON_TESTABLE_KEYWORDS if kw in desc]
+            amb_found = [kw for kw in AMBIGUOUS_KEYWORDS      if kw in desc]
+
+            if nt_found:
+                issues.append({
+                    "Rule":            "R3",
+                    "Req_ID":          fid,
+                    "Gap_Type":        "Untestable",
+                    "Description":     f"Non-testable language detected: {', '.join(nt_found)}",
+                    "Recommendation":  "Rewrite as specific, measurable requirement (e.g. add numeric criteria).",
+                    "Severity":        "High",
+                })
+                gap_df = pd.concat([gap_df, pd.DataFrame([{
+                    "Req_ID":          fid,
+                    "Gap_Type":        "Untestable",
+                    "Description":     f"Non-testable keywords: {', '.join(nt_found)}",
+                    "Recommendation":  "Rewrite as measurable, specific requirement.",
+                    "Severity":        "High",
+                }])], ignore_index=True)
+
+            elif amb_found:
+                issues.append({
+                    "Rule":            "R3b",
+                    "Req_ID":          fid,
+                    "Gap_Type":        "Ambiguous",
+                    "Description":     f"Ambiguous language detected: {', '.join(amb_found)}",
+                    "Recommendation":  "Clarify intent with specific, unambiguous wording.",
+                    "Severity":        "Medium",
+                })
+                gap_df = pd.concat([gap_df, pd.DataFrame([{
+                    "Req_ID":          fid,
+                    "Gap_Type":        "Ambiguous",
+                    "Description":     f"Ambiguous keywords: {', '.join(amb_found)}",
+                    "Recommendation":  "Clarify requirement with precise, unambiguous language.",
+                    "Severity":        "Medium",
+                }])], ignore_index=True)
+
+    # ── R4: High-risk reqs with insufficient OQ test count ───────────────────
+    if not frs_df.empty and "Risk" in frs_df.columns and not oq_df.empty:
+        req_link_col = "Requirement_Link" if "Requirement_Link" in oq_df.columns else None
+        if req_link_col:
+            for _, row in frs_df.iterrows():
+                fid       = str(row.get("ID", "")).strip()
+                risk      = str(row.get("Risk", "")).strip().lower()
+                min_tests = {"high": 3, "medium": 2, "low": 1}.get(risk, 1)
+                test_cnt  = oq_df[oq_df[req_link_col].astype(str).str.strip() == fid].shape[0]
+                if test_cnt < min_tests:
+                    issues.append({
+                        "Rule":            "R4",
+                        "Req_ID":          fid,
+                        "Gap_Type":        "No_Test_Coverage",
+                        "Description":     (f"Risk={risk.title()}: {fid} has {test_cnt} test(s) "
+                                            f"but requires ≥{min_tests} for this risk level."),
+                        "Recommendation":  f"Add {min_tests - test_cnt} more OQ test case(s).",
+                        "Severity":        "High" if risk == "high" else "Medium",
+                    })
+
+    # ── R5: Duplicate detection (Jaccard token overlap > 0.80) ───────────────
+    if desc_col and len(frs_df) > 1:
+        frs_list = frs_df[["ID", desc_col]].dropna().reset_index(drop=True)
+        seen_pairs = set()
+        for i in range(len(frs_list)):
+            for j in range(i + 1, len(frs_list)):
+                id_a   = str(frs_list.loc[i, "ID"]).strip()
+                id_b   = str(frs_list.loc[j, "ID"]).strip()
+                desc_a = str(frs_list.loc[i, desc_col])
+                desc_b = str(frs_list.loc[j, desc_col])
+                pair   = tuple(sorted([id_a, id_b]))
+                if pair in seen_pairs:
+                    continue
+                overlap = _token_overlap(desc_a, desc_b)
+                if overlap >= 0.80:
+                    seen_pairs.add(pair)
+                    issues.append({
+                        "Rule":            "R5",
+                        "Req_ID":          f"{id_a} / {id_b}",
+                        "Gap_Type":        "Duplicate",
+                        "Description":     f"{id_a} and {id_b} have {overlap:.0%} token overlap.",
+                        "Recommendation":  "Review and consolidate or differentiate these requirements.",
+                        "Severity":        "Medium",
+                    })
+                    gap_df = pd.concat([gap_df, pd.DataFrame([{
+                        "Req_ID":          f"{id_a} / {id_b}",
+                        "Gap_Type":        "Duplicate",
+                        "Description":     f"{overlap:.0%} overlap between {id_a} and {id_b}",
+                        "Recommendation":  "Consolidate or clearly differentiate these requirements.",
+                        "Severity":        "Medium",
+                    }])], ignore_index=True)
+
+    det_issues_df = pd.DataFrame(issues) if issues else pd.DataFrame(
+        columns=["Rule", "Req_ID", "Gap_Type", "Description", "Recommendation", "Severity"]
+    )
+
+    return trace_df, gap_df, det_issues_df
 
 def build_audit_log_sheet(user: str, file_name: str, model_name: str,
                           frs_df: pd.DataFrame, oq_df: pd.DataFrame,
-                          gap_df: pd.DataFrame, version_frs: int,
-                          version_oq: int) -> pd.DataFrame:
-    now_str   = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
-    role      = get_user_role(user)
-    gap_count = len(gap_df) if not gap_df.empty else 0
+                          gap_df: pd.DataFrame, det_df: pd.DataFrame,
+                          version_frs: int, version_oq: int,
+                          doc_ids: str = "") -> pd.DataFrame:
+    now_str    = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+    role       = get_user_role(user)
+    gap_count  = len(gap_df) if not gap_df.empty else 0
+    det_count  = len(det_df) if not det_df.empty else 0
 
     rows = [
         {
-            "Event":          "SESSION_LOGIN",
-            "User":           user,
-            "Role":           role,
-            "Timestamp":      now_str,
-            "Object_Changed": "SESSION",
-            "Old_Value":      "",
-            "New_Value":      "AUTHENTICATED",
-            "Reason":         "User authenticated successfully",
+            "Event":            "SESSION_LOGIN",
+            "User":             user,
+            "Role":             role,
+            "Timestamp":        now_str,
+            "Object_Changed":   "SESSION",
+            "Old_Value":        "",
+            "New_Value":        "AUTHENTICATED",
+            "Reason":           "User authenticated successfully",
+            "AI_Metadata":      "",
         },
         {
-            "Event":          "DOCUMENT_UPLOADED",
-            "User":           user,
-            "Role":           role,
-            "Timestamp":      now_str,
-            "Object_Changed": "URS/SOP",
-            "Old_Value":      "",
-            "New_Value":      file_name,
-            "Reason":         "URS file submitted for analysis",
+            "Event":            "DOCUMENT_UPLOADED",
+            "User":             user,
+            "Role":             role,
+            "Timestamp":        now_str,
+            "Object_Changed":   "URS/SOP",
+            "Old_Value":        "",
+            "New_Value":        file_name,
+            "Reason":           "URS file submitted for analysis",
+            "AI_Metadata":      "",
         },
         {
-            "Event":          "AI_ANALYSIS_INITIATED",
-            "User":           user,
-            "Role":           role,
-            "Timestamp":      now_str,
-            "Object_Changed": "ANALYSIS_ENGINE",
-            "Old_Value":      "",
-            "New_Value":      f"Model: {model_name} | Prompt: {PROMPT_VERSION} | Temp: {TEMPERATURE}",
-            "Reason":         "GAMP-5 segmented analysis started",
+            "Event":            "AI_ANALYSIS_INITIATED",
+            "User":             user,
+            "Role":             role,
+            "Timestamp":        now_str,
+            "Object_Changed":   "ANALYSIS_ENGINE",
+            "Old_Value":        "",
+            "New_Value":        f"Model: {model_name} | Prompt: {PROMPT_VERSION} | Temp: {TEMPERATURE}",
+            "Reason":           "GAMP-5 segmented analysis started",
+            "AI_Metadata":      f"prompt_version={PROMPT_VERSION} | model={model_name} | "
+                                f"temperature={TEMPERATURE} | doc_ids={doc_ids}",
         },
         {
-            "Event":          "FRS_GENERATED",
-            "User":           user,
-            "Role":           role,
-            "Timestamp":      now_str,
-            "Object_Changed": f"FRS v{version_frs}.0",
-            "Old_Value":      f"v{version_frs - 1}.0" if version_frs > 1 else "N/A",
-            "New_Value":      f"v{version_frs}.0 — {len(frs_df)} requirements",
-            "Reason":         "Functional requirements derived from URS",
+            "Event":            "FRS_GENERATED",
+            "User":             user,
+            "Role":             role,
+            "Timestamp":        now_str,
+            "Object_Changed":   f"FRS v{version_frs}.0",
+            "Old_Value":        f"v{version_frs - 1}.0" if version_frs > 1 else "N/A",
+            "New_Value":        f"v{version_frs}.0 — {len(frs_df)} requirements",
+            "Reason":           "Functional requirements derived from URS + user guide",
+            "AI_Metadata":      f"model={model_name} | prompt={PROMPT_VERSION} | temp={TEMPERATURE}",
         },
         {
-            "Event":          "OQ_GENERATED",
-            "User":           user,
-            "Role":           role,
-            "Timestamp":      now_str,
-            "Object_Changed": f"OQ v{version_oq}.0",
-            "Old_Value":      f"v{version_oq - 1}.0" if version_oq > 1 else "N/A",
-            "New_Value":      f"v{version_oq}.0 — {len(oq_df)} test cases",
-            "Reason":         "OQ test cases generated from FRS",
+            "Event":            "OQ_GENERATED",
+            "User":             user,
+            "Role":             role,
+            "Timestamp":        now_str,
+            "Object_Changed":   f"OQ v{version_oq}.0",
+            "Old_Value":        f"v{version_oq - 1}.0" if version_oq > 1 else "N/A",
+            "New_Value":        f"v{version_oq}.0 — {len(oq_df)} test cases",
+            "Reason":           "OQ test cases generated; High-risk reqs → ≥3 tests",
+            "AI_Metadata":      f"model={model_name} | prompt={PROMPT_VERSION} | temp={TEMPERATURE}",
         },
         {
-            "Event":          "GAP_ANALYSIS_COMPLETED",
-            "User":           user,
-            "Role":           role,
-            "Timestamp":      now_str,
-            "Object_Changed": "TRACEABILITY_MATRIX",
-            "Old_Value":      "",
-            "New_Value":      f"{gap_count} gaps identified",
-            "Reason":         "RTM compiled; [GAP] and [PARTIAL GAP] flags enforced",
+            "Event":            "GAP_ANALYSIS_COMPLETED",
+            "User":             user,
+            "Role":             role,
+            "Timestamp":        now_str,
+            "Object_Changed":   "TRACEABILITY_MATRIX",
+            "Old_Value":        "",
+            "New_Value":        f"AI gaps: {gap_count} | Deterministic issues: {det_count}",
+            "Reason":           "RTM compiled; deterministic rules R1-R4 enforced",
+            "AI_Metadata":      "",
         },
         {
-            "Event":          "WORKBOOK_EXPORTED",
-            "User":           user,
-            "Role":           role,
-            "Timestamp":      now_str,
-            "Object_Changed": "VALIDATION_PACKAGE",
-            "Old_Value":      "",
-            "New_Value":      f"Validation_Package_{datetime.date.today()}.xlsx",
-            "Reason":         "Full package downloaded by user",
+            "Event":            "WORKBOOK_EXPORTED",
+            "User":             user,
+            "Role":             role,
+            "Timestamp":        now_str,
+            "Object_Changed":   "VALIDATION_PACKAGE",
+            "Old_Value":        "",
+            "New_Value":        f"Validation_Package_{datetime.date.today()}.xlsx",
+            "Reason":           "Full package with dashboard downloaded by user",
+            "AI_Metadata":      f"doc_ids_used={doc_ids}",
         },
     ]
     return pd.DataFrame(rows)
 
 
 # =============================================================================
-# 8. EXCEL STYLING
+# 7b. VALIDATION DASHBOARD BUILDER
 # =============================================================================
 
+def build_dashboard_sheet(frs_df: pd.DataFrame, oq_df: pd.DataFrame,
+                           gap_df: pd.DataFrame, det_df: pd.DataFrame,
+                           file_name: str, model_name: str) -> pd.DataFrame:
+    """Build a KPI summary table for the Dashboard sheet."""
+    total_reqs  = len(frs_df) if not frs_df.empty else 0
+    total_tests = len(oq_df)  if not oq_df.empty  else 0
+
+    # Coverage: requirements that have at least one OQ test
+    covered = 0
+    if not frs_df.empty and not oq_df.empty and "Requirement_Link" in oq_df.columns and "ID" in frs_df.columns:
+        linked = set(oq_df["Requirement_Link"].dropna().astype(str).str.strip())
+        covered = sum(1 for r in frs_df["ID"].dropna().astype(str).str.strip() if r in linked)
+    coverage_pct = round((covered / total_reqs * 100), 1) if total_reqs > 0 else 0.0
+
+    # Gap counts
+    ai_gaps  = len(gap_df) if not gap_df.empty else 0
+    det_gaps = len(det_df) if not det_df.empty else 0
+
+    # Risk breakdown
+    high_risk = med_risk = low_risk = 0
+    if not frs_df.empty and "Risk" in frs_df.columns:
+        rc = frs_df["Risk"].str.strip().str.lower().value_counts()
+        high_risk = int(rc.get("high",   0))
+        med_risk  = int(rc.get("medium", 0))
+        low_risk  = int(rc.get("low",    0))
+
+    # Non-testable count from det_df
+    non_testable = 0
+    if not det_df.empty and "Rule" in det_df.columns:
+        non_testable = int((det_df["Rule"] == "R3").sum())
+
+    orphan_tests = 0
+    if not det_df.empty and "Rule" in det_df.columns:
+        orphan_tests = int((det_df["Rule"] == "R2").sum())
+
+    rows = [
+        {"KPI": "📋 Total FRS Requirements",      "Value": total_reqs,     "Status": ""},
+        {"KPI": "🧪 Total OQ Test Cases",          "Value": total_tests,    "Status": ""},
+        {"KPI": "✅ Requirements Covered",          "Value": covered,        "Status": ""},
+        {"KPI": "📊 Test Coverage %",               "Value": f"{coverage_pct}%",
+         "Status": "✅ PASS" if coverage_pct >= 80 else ("⚠️ REVIEW" if coverage_pct >= 60 else "❌ FAIL")},
+        {"KPI": "🔴 High Risk Requirements",        "Value": high_risk,      "Status": "Requires ≥3 OQ tests each"},
+        {"KPI": "🟡 Medium Risk Requirements",      "Value": med_risk,       "Status": "Requires ≥2 OQ tests each"},
+        {"KPI": "🟢 Low Risk Requirements",         "Value": low_risk,       "Status": "Requires ≥1 OQ test each"},
+        {"KPI": "⚠️ AI-Detected Gaps",              "Value": ai_gaps,        "Status": "See Gap_Analysis sheet"},
+        {"KPI": "🔍 Deterministic Issues (R1-R4)",  "Value": det_gaps,       "Status": "See Det_Validation sheet"},
+        {"KPI": "🚫 Non-Testable Requirements",     "Value": non_testable,   "Status": "Rewrite required"},
+        {"KPI": "👻 Orphan Tests (No FRS link)",    "Value": orphan_tests,   "Status": "Investigate"},
+        {"KPI": "📁 Source Document",               "Value": file_name,      "Status": ""},
+        {"KPI": "🤖 AI Model Used",                 "Value": model_name,     "Status": ""},
+        {"KPI": "🏷️ Prompt Version",               "Value": PROMPT_VERSION,  "Status": ""},
+        {"KPI": "🌡️ Temperature",                  "Value": TEMPERATURE,    "Status": ""},
+        {"KPI": "📅 Generated",
+         "Value": datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC"), "Status": ""},
+    ]
+    return pd.DataFrame(rows)
+
+
+def _write_dashboard_chart(wb, ws_dash):
+    """Write bar chart to dashboard sheet using openpyxl BarChart."""
+    try:
+        from openpyxl.chart import BarChart, Reference
+        # Chart data: rows 1-4 are the core coverage KPIs (row index = Excel row)
+        # KPI col=A(1), Value col=B(2)
+        chart        = BarChart()
+        chart.type   = "col"
+        chart.title  = "Validation Coverage Overview"
+        chart.y_axis.title = "Count / %"
+        chart.x_axis.title = "Metric"
+        chart.style  = 10
+        chart.width  = 22
+        chart.height = 14
+
+        # Use rows 2-11 (KPI rows 1-10 in the dataframe, Excel rows 2-11)
+        data   = Reference(ws_dash, min_col=2, min_row=1, max_row=11)
+        cats   = Reference(ws_dash, min_col=1, min_row=2, max_row=11)
+        chart.add_data(data, titles_from_data=True)
+        chart.set_categories(cats)
+        chart.series[0].graphicalProperties.solidFill = "2563EB"
+        ws_dash.add_chart(chart, "E2")
+    except Exception:
+        pass  # Chart is a bonus — never crash on it
+
+
+
+
 SHEET_COLORS = {
-    "FRS":          {"header_fill": "2563EB", "tab_color": "2563EB"},
-    "OQ":           {"header_fill": "059669", "tab_color": "059669"},
-    "Traceability": {"header_fill": "7C3AED", "tab_color": "7C3AED"},
-    "Gap_Analysis": {"header_fill": "DC2626", "tab_color": "DC2626"},
-    "Audit_Log":    {"header_fill": "B45309", "tab_color": "B45309"},
+    "Dashboard":        {"header_fill": "0F172A", "tab_color": "0F172A"},
+    "URS_Extraction":   {"header_fill": "1D4ED8", "tab_color": "1D4ED8"},
+    "FRS":              {"header_fill": "2563EB", "tab_color": "2563EB"},
+    "OQ":               {"header_fill": "059669", "tab_color": "059669"},
+    "Traceability":     {"header_fill": "7C3AED", "tab_color": "7C3AED"},
+    "Gap_Analysis":     {"header_fill": "DC2626", "tab_color": "DC2626"},
+    "Det_Validation":   {"header_fill": "EA580C", "tab_color": "EA580C"},
+    "Audit_Log":        {"header_fill": "B45309", "tab_color": "B45309"},
 }
 
 
@@ -794,6 +1238,9 @@ def build_styled_excel(dataframes: dict) -> bytes:
         for sheet_name in dataframes:
             if sheet_name in wb.sheetnames:
                 style_worksheet(wb[sheet_name], sheet_name)
+        # Add bar chart to Dashboard sheet
+        if "Dashboard" in wb.sheetnames:
+            _write_dashboard_chart(wb, wb["Dashboard"])
     return output.getvalue()
 
 
@@ -1021,11 +1468,11 @@ def show_app():
         engine_name = st.selectbox(
             "Model", list(MODELS.keys()),
             index=list(MODELS.keys()).index(st.session_state.selected_model),
-            label_visibility="collapsed"
+            label_visibility="collapsed",
+            key="model_selectbox"
         )
-        if engine_name != st.session_state.selected_model:
-            st.session_state.selected_model = engine_name
-            st.rerun()
+        # Update selected model WITHOUT rerun — preserves sop_file_bytes in session state
+        st.session_state.selected_model = engine_name
 
         st.markdown('<div class="system-spacer"></div>', unsafe_allow_html=True)
         st.markdown('<div class="sys-context-spacer"></div>', unsafe_allow_html=True)
@@ -1130,61 +1577,127 @@ def show_app():
         log_audit(user, "ANALYSIS_INITIATED", "URS_FILE",
                   new_value=file_name,
                   reason=f"Model: {st.session_state.selected_model} | Prompt: {PROMPT_VERSION} | Temp: {TEMPERATURE}")
-        st.info(f"⚙️ Segmented analysis started — {st.session_state.selected_model} — chunk size: {CHUNK_SIZE} pages")
+        st.info(f"⚙️ Two-pass analysis started — {st.session_state.selected_model} — chunk size: {CHUNK_SIZE} pages")
 
         progress_bar = st.progress(0)
         status_text  = st.empty()
 
         try:
-            frs_df, oq_df, trace_df, gap_df = run_segmented_analysis(
+            # ── Step 1: Two-pass AI analysis ────────────────────────────────
+            urs_df, frs_df, oq_df, trace_df, gap_df = run_segmented_analysis(
                 file_bytes, model_id, progress_bar, status_text, sys_ctx
             )
 
-            # Version-controlled document saves — never overwrite previous versions
-            ver_frs   = save_document("FRS",          frs_df.to_csv(index=False),   user, file_name)
-            ver_oq    = save_document("OQ",            oq_df.to_csv(index=False),    user, file_name)
-            ver_trace = save_document("Traceability",  trace_df.to_csv(index=False), user, file_name)
-            ver_gap   = save_document("Gap_Analysis",  gap_df.to_csv(index=False),   user, file_name)
+            # ── Step 2: Deterministic rule-based validation R1–R5 ───────────
+            status_text.text("🔍 Running deterministic validation rules R1–R5...")
+            trace_df, gap_df, det_df = run_deterministic_validation(
+                frs_df, oq_df, trace_df, gap_df
+            )
 
+            # ── Step 3: Persist documents (version-controlled, never overwrite)
+            id_urs   = save_document("URS_Extraction", urs_df.to_csv(index=False),  user, file_name)
+            id_frs   = save_document("FRS",            frs_df.to_csv(index=False),  user, file_name)
+            id_oq    = save_document("OQ",             oq_df.to_csv(index=False),   user, file_name)
+            id_trace = save_document("Traceability",   trace_df.to_csv(index=False),user, file_name)
+            id_gap   = save_document("Gap_Analysis",   gap_df.to_csv(index=False),  user, file_name)
+            id_det   = save_document("Det_Validation", det_df.to_csv(index=False),  user, file_name)
+            doc_ids  = (f"URS:{id_urs}, FRS:{id_frs}, OQ:{id_oq}, "
+                        f"Trace:{id_trace}, Gap:{id_gap}, Det:{id_det}")
+
+            # ── Step 4: AI generation log with full doc provenance ───────────
             log_ai_generation(
                 user, st.session_state.selected_model,
-                PROMPT_VERSION, TEMPERATURE, file_name
+                PROMPT_VERSION, TEMPERATURE, file_name,
+                document_ids_used=doc_ids
             )
 
-            log_audit(user, "FRS_GENERATED",          f"FRS v{ver_frs}.0",
+            # ── Step 5: Audit entries ────────────────────────────────────────
+            log_audit(user, "URS_EXTRACTED",           f"URS doc:{id_urs}",
+                      new_value=f"{len(urs_df)} structured requirements")
+            log_audit(user, "FRS_GENERATED",           f"FRS doc:{id_frs}",
                       new_value=f"{len(frs_df)} requirements")
-            log_audit(user, "OQ_GENERATED",           f"OQ v{ver_oq}.0",
+            log_audit(user, "OQ_GENERATED",            f"OQ doc:{id_oq}",
                       new_value=f"{len(oq_df)} test cases")
-            log_audit(user, "TRACEABILITY_GENERATED", f"Trace v{ver_trace}.0",
+            log_audit(user, "TRACEABILITY_GENERATED",  f"Trace doc:{id_trace}",
                       new_value=f"{len(trace_df)} rows")
-            log_audit(user, "GAP_ANALYSIS_GENERATED", f"Gap v{ver_gap}.0",
-                      new_value=f"{len(gap_df)} gaps identified")
+            log_audit(user, "GAP_ANALYSIS_GENERATED",  f"Gap doc:{id_gap}",
+                      new_value=f"{len(gap_df)} AI gaps")
+            log_audit(user, "DET_VALIDATION_RUN",      f"Det doc:{id_det}",
+                      new_value=f"{len(det_df)} deterministic issues (R1-R5)")
 
-            audit_df = build_audit_log_sheet(
+            # ── Step 6: Confidence summary ───────────────────────────────────
+            frs_review = 0
+            oq_review  = 0
+            if not frs_df.empty and "Confidence_Flag" in frs_df.columns:
+                frs_review = int(frs_df["Confidence_Flag"].astype(str).str.contains("Review").sum())
+            if not oq_df.empty and "Confidence_Flag" in oq_df.columns:
+                oq_review = int(oq_df["Confidence_Flag"].astype(str).str.contains("Review").sum())
+
+            # ── Step 7: Build audit log and dashboard ────────────────────────
+            ver_frs = get_next_doc_version("FRS") - 1
+            ver_oq  = get_next_doc_version("OQ")  - 1
+
+            audit_df     = build_audit_log_sheet(
                 user, file_name, st.session_state.selected_model,
-                frs_df, oq_df, gap_df, ver_frs, ver_oq
+                frs_df, oq_df, gap_df, det_df, ver_frs, ver_oq, doc_ids
+            )
+            dashboard_df = build_dashboard_sheet(
+                frs_df, oq_df, gap_df, det_df, file_name,
+                st.session_state.selected_model
             )
 
+            # Dashboard first so it opens on launch
             dataframes = {
-                "FRS":          frs_df,
-                "OQ":           oq_df,
-                "Traceability": trace_df,
-                "Gap_Analysis": gap_df,
-                "Audit_Log":    audit_df,
+                "Dashboard":      dashboard_df,
+                "URS_Extraction": urs_df,
+                "FRS":            frs_df,
+                "OQ":             oq_df,
+                "Traceability":   trace_df,
+                "Gap_Analysis":   gap_df,
+                "Det_Validation": det_df,
+                "Audit_Log":      audit_df,
             }
 
             xlsx_bytes = build_styled_excel(dataframes)
             log_audit(user, "WORKBOOK_EXPORTED", "VALIDATION_PACKAGE",
-                      new_value=f"Validation_Package_{datetime.date.today()}.xlsx")
+                      new_value=f"Validation_Package_{datetime.date.today()}.xlsx",
+                      reason=f"doc_ids={doc_ids}")
 
             status_text.empty()
             progress_bar.empty()
             st.success("✅ Validation Package generated successfully.")
 
+            # ── Summary callouts ─────────────────────────────────────────────
+            col1, col2, col3, col4, col5 = st.columns(5)
+            total_reqs  = len(frs_df)
+            total_tests = len(oq_df)
+            covered = 0
+            if not frs_df.empty and not oq_df.empty and "Requirement_Link" in oq_df.columns and "ID" in frs_df.columns:
+                linked  = set(oq_df["Requirement_Link"].dropna().astype(str).str.strip())
+                covered = sum(1 for r in frs_df["ID"].dropna().astype(str).str.strip() if r in linked)
+            cov_pct = round(covered / total_reqs * 100, 1) if total_reqs > 0 else 0
+
+            col1.metric("📄 URS Requirements", len(urs_df))
+            col2.metric("📋 FRS Requirements", total_reqs)
+            col3.metric("🧪 OQ Test Cases",    total_tests)
+            col4.metric("📊 Coverage",          f"{cov_pct}%")
+            col5.metric("⚠️ Issues (AI+Det)",   len(gap_df) + len(det_df))
+
+            if frs_review > 0 or oq_review > 0:
+                st.warning(
+                    f"🔶 Confidence Review Required: **{frs_review}** FRS row(s) and "
+                    f"**{oq_review}** OQ row(s) have confidence < 0.70 — "
+                    "check Confidence_Flag columns in FRS and OQ sheets."
+                )
+            if not det_df.empty:
+                st.warning(
+                    f"🔍 Deterministic Validation: **{len(det_df)}** issue(s) (R1–R5) "
+                    "— see Det_Validation tab."
+                )
             if not gap_df.empty:
                 st.warning(
-                    f"⚠️ Gap Analysis: **{len(gap_df)}** requirement(s) flagged — "
-                    "review the Gap_Analysis tab in the downloaded workbook."
+                    f"⚠️ Gap Analysis: **{len(gap_df)}** gap(s) flagged across 5 gap types "
+                    "— see Gap_Analysis tab."
                 )
 
             with st.expander("📋 Preview Generated Sheets"):
