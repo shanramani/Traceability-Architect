@@ -53,8 +53,8 @@ except ImportError:
 # =============================================================================
 # 1. CONFIG
 # =============================================================================
-VERSION        = "20b"
-PROMPT_VERSION = "v9.0-robust-parse-frs-id-confidence"
+VERSION        = "21.1"
+PROMPT_VERSION = "v9.1-urs-driven-trace-clean-columns"
 TEMPERATURE    = 0.2
 CHUNK_SIZE     = 8
 DB_PATH        = os.path.join(os.path.dirname(os.path.abspath(__file__)), "validation_app.db")
@@ -818,6 +818,38 @@ def _renumber_frs_ids(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def _clean_frs_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Strip column-name prefixes that LLMs sometimes echo into values.
+    e.g. "Risk: High" → "High", "Priority: Critical" → "Critical",
+         "GxP_Impact: Direct" → "Direct"
+    Also normalises capitalisation so downstream comparisons are reliable.
+    """
+    if df.empty:
+        return df
+    df = df.copy()
+    _prefixes = {
+        "Risk":       ["risk:", "risk :", "Risk:", "Risk :"],
+        "Priority":   ["priority:", "priority :", "Priority:", "Priority :"],
+        "GxP_Impact": ["gxp_impact:", "gxp_impact :", "GxP_Impact:", "GxP Impact:"],
+    }
+    for col, prefixes in _prefixes.items():
+        if col in df.columns:
+            for pfx in prefixes:
+                df[col] = df[col].astype(str).str.replace(
+                    pfx, "", case=False, regex=False
+                ).str.strip()
+            # Normalise to title-case so "high" → "High", "MEDIUM" → "Medium"
+            # but keep the exact strings the rest of the code expects
+            _map = {"high": "High", "medium": "Medium", "low": "Low",
+                    "critical": "Critical", "direct": "Direct",
+                    "indirect": "Indirect", "none": "None"}
+            df[col] = df[col].str.lower().map(
+                lambda v: _map.get(v, v.title()) if isinstance(v, str) else v
+            )
+    return df
+
+
 def _renumber_oq_ids(df: pd.DataFrame) -> pd.DataFrame:
     """Guarantee OQ Test_IDs are clean OQ-NNN codes."""
     if df.empty or "Test_ID" not in df.columns:
@@ -998,6 +1030,7 @@ def run_segmented_analysis(
     # ── Post-processing: ID normalisation ────────────────────────────────────
     frs_final = _renumber_frs_ids(frs_final)
     oq_final  = _renumber_oq_ids(oq_final)
+    frs_final = _clean_frs_columns(frs_final)   # strip "Risk: ", "Priority: " prefixes
 
     # Fix Requirement_Link in OQ to match renumbered FRS IDs if possible
     # (In practice IDs are sequential so FRS-001 stays FRS-001 — this is a safety net)
@@ -1028,66 +1061,108 @@ def _build_traceability(urs_df: pd.DataFrame,
                         frs_df: pd.DataFrame,
                         oq_df:  pd.DataFrame) -> pd.DataFrame:
     """
-    Rebuild the Traceability Matrix purely from Python.
-    LLM traceability output is never used — only actual FRS and OQ rows count.
+    Rebuild Traceability Matrix from URS as the primary key.
 
-    Logic per FRS row:
-      - Find every OQ row where Requirement_Link == FRS-NNN
-      - Real tests found  → Covered / Partial (based on risk test-count rule)
-      - Zero real tests   → Not Covered  + [GAP]
+    Every URS requirement gets a row regardless of whether the LLM generated
+    an FRS for it. This makes skipped/missing FRS rows visible.
 
-    URS_Req_ID is carried from the FRS Source_URS_Ref column.
+    Columns: URS_Req_ID, URS_Description, FRS_Ref, Test_IDs, Test_Count,
+             Coverage_Status, Gap_Analysis
+
+    Coverage logic per FRS row (risk-aware):
+      - No FRS generated  → Missing_FRS + [GAP]
+      - FRS exists, 0 OQ  → Not Covered  + [GAP]
+      - FRS exists, < min → Partial       + [PARTIAL GAP]
+      - FRS exists, ≥ min → Covered
     """
-    if frs_df.empty:
-        return pd.DataFrame(columns=[
-            "URS_Req_ID", "FRS_Ref", "Test_IDs", "Test_Count",
-            "Coverage_Status", "Gap_Analysis"
-        ])
+    MIN_TESTS = {"high": 3, "medium": 2, "low": 1}
 
-    # Build a lookup: FRS_ID → list of real OQ Test_IDs that link to it
-    oq_map: dict = {}   # FRS_ID → [OQ_ID, ...]
+    # Build URS description lookup
+    urs_desc: dict = {}
+    if not urs_df.empty and "Req_ID" in urs_df.columns:
+        for _, r in urs_df.iterrows():
+            uid  = str(r.get("Req_ID", "")).strip()
+            desc = str(r.get("Requirement_Description", "")).strip()
+            if uid:
+                urs_desc[uid] = desc
+
+    # Build FRS lookup keyed by Source_URS_Ref → list of FRS rows
+    frs_by_urs: dict = {}
+    if not frs_df.empty and "Source_URS_Ref" in frs_df.columns:
+        for _, r in frs_df.iterrows():
+            ref = str(r.get("Source_URS_Ref", "")).strip()
+            if ref:
+                frs_by_urs.setdefault(ref, []).append(r)
+
+    # Build OQ lookup keyed by Requirement_Link (FRS_ID) → list of OQ Test_IDs
+    oq_map: dict = {}
     if not oq_df.empty and "Requirement_Link" in oq_df.columns and "Test_ID" in oq_df.columns:
-        for _, row in oq_df.iterrows():
-            link    = str(row.get("Requirement_Link", "")).strip()
-            test_id = str(row.get("Test_ID", "")).strip()
+        for _, r in oq_df.iterrows():
+            link    = str(r.get("Requirement_Link", "")).strip()
+            test_id = str(r.get("Test_ID", "")).strip()
             if link and test_id:
                 oq_map.setdefault(link, []).append(test_id)
 
-    # Risk thresholds — must match deterministic engine
-    MIN_TESTS = {"high": 3, "medium": 2, "low": 1}
+    # Determine URS ID list — prefer urs_df order, fallback to FRS refs
+    if not urs_df.empty and "Req_ID" in urs_df.columns:
+        urs_ids = [str(v).strip() for v in urs_df["Req_ID"].dropna() if str(v).strip()]
+    else:
+        urs_ids = sorted(frs_by_urs.keys())
 
     rows = []
-    for _, frs_row in frs_df.iterrows():
-        frs_id   = str(frs_row.get("ID", "")).strip()
-        urs_ref  = str(frs_row.get("Source_URS_Ref", "")).strip()
-        risk     = str(frs_row.get("Risk", "low")).strip().lower()
-        min_req  = MIN_TESTS.get(risk, 1)
+    for urs_id in urs_ids:
+        urs_description = urs_desc.get(urs_id, "")
+        frs_rows = frs_by_urs.get(urs_id, [])
 
-        real_tests = oq_map.get(frs_id, [])
-        count      = len(real_tests)
-        test_str   = "; ".join(sorted(real_tests)) if real_tests else ""
+        if not frs_rows:
+            # LLM skipped this URS — critical gap
+            rows.append({
+                "URS_Req_ID":       urs_id,
+                "URS_Description":  urs_description,
+                "FRS_Ref":          "—",
+                "Test_IDs":         "",
+                "Test_Count":       "0",
+                "Coverage_Status":  "Missing FRS",
+                "Gap_Analysis":     f"[GAP] No FRS requirement was generated for {urs_id}. "
+                                    "AI may have skipped this requirement.",
+            })
+            continue
 
-        if count == 0:
-            status   = "Not Covered"
-            gap      = f"[GAP] FRS {frs_id} has no OQ test case. 0/{min_req} tests for {risk.title()} risk."
-        elif count < min_req:
-            status   = "Partial"
-            gap      = (f"[PARTIAL GAP] FRS {frs_id} has {count}/{min_req} tests required "
-                        f"for {risk.title()} risk level.")
-        else:
-            status   = "Covered"
-            gap      = ""
+        for frs_row in frs_rows:
+            frs_id  = str(frs_row.get("ID", "")).strip()
+            risk    = str(frs_row.get("Risk", "low")).strip().lower()
+            min_req = MIN_TESTS.get(risk, 1)
 
-        rows.append({
-            "URS_Req_ID":       urs_ref or "—",
-            "FRS_Ref":          frs_id,
-            "Test_IDs":         test_str,
-            "Test_Count":       str(count),
-            "Coverage_Status":  status,
-            "Gap_Analysis":     gap,
-        })
+            real_tests = oq_map.get(frs_id, [])
+            count      = len(real_tests)
+            test_str   = "; ".join(sorted(real_tests)) if real_tests else ""
 
-    result = pd.DataFrame(rows)
+            if count == 0:
+                status = "Not Covered"
+                gap    = (f"[GAP] {frs_id} has no OQ test case. "
+                          f"0/{min_req} required for {risk.title()} risk.")
+            elif count < min_req:
+                status = "Partial"
+                gap    = (f"[PARTIAL GAP] {frs_id} has {count}/{min_req} tests "
+                          f"required for {risk.title()} risk.")
+            else:
+                status = "Covered"
+                gap    = ""
+
+            rows.append({
+                "URS_Req_ID":       urs_id,
+                "URS_Description":  urs_description,
+                "FRS_Ref":          frs_id,
+                "Test_IDs":         test_str,
+                "Test_Count":       str(count),
+                "Coverage_Status":  status,
+                "Gap_Analysis":     gap,
+            })
+
+    result = pd.DataFrame(rows) if rows else pd.DataFrame(columns=[
+        "URS_Req_ID", "URS_Description", "FRS_Ref", "Test_IDs",
+        "Test_Count", "Coverage_Status", "Gap_Analysis"
+    ])
     result.fillna("", inplace=True)
     return result
 
@@ -1125,14 +1200,16 @@ def run_deterministic_validation(
     frs_df: pd.DataFrame,
     oq_df: pd.DataFrame,
     gap_df: pd.DataFrame,
+    urs_df: pd.DataFrame = None,
 ) -> tuple:
     """
     Rules:
-      R1 — FRS req without any OQ test          → Gap_Type: No_Test_Coverage
-      R2 — OQ test with no matching FRS req      → Gap_Type: Orphan_Test
-      R3 — Non-testable keywords in description  → Gap_Type: Untestable
-      R4 — High-risk req with < required tests   → Gap_Type: No_Test_Coverage (risk)
-      R5 — Near-duplicate FRS descriptions       → Gap_Type: Duplicate
+      R0 — URS req with no FRS generated           → Gap_Type: Missing_FRS
+      R1 — FRS req without any OQ test             → Gap_Type: No_Test_Coverage
+      R2 — OQ test with no matching FRS req         → Gap_Type: Orphan_Test
+      R3 — Non-testable keywords in description     → Gap_Type: Untestable
+      R4 — Risk-tier req with < required OQ tests   → Gap_Type: No_Test_Coverage
+      R5 — Near-duplicate FRS descriptions          → Gap_Type: Duplicate
 
     Traceability is NOT touched here — it is Python-built by _build_traceability().
     Returns: (enriched_gap_df, det_issues_df)
@@ -1143,6 +1220,11 @@ def run_deterministic_validation(
     if not frs_df.empty and "ID" in frs_df.columns:
         frs_ids = set(frs_df["ID"].dropna().astype(str).str.strip())
 
+    # FRS lookup by Source_URS_Ref for R0
+    frs_urs_refs = set()
+    if not frs_df.empty and "Source_URS_Ref" in frs_df.columns:
+        frs_urs_refs = set(frs_df["Source_URS_Ref"].dropna().astype(str).str.strip())
+
     oq_req_links = set()
     oq_test_ids  = set()
     if not oq_df.empty:
@@ -1150,6 +1232,22 @@ def run_deterministic_validation(
             oq_req_links = set(oq_df["Requirement_Link"].dropna().astype(str).str.strip())
         if "Test_ID" in oq_df.columns:
             oq_test_ids = set(oq_df["Test_ID"].dropna().astype(str).str.strip())
+
+    # ── R0: URS requirement with no FRS generated ────────────────────────────
+    if urs_df is not None and not urs_df.empty and "Req_ID" in urs_df.columns:
+        for _, row in urs_df.iterrows():
+            uid = str(row.get("Req_ID", "")).strip()
+            if uid and uid not in frs_urs_refs:
+                issues.append({
+                    "Rule":           "R0",
+                    "Req_ID":         uid,
+                    "Gap_Type":       "Missing_FRS",
+                    "Description":    f"{uid} has no FRS requirement generated. "
+                                      "The AI may have skipped this requirement.",
+                    "Recommendation": "Re-run analysis or manually create an FRS "
+                                      "requirement for this URS item.",
+                    "Severity":       "Critical",
+                })
 
     # ── R1: FRS req without any OQ test ──────────────────────────────────────
     # Source of truth is the actual OQ rows — never the traceability matrix.
@@ -1840,6 +1938,9 @@ def show_app():
     if sop_widget is not None:
         raw_bytes = sop_widget.getvalue()
         if raw_bytes and b'%PDF' in raw_bytes[:1024]:
+            # If a different file is uploaded, clear previous results
+            if st.session_state.sop_file_name != sop_widget.name:
+                st.session_state.pop("last_result", None)
             st.session_state.sop_file_bytes = raw_bytes
             st.session_state.sop_file_name  = sop_widget.name
         else:
@@ -1851,6 +1952,7 @@ def show_app():
         # Always clear retained bytes so the banner never shows a stale filename.
         st.session_state.sop_file_bytes = None
         st.session_state.sop_file_name  = None
+        st.session_state.pop("last_result", None)
 
     is_ready = st.session_state.sop_file_bytes is not None
 
@@ -1899,7 +2001,7 @@ def show_app():
 
             # ── Step 2: Deterministic rule-based validation R1–R5 ───────────
             status_text.text("🔍 Running deterministic validation rules R1–R5...")
-            gap_df, det_df = run_deterministic_validation(frs_df, oq_df, gap_df)
+            gap_df, det_df = run_deterministic_validation(frs_df, oq_df, gap_df, urs_df)
             # Ensure no None/NaN reaches Excel
             for _df in [gap_df, det_df, trace_df]:
                 _df.fillna("", inplace=True)
@@ -1975,56 +2077,70 @@ def show_app():
 
             status_text.empty()
             progress_bar.empty()
-            st.success("✅ Validation Package generated successfully.")
 
-            # ── Summary callouts ─────────────────────────────────────────────
-            col1, col2, col3, col4, col5 = st.columns(5)
-            total_reqs  = len(frs_df)
-            total_tests = len(oq_df)
-            # Coverage from Python-built traceability — the only reliable source
-            covered = 0
-            if not trace_df.empty and "Coverage_Status" in trace_df.columns:
-                covered = int((trace_df["Coverage_Status"] == "Covered").sum())
-            cov_pct = round(covered / total_reqs * 100, 1) if total_reqs > 0 else 0
-
-            col1.metric("📄 URS Requirements", len(urs_df))
-            col2.metric("📋 FRS Requirements", total_reqs)
-            col3.metric("🧪 OQ Test Cases",    total_tests)
-            col4.metric("📊 Coverage",          f"{cov_pct}%")
-            col5.metric("⚠️ Issues (AI+Det)",   len(gap_df) + len(det_df))
-
-            if frs_review > 0 or oq_review > 0:
-                st.warning(
-                    f"🔶 Confidence Review Required: **{frs_review}** FRS row(s) and "
-                    f"**{oq_review}** OQ row(s) have confidence < 0.70 — "
-                    "check Confidence_Flag columns in FRS and OQ sheets."
-                )
-            if not det_df.empty:
-                st.warning(
-                    f"🔍 Deterministic Validation: **{len(det_df)}** issue(s) (R1–R5) "
-                    "— see Det_Validation tab."
-                )
-            if not gap_df.empty:
-                st.warning(
-                    f"⚠️ Gap Analysis: **{len(gap_df)}** gap(s) flagged across 5 gap types "
-                    "— see Gap_Analysis tab."
-                )
-
-            with st.expander("📋 Preview Generated Sheets"):
-                for sheet_name, df in dataframes.items():
-                    st.markdown(f"**{sheet_name}** — {len(df)} rows")
-                    st.dataframe(df, use_container_width=True)
-
-            st.download_button(
-                label="📥 Download Validation Workbook (.xlsx)",
-                data=xlsx_bytes,
-                file_name=f"Validation_Package_{datetime.date.today()}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
+            # ── Persist to session state so download button rerun doesn't clear ──
+            st.session_state["last_result"] = {
+                "xlsx_bytes":   xlsx_bytes,
+                "dataframes":   dataframes,
+                "frs_review":   frs_review,
+                "oq_review":    oq_review,
+                "total_reqs":   len(frs_df),
+                "total_tests":  len(oq_df),
+                "total_urs":    len(urs_df),
+                "covered":      covered,
+                "cov_pct":      cov_pct,
+                "gap_count":    len(gap_df),
+                "det_count":    len(det_df),
+                "file_name":    file_name,
+            }
 
         except Exception as e:
             log_audit(user, "ANALYSIS_ERROR", "URS_FILE", reason=str(e)[:500])
             st.error(f"❌ Engineering Error: {str(e)}")
+            import traceback
+            st.error(traceback.format_exc())
+
+    # ── Render results from session state (persists across download reruns) ──
+    if "last_result" in st.session_state:
+        r = st.session_state["last_result"]
+        st.success("✅ Validation Package ready.")
+
+        col1, col2, col3, col4, col5 = st.columns(5)
+        col1.metric("📄 URS Requirements", r["total_urs"])
+        col2.metric("📋 FRS Requirements", r["total_reqs"])
+        col3.metric("🧪 OQ Test Cases",    r["total_tests"])
+        col4.metric("📊 Coverage",          f"{r['cov_pct']}%")
+        col5.metric("⚠️ Issues (AI+Det)",   r["gap_count"] + r["det_count"])
+
+        if r["frs_review"] > 0 or r["oq_review"] > 0:
+            st.warning(
+                f"🔶 Confidence Review Required: **{r['frs_review']}** FRS row(s) and "
+                f"**{r['oq_review']}** OQ row(s) have confidence < 0.70 — "
+                "check Confidence_Flag columns in FRS and OQ sheets."
+            )
+        if r["det_count"] > 0:
+            st.warning(
+                f"🔍 Deterministic Validation: **{r['det_count']}** issue(s) (R0–R5) "
+                "— see Det_Validation tab."
+            )
+        if r["gap_count"] > 0:
+            st.warning(
+                f"⚠️ Gap Analysis: **{r['gap_count']}** gap(s) flagged "
+                "— see Gap_Analysis tab."
+            )
+
+        with st.expander("📋 Preview Generated Sheets", expanded=True):
+            for sheet_name, df in r["dataframes"].items():
+                st.markdown(f"**{sheet_name}** — {len(df)} rows")
+                st.dataframe(df, use_container_width=True)
+
+        st.download_button(
+            label="📥 Download Validation Workbook (.xlsx)",
+            data=r["xlsx_bytes"],
+            file_name=f"Validation_Package_{r['file_name'].replace('.pdf','')}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key="download_xlsx_btn",
+        )
 
 
 # =============================================================================
