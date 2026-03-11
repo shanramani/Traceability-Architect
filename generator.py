@@ -53,8 +53,8 @@ except ImportError:
 # =============================================================================
 # 1. CONFIG
 # =============================================================================
-VERSION        = "22.0"
-PROMPT_VERSION = "v10.0-completeness-enforced-na-clean"
+VERSION        = "23.0"
+PROMPT_VERSION = "v11.0-location-lock-preamble-strip-syscontext-pass1"
 TEMPERATURE    = 0.2
 CHUNK_SIZE     = 8
 DB_PATH        = os.path.join(os.path.dirname(os.path.abspath(__file__)), "validation_app.db")
@@ -100,7 +100,8 @@ def db_migrate():
                 object_changed TEXT,
                 old_value      TEXT,
                 new_value      TEXT,
-                reason         TEXT
+                reason         TEXT,
+                location       TEXT
             )
         """)
 
@@ -149,6 +150,7 @@ def db_migrate():
             ("old_value",      "TEXT"),
             ("new_value",      "TEXT"),
             ("reason",         "TEXT"),
+            ("location",       "TEXT"),   # GxP geographic lock — added v23
         ]:
             if col not in audit_cols:
                 try:
@@ -201,21 +203,35 @@ def db_diagnostics() -> dict:
 
 
 def log_audit(user: str, action: str, object_changed: str = "",
-              old_value: str = "", new_value: str = "", reason: str = ""):
-    """Append-only audit write. This function must never UPDATE or DELETE rows."""
+              old_value: str = "", new_value: str = "", reason: str = "",
+              location: str = ""):
+    """
+    Append-only audit write. This function must never UPDATE or DELETE rows.
+
+    GxP Geographic Lock: `location` is automatically pulled from
+    st.session_state when not explicitly provided, so every event is
+    stamped with the operator's resolved IP location without any call-site
+    changes. This satisfies 21 CFR Part 11 signer-location requirements.
+    """
+    if not location:
+        try:
+            location = st.session_state.get("location", "Location Unknown")
+        except Exception:
+            location = "Location Unknown"
     try:
         conn = db_connect()
         conn.execute(
             """INSERT INTO audit_log
-               (user, timestamp, action, object_changed, old_value, new_value, reason)
-               VALUES (?,?,?,?,?,?,?)""",
+               (user, timestamp, action, object_changed, old_value, new_value, reason, location)
+               VALUES (?,?,?,?,?,?,?,?)""",
             (user,
              datetime.datetime.utcnow().isoformat(),
              action,
              str(object_changed)[:500],
              str(old_value)[:2000]  if old_value  else "",
              str(new_value)[:2000]  if new_value  else "",
-             str(reason)[:1000]     if reason     else "")
+             str(reason)[:1000]     if reason     else "",
+             str(location)[:200])
         )
         conn.commit()
         conn.close()
@@ -504,6 +520,30 @@ SYSTEM_PROMPT = (
     "Confidence scores must be a decimal between 0.00 and 1.00."
 )
 
+
+def _make_system_prompt(sys_context: str = "") -> str:
+    """
+    Build the system prompt for a completion call.
+
+    When a SysContext (product user guide / system manual) has been uploaded,
+    it is appended as Reference Material so the LLM can use real screen names,
+    field names, and module terminology in BOTH Pass 1 URS extraction AND Pass 2
+    FRS/OQ generation — completing the URS → FRS chain the Instructions require.
+
+    The sys_context is capped at 4000 chars to stay within token budgets while
+    still providing enough product vocabulary to produce credible engineering FRS.
+    """
+    if not sys_context:
+        return SYSTEM_PROMPT
+    return (
+        SYSTEM_PROMPT
+        + "\n\nREFERENCE MATERIAL — TARGET SYSTEM USER GUIDE:\n"
+          "Use the following product documentation to inform ALL outputs with accurate "
+          "screen names, field names, module names, and workflow terminology. "
+          "Do NOT copy this text verbatim; use it to ground your engineering descriptions.\n\n"
+        + sys_context[:4000]
+    )
+
 # ── PASS 1 PROMPT: extract a clean, structured URS table ─────────────────────
 def build_pass1_prompt(chunk_text: str, chunk_index: int, total_chunks: int) -> str:
     return f"""
@@ -723,16 +763,59 @@ def _strip_fences(raw: str) -> str:
     return raw.strip()
 
 
+def _strip_preamble(text: str) -> str:
+    """
+    Strip any non-CSV prose the LLM prepends before the actual header row.
+
+    Handles patterns like:
+      "Here is the CSV:"            — narrative intro
+      "Dataset 1 (FRS):"            — section label
+      "Dataset 2:"                  — numbered label
+      "## FRS Requirements"         — markdown heading
+      "Sure! Here are the results:" — chatty preamble
+
+    Strategy: scan lines top-to-bottom; return from the first line that
+    looks like a real CSV row — i.e. it contains at least one comma AND
+    starts with an alphanumeric or quote character AND does NOT start with
+    a known preamble keyword.
+    """
+    PREAMBLE_RE = re.compile(
+        r'^(here|dataset\s*\d|csv|the\s+following|below|output|result|sure|note|'
+        r'i\s+have|please\s+find|as\s+requested|```|#)',
+        re.IGNORECASE
+    )
+    lines = text.splitlines()
+    for i, line in enumerate(lines):
+        s = line.strip()
+        if not s:
+            continue
+        # Must contain a comma (CSV requirement)
+        if ',' not in s:
+            continue
+        # Must start with alphanumeric or quote — not a sentence
+        if not re.match(r'^[A-Za-z0-9"\']', s):
+            continue
+        # Must not match known preamble starters
+        if PREAMBLE_RE.match(s):
+            continue
+        return '\n'.join(lines[i:])
+    return text  # fallback — return as-is if nothing matched
+
+
 def _robust_split_datasets(raw: str, headers: list) -> list:
     """
     Split LLM output into N CSV blocks by finding each known header line.
-    This is immune to stray ||| tokens that appear inside quoted cell values.
+    Immune to:
+      - stray ||| tokens inside quoted cell values
+      - "Here is the CSV:" / "Dataset 1 (FRS):" label lines before the header
+      - markdown fences wrapping each section
 
     Strategy:
-      1. Strip fences.
+      1. Strip fences and leading preamble from the whole block.
       2. For each header pattern, find the first matching line.
       3. Extract text from that line to the next header (or end).
-      4. Return a list of N strings (empty string if a section is missing).
+      4. Apply _strip_preamble to each extracted section for safety.
+      5. Return a list of N strings (empty string if a section is missing).
     """
     raw    = _strip_fences(raw)
     lines  = raw.splitlines()
@@ -757,9 +840,19 @@ def _robust_split_datasets(raw: str, headers: list) -> list:
                 end = starts[j]
                 break
         section_lines = lines[starts[i]:end]
-        # Strip trailing ||| lines between sections
-        cleaned = [l for l in section_lines if l.strip() not in ("|||", "---", "")]
-        sections.append("\n".join(cleaned))
+        # Strip: empty lines, ||| separators, ---, and section-label lines.
+        # A section label is any line that ends with ":" and contains no commas
+        # (e.g. "Dataset 2 (OQ):", "Here is the CSV:") — never a CSV data row.
+        def _is_noise(line: str) -> bool:
+            s = line.strip()
+            if not s:                        return True
+            if s in ("|||", "---"):          return True
+            if s.endswith(":") and "," not in s:  return True   # label line
+            return False
+        cleaned = [l for l in section_lines if not _is_noise(l)]
+        section_text = "\n".join(cleaned)
+        # Final safety: strip any residual preamble within the section
+        sections.append(_strip_preamble(section_text))
 
     while len(sections) < n:
         sections.append("")
@@ -996,15 +1089,16 @@ def run_segmented_analysis(
                 stream=False,
                 temperature=TEMPERATURE,
                 messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "system", "content": _make_system_prompt(sys_context)},
                     {"role": "user",   "content": build_pass1_prompt(chunk_text, idx, total)}
                 ]
             )
             raw_urs = response.choices[0].message.content or ""
-            # Strip markdown fences
+            # Strip markdown fences then any prose preamble before the CSV header
             raw_urs = re.sub(r'^```[a-zA-Z]*\n?', '', raw_urs, flags=re.MULTILINE)
             raw_urs = re.sub(r'```\s*$',          '', raw_urs, flags=re.MULTILINE)
-            df_urs  = _csv_to_df(raw_urs.strip())
+            raw_urs = _strip_preamble(raw_urs.strip())
+            df_urs  = _csv_to_df(raw_urs)
             if not df_urs.empty:
                 urs_frames.append(df_urs)
         except Exception as e:
@@ -1054,7 +1148,7 @@ def run_segmented_analysis(
                     stream=False,
                     temperature=TEMPERATURE,
                     messages=[
-                        {"role": "system", "content": SYSTEM_PROMPT},
+                        {"role": "system", "content": _make_system_prompt(sys_context)},
                         {"role": "user",   "content": build_pass2_prompt(p2_csv, sys_context)}
                     ]
                 )
@@ -1498,6 +1592,11 @@ def build_audit_log_sheet(user: str, file_name: str, model_name: str,
     role       = get_user_role(user)
     gap_count  = len(gap_df) if not gap_df.empty else 0
     det_count  = len(det_df) if not det_df.empty else 0
+    # GxP geographic lock — pulled from Python session_state, never from LLM
+    try:
+        location = st.session_state.get("location", "Location Unknown")
+    except Exception:
+        location = "Location Unknown"
 
     rows = [
         {
@@ -1505,6 +1604,7 @@ def build_audit_log_sheet(user: str, file_name: str, model_name: str,
             "User":             user,
             "Role":             role,
             "Timestamp":        now_str,
+            "Location":         location,
             "Object_Changed":   "SESSION",
             "Old_Value":        "",
             "New_Value":        "AUTHENTICATED",
@@ -1516,6 +1616,7 @@ def build_audit_log_sheet(user: str, file_name: str, model_name: str,
             "User":             user,
             "Role":             role,
             "Timestamp":        now_str,
+            "Location":         location,
             "Object_Changed":   "URS/SOP",
             "Old_Value":        "",
             "New_Value":        file_name,
@@ -1527,6 +1628,7 @@ def build_audit_log_sheet(user: str, file_name: str, model_name: str,
             "User":             user,
             "Role":             role,
             "Timestamp":        now_str,
+            "Location":         location,
             "Object_Changed":   "ANALYSIS_ENGINE",
             "Old_Value":        "",
             "New_Value":        f"Model: {model_name} | Prompt: {PROMPT_VERSION} | Temp: {TEMPERATURE}",
@@ -1539,6 +1641,7 @@ def build_audit_log_sheet(user: str, file_name: str, model_name: str,
             "User":             user,
             "Role":             role,
             "Timestamp":        now_str,
+            "Location":         location,
             "Object_Changed":   f"FRS v{version_frs}.0",
             "Old_Value":        f"v{version_frs - 1}.0" if version_frs > 1 else "N/A",
             "New_Value":        f"v{version_frs}.0 — {len(frs_df)} requirements",
@@ -1550,6 +1653,7 @@ def build_audit_log_sheet(user: str, file_name: str, model_name: str,
             "User":             user,
             "Role":             role,
             "Timestamp":        now_str,
+            "Location":         location,
             "Object_Changed":   f"OQ v{version_oq}.0",
             "Old_Value":        f"v{version_oq - 1}.0" if version_oq > 1 else "N/A",
             "New_Value":        f"v{version_oq}.0 — {len(oq_df)} test cases",
@@ -1561,6 +1665,7 @@ def build_audit_log_sheet(user: str, file_name: str, model_name: str,
             "User":             user,
             "Role":             role,
             "Timestamp":        now_str,
+            "Location":         location,
             "Object_Changed":   "TRACEABILITY_MATRIX",
             "Old_Value":        "",
             "New_Value":        f"AI gaps: {gap_count} | Deterministic issues: {det_count}",
@@ -1572,6 +1677,7 @@ def build_audit_log_sheet(user: str, file_name: str, model_name: str,
             "User":             user,
             "Role":             role,
             "Timestamp":        now_str,
+            "Location":         location,
             "Object_Changed":   "VALIDATION_PACKAGE",
             "Old_Value":        "",
             "New_Value":        f"Validation_Package_{datetime.date.today()}.xlsx",
@@ -1952,10 +2058,7 @@ def show_login():
                     st.rerun()
                 else:
                     st.error(err_msg or "Invalid credentials.")
-       st.markdown("<h3 style='text-align: center; font-size: 1.5rem;'>21CFRPart11 Compliant </h3>",
-                    unsafe_allow_html=True)
-       st.markdown("<h3 style='text-align: center; font-size: 1.5rem;'>21CFRPart11 Compliant Auto generate FRS, OQ Test steps and Traceability with Gap analysis</h3>",
-                    unsafe_allow_html=True)
+
 
 # =============================================================================
 # 12. MAIN APPLICATION
