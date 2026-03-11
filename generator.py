@@ -53,7 +53,7 @@ except ImportError:
 # =============================================================================
 # 1. CONFIG
 # =============================================================================
-VERSION        = "20.0"
+VERSION        = "20b"
 PROMPT_VERSION = "v9.0-robust-parse-frs-id-confidence"
 TEMPERATURE    = 0.2
 CHUNK_SIZE     = 8
@@ -1124,7 +1124,6 @@ def _token_overlap(a: str, b: str) -> float:
 def run_deterministic_validation(
     frs_df: pd.DataFrame,
     oq_df: pd.DataFrame,
-    trace_df: pd.DataFrame,
     gap_df: pd.DataFrame,
 ) -> tuple:
     """
@@ -1135,7 +1134,8 @@ def run_deterministic_validation(
       R4 — High-risk req with < required tests   → Gap_Type: No_Test_Coverage (risk)
       R5 — Near-duplicate FRS descriptions       → Gap_Type: Duplicate
 
-    Returns: (enriched_trace_df, enriched_gap_df, det_issues_df)
+    Traceability is NOT touched here — it is Python-built by _build_traceability().
+    Returns: (enriched_gap_df, det_issues_df)
     """
     issues = []
 
@@ -1281,7 +1281,7 @@ def run_deterministic_validation(
         columns=["Rule", "Req_ID", "Gap_Type", "Description", "Recommendation", "Severity"]
     )
 
-    return trace_df, gap_df, det_issues_df
+    return gap_df, det_issues_df
 
 def build_audit_log_sheet(user: str, file_name: str, model_name: str,
                           frs_df: pd.DataFrame, oq_df: pd.DataFrame,
@@ -1382,6 +1382,7 @@ def build_audit_log_sheet(user: str, file_name: str, model_name: str,
 
 def build_dashboard_sheet(frs_df: pd.DataFrame, oq_df: pd.DataFrame,
                            gap_df: pd.DataFrame, det_df: pd.DataFrame,
+                           trace_df: pd.DataFrame,
                            file_name: str, model_name: str) -> pd.DataFrame:
     """Build a KPI summary table for the Dashboard sheet."""
     total_reqs  = len(frs_df) if not frs_df.empty else 0
@@ -1881,11 +1882,24 @@ def show_app():
                 file_bytes, model_id, progress_bar, status_text, sys_ctx
             )
 
+            # ── Guard: if the AI returned nothing useful, stop cleanly ───────
+            if urs_df.empty and frs_df.empty:
+                progress_bar.empty()
+                status_text.empty()
+                st.error(
+                    "⚠️ No requirements were extracted. This usually means:\n"
+                    "- **API quota exceeded** — check your API key billing/limits\n"
+                    "- **Rate limit** — wait a minute and try again\n"
+                    "- **Model unavailable** — try a different Intelligence Engine\n\n"
+                    "The error detail is shown above."
+                )
+                log_audit(user, "ANALYSIS_ABORTED", "URS_FILE",
+                          reason="Empty AI output — possible rate limit or quota error")
+                return
+
             # ── Step 2: Deterministic rule-based validation R1–R5 ───────────
             status_text.text("🔍 Running deterministic validation rules R1–R5...")
-            trace_df, gap_df, det_df = run_deterministic_validation(
-                frs_df, oq_df, trace_df, gap_df
-            )
+            gap_df, det_df = run_deterministic_validation(frs_df, oq_df, gap_df)
             # Ensure no None/NaN reaches Excel
             for _df in [gap_df, det_df, trace_df]:
                 _df.fillna("", inplace=True)
@@ -1938,7 +1952,7 @@ def show_app():
                 frs_df, oq_df, gap_df, det_df, ver_frs, ver_oq, doc_ids
             )
             dashboard_df = build_dashboard_sheet(
-                frs_df, oq_df, gap_df, det_df, file_name,
+                frs_df, oq_df, gap_df, det_df, trace_df, file_name,
                 st.session_state.selected_model
             )
 
