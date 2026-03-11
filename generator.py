@@ -53,8 +53,8 @@ except ImportError:
 # =============================================================================
 # 1. CONFIG
 # =============================================================================
-VERSION        = "21.1"
-PROMPT_VERSION = "v9.1-urs-driven-trace-clean-columns"
+VERSION        = "22.1"
+PROMPT_VERSION = "v10.0-completeness-enforced-na-clean"
 TEMPERATURE    = 0.2
 CHUNK_SIZE     = 8
 DB_PATH        = os.path.join(os.path.dirname(os.path.abspath(__file__)), "validation_app.db")
@@ -588,9 +588,17 @@ Apply this transformation to EVERY URS row. If no system guide is provided, use 
 inferred system type to determine appropriate field names, module names, and technical
 constraints.
 
-TASK: Generate exactly 4 CSV datasets separated by |||.
+MANDATORY COMPLETENESS RULE:
+You MUST generate exactly one FRS row for EVERY row in the URS table above.
+Count the URS data rows (excluding the header). Your FRS dataset MUST have that exact count.
+Do NOT skip, merge, or omit any URS requirement for any reason.
+If a requirement is vague, still generate an FRS — note the vagueness in the description and set Confidence < 0.70.
+Number FRS IDs sequentially: FRS-001, FRS-002, FRS-003 ... one per URS row in order.
+
+TASK: Generate exactly 3 CSV datasets separated by |||.
 Output ONLY raw CSV rows — include the header row in EVERY dataset.
 Wrap any comma-containing value in double-quotes.
+Use N/A (not blank) for any field that is not applicable.
 
 Dataset 1 (FRS): ID,Requirement_Description,Priority,Risk,GxP_Impact,Source_URS_Ref,Source_Text,Source_Page,Confidence,Confidence_Flag
   - ID: FRS-NNN (e.g. FRS-001, FRS-002)
@@ -818,6 +826,59 @@ def _renumber_frs_ids(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def _fill_missing_frs(urs_df: pd.DataFrame, frs_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Detect any URS requirement that has no FRS row and insert a clearly-flagged
+    placeholder so nothing silently disappears from the output.
+    The placeholder has Confidence=0.50 and Confidence_Flag='⚠️ Review Required'
+    so it is immediately visible as needing manual completion.
+    """
+    if urs_df.empty or "Req_ID" not in urs_df.columns:
+        return frs_df
+
+    frs_urs_refs = set()
+    if not frs_df.empty and "Source_URS_Ref" in frs_df.columns:
+        frs_urs_refs = set(frs_df["Source_URS_Ref"].dropna().astype(str).str.strip())
+
+    placeholders = []
+    for _, row in urs_df.iterrows():
+        uid  = str(row.get("Req_ID", "")).strip()
+        desc = str(row.get("Requirement_Description", "")).strip()
+        if uid and uid not in frs_urs_refs:
+            # Determine next FRS number
+            if not frs_df.empty and "ID" in frs_df.columns:
+                existing_nums = []
+                for fid in frs_df["ID"].dropna().astype(str):
+                    m = re.match(r'FRS-(\d+)', fid.strip(), re.IGNORECASE)
+                    if m: existing_nums.append(int(m.group(1)))
+                next_n = max(existing_nums, default=0) + len(placeholders) + 1
+            else:
+                next_n = 1 + len(placeholders)
+            frs_id = f"FRS-{next_n:03d}"
+            placeholders.append({
+                "ID":                      frs_id,
+                "Requirement_Description": f"[AI SKIPPED — MANUAL REVIEW REQUIRED] "
+                                           f"No FRS was generated for URS requirement: '{desc}'. "
+                                           f"Please define the engineering implementation.",
+                "Priority":                "N/A",
+                "Risk":                    "High",
+                "GxP_Impact":              "Direct",
+                "Source_URS_Ref":          uid,
+                "Source_Text":             str(row.get("Source_Text", "N/A")).strip() or "N/A",
+                "Source_Page":             str(row.get("Source_Page", "N/A")).strip() or "N/A",
+                "Confidence":              "0.50",
+                "Confidence_Flag":         "⚠️ Review Required",
+            })
+
+    if not placeholders:
+        return frs_df
+
+    placeholder_df = pd.DataFrame(placeholders)
+    result = pd.concat([frs_df, placeholder_df], ignore_index=True)
+    result.fillna("N/A", inplace=True)
+    return result
+
+
 def _clean_frs_columns(df: pd.DataFrame) -> pd.DataFrame:
     """
     Strip column-name prefixes that LLMs sometimes echo into values.
@@ -851,21 +912,15 @@ def _clean_frs_columns(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _renumber_oq_ids(df: pd.DataFrame) -> pd.DataFrame:
-    """Guarantee OQ Test_IDs are clean OQ-NNN codes."""
+    """
+    Always renumber OQ Test_IDs as a clean sequential OQ-001, OQ-002, OQ-003...
+    This is unconditional — the LLM frequently skips numbers (e.g. OQ-001, 002, 003, 005)
+    when it skips an FRS, leaving gaps. We never preserve gap-filled sequences.
+    """
     if df.empty or "Test_ID" not in df.columns:
         return df
     df = df.copy()
-
-    def _looks_like_oq(val: str) -> bool:
-        return bool(re.match(r'^OQ-?\d+$', str(val).strip(), re.IGNORECASE))
-
-    if df["Test_ID"].apply(lambda v: not _looks_like_oq(str(v))).any():
-        df["Test_ID"] = [f"OQ-{i+1:03d}" for i in range(len(df))]
-    else:
-        def _norm(v):
-            m = re.match(r'OQ-?(\d+)', str(v).strip(), re.IGNORECASE)
-            return f"OQ-{int(m.group(1)):03d}" if m else str(v).strip()
-        df["Test_ID"] = df["Test_ID"].apply(_norm)
+    df["Test_ID"] = [f"OQ-{i+1:03d}" for i in range(len(df))]
     return df
 
 
@@ -1030,7 +1085,8 @@ def run_segmented_analysis(
     # ── Post-processing: ID normalisation ────────────────────────────────────
     frs_final = _renumber_frs_ids(frs_final)
     oq_final  = _renumber_oq_ids(oq_final)
-    frs_final = _clean_frs_columns(frs_final)   # strip "Risk: ", "Priority: " prefixes
+    frs_final = _clean_frs_columns(frs_final)     # strip "Risk: ", "Priority: " prefixes
+    frs_final = _fill_missing_frs(urs_final, frs_final)  # insert placeholders for AI-skipped URS
 
     # Fix Requirement_Link in OQ to match renumbered FRS IDs if possible
     # (In practice IDs are sequential so FRS-001 stays FRS-001 — this is a safety net)
@@ -1040,9 +1096,13 @@ def run_segmented_analysis(
     oq_final  = _apply_confidence_flags(oq_final)
     urs_final = _apply_confidence_flags(urs_final)
 
-    # ── Post-processing: fill all NaN with "" for clean Excel output ─────────
-    for df in [frs_final, oq_final, gap_final, urs_final]:
-        df.fillna("", inplace=True)
+    # ── Post-processing: fill all NaN with "N/A" for clean Excel output ─────────
+    for df in [frs_final, oq_final, urs_final]:
+        df.fillna("N/A", inplace=True)
+        df.replace("", "N/A", inplace=True)
+
+    # Clean and validate LLM gap analysis output
+    gap_final = _clean_gap_analysis(gap_final)
 
     # ── CRITICAL: Rebuild Traceability entirely in Python ─────────────────────
     # The LLM's traceability output is DISCARDED. We cross-reference the actual
@@ -1194,6 +1254,54 @@ def _token_overlap(a: str, b: str) -> float:
     if not ta or not tb:
         return 0.0
     return len(ta & tb) / len(ta | tb)
+
+
+VALID_GAP_TYPES = {"Untestable", "No_Test_Coverage", "Orphan_Test",
+                   "Ambiguous", "Duplicate", "Missing_FRS"}
+
+def _clean_gap_analysis(gap_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Post-process LLM-generated Gap_Analysis to fix two known corruption patterns:
+
+    1. LLM writes "No gaps identified" (or similar) as the Req_ID value while still
+       populating other fields with real or nonsensical values.
+       → Remove these rows entirely. The absence of real gap rows IS the signal.
+
+    2. LLM writes a severity value (Critical/High/Medium/Low) in Gap_Type column.
+       → Correct by validating Gap_Type against allowed enum values; replace
+         invalid values with "Ambiguous".
+
+    3. Replace all remaining None / blank cells with "N/A".
+    """
+    if gap_df.empty:
+        return gap_df
+
+    df = gap_df.copy()
+
+    # Drop rows where Req_ID signals "no gap" prose
+    if "Req_ID" in df.columns:
+        no_gap_mask = df["Req_ID"].astype(str).str.lower().str.contains(
+            r'no gap|no issue|none|nothing|not applicable|n/a', na=False, regex=True
+        )
+        df = df[~no_gap_mask].reset_index(drop=True)
+
+    # Fix Gap_Type values that contain severity words instead of gap type enum
+    if "Gap_Type" in df.columns:
+        severity_words = {"critical", "high", "medium", "low"}
+        def _fix_gap_type(v):
+            v_str = str(v).strip()
+            if v_str in VALID_GAP_TYPES:
+                return v_str
+            if v_str.lower() in severity_words:
+                return "Ambiguous"   # best guess when LLM put severity in gap type col
+            return v_str if v_str else "N/A"
+        df["Gap_Type"] = df["Gap_Type"].apply(_fix_gap_type)
+
+    # Replace all blank / None with N/A
+    df = df.fillna("N/A")
+    df = df.replace("", "N/A")
+
+    return df
 
 
 def run_deterministic_validation(
@@ -1487,10 +1595,19 @@ def build_dashboard_sheet(frs_df: pd.DataFrame, oq_df: pd.DataFrame,
     total_tests = len(oq_df)  if not oq_df.empty  else 0
 
     # Coverage: from Python-built traceability — the only reliable source
-    covered = 0
+    covered  = 0
+    partial  = 0
+    missing  = 0
     if not trace_df.empty and "Coverage_Status" in trace_df.columns:
-        covered = int((trace_df["Coverage_Status"] == "Covered").sum())
-    coverage_pct = round((covered / total_reqs * 100), 1) if total_reqs > 0 else 0.0
+        covered  = int((trace_df["Coverage_Status"] == "Covered").sum())
+        partial  = int((trace_df["Coverage_Status"] == "Partial").sum())
+        missing  = int((trace_df["Coverage_Status"].isin(
+                        ["Not Covered", "Missing FRS"])).sum())
+
+    # Coverage % = (Covered + Partial) / total  — reflects that tests exist even if incomplete
+    has_tests = covered + partial
+    coverage_pct = round((has_tests / total_reqs * 100), 1) if total_reqs > 0 else 0.0
+    fully_covered_pct = round((covered / total_reqs * 100), 1) if total_reqs > 0 else 0.0
 
     # Gap counts
     ai_gaps  = len(gap_df) if not gap_df.empty else 0
@@ -1513,25 +1630,34 @@ def build_dashboard_sheet(frs_df: pd.DataFrame, oq_df: pd.DataFrame,
     if not det_df.empty and "Rule" in det_df.columns:
         orphan_tests = int((det_df["Rule"] == "R2").sum())
 
+    missing_frs = 0
+    if not det_df.empty and "Rule" in det_df.columns:
+        missing_frs = int((det_df["Rule"] == "R0").sum())
+
     rows = [
-        {"KPI": "📋 Total FRS Requirements",      "Value": total_reqs,     "Status": ""},
-        {"KPI": "🧪 Total OQ Test Cases",          "Value": total_tests,    "Status": ""},
-        {"KPI": "✅ Requirements Covered",          "Value": covered,        "Status": ""},
-        {"KPI": "📊 Test Coverage %",               "Value": f"{coverage_pct}%",
+        {"KPI": "📋 Total FRS Requirements",          "Value": total_reqs,            "Status": "N/A"},
+        {"KPI": "🧪 Total OQ Test Cases",              "Value": total_tests,           "Status": "N/A"},
+        {"KPI": "✅ Fully Covered (all tests met)",    "Value": covered,               "Status": "N/A"},
+        {"KPI": "🔶 Partially Covered (some tests)",   "Value": partial,               "Status": "See Traceability sheet"},
+        {"KPI": "❌ Not Covered / Missing FRS",         "Value": missing,               "Status": "Immediate action required"},
+        {"KPI": "📊 Coverage % (Covered+Partial)",     "Value": f"{coverage_pct}%",
          "Status": "✅ PASS" if coverage_pct >= 80 else ("⚠️ REVIEW" if coverage_pct >= 60 else "❌ FAIL")},
-        {"KPI": "🔴 High Risk Requirements",        "Value": high_risk,      "Status": "Requires ≥3 OQ tests each"},
-        {"KPI": "🟡 Medium Risk Requirements",      "Value": med_risk,       "Status": "Requires ≥2 OQ tests each"},
-        {"KPI": "🟢 Low Risk Requirements",         "Value": low_risk,       "Status": "Requires ≥1 OQ test each"},
-        {"KPI": "⚠️ AI-Detected Gaps",              "Value": ai_gaps,        "Status": "See Gap_Analysis sheet"},
-        {"KPI": "🔍 Deterministic Issues (R1-R4)",  "Value": det_gaps,       "Status": "See Det_Validation sheet"},
-        {"KPI": "🚫 Non-Testable Requirements",     "Value": non_testable,   "Status": "Rewrite required"},
-        {"KPI": "👻 Orphan Tests (No FRS link)",    "Value": orphan_tests,   "Status": "Investigate"},
-        {"KPI": "📁 Source Document",               "Value": file_name,      "Status": ""},
-        {"KPI": "🤖 AI Model Used",                 "Value": model_name,     "Status": ""},
-        {"KPI": "🏷️ Prompt Version",               "Value": PROMPT_VERSION,  "Status": ""},
-        {"KPI": "🌡️ Temperature",                  "Value": TEMPERATURE,    "Status": ""},
+        {"KPI": "📊 Fully Covered %",                  "Value": f"{fully_covered_pct}%",
+         "Status": "✅ PASS" if fully_covered_pct >= 80 else ("⚠️ REVIEW" if fully_covered_pct >= 60 else "❌ FAIL")},
+        {"KPI": "🔴 High Risk Requirements",            "Value": high_risk,             "Status": "Requires ≥3 OQ tests each"},
+        {"KPI": "🟡 Medium Risk Requirements",          "Value": med_risk,              "Status": "Requires ≥2 OQ tests each"},
+        {"KPI": "🟢 Low Risk Requirements",             "Value": low_risk,              "Status": "Requires ≥1 OQ test each"},
+        {"KPI": "🚨 Missing FRS (AI skipped URS)",     "Value": missing_frs,           "Status": "Critical — re-run or add manually"},
+        {"KPI": "⚠️ AI-Detected Gaps",                 "Value": ai_gaps,               "Status": "See Gap_Analysis sheet"},
+        {"KPI": "🔍 Deterministic Issues (R0–R5)",     "Value": det_gaps,              "Status": "See Det_Validation sheet"},
+        {"KPI": "🚫 Non-Testable Requirements",         "Value": non_testable,          "Status": "Rewrite required"},
+        {"KPI": "👻 Orphan Tests (No FRS link)",        "Value": orphan_tests,          "Status": "Investigate"},
+        {"KPI": "📁 Source Document",                   "Value": file_name,             "Status": "N/A"},
+        {"KPI": "🤖 AI Model Used",                     "Value": model_name,            "Status": "N/A"},
+        {"KPI": "🏷️ Prompt Version",                   "Value": PROMPT_VERSION,        "Status": "N/A"},
+        {"KPI": "🌡️ Temperature",                      "Value": TEMPERATURE,           "Status": "N/A"},
         {"KPI": "📅 Generated",
-         "Value": datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC"), "Status": ""},
+         "Value": datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC"),           "Status": "N/A"},
     ]
     return pd.DataFrame(rows)
 
@@ -2002,9 +2128,10 @@ def show_app():
             # ── Step 2: Deterministic rule-based validation R1–R5 ───────────
             status_text.text("🔍 Running deterministic validation rules R1–R5...")
             gap_df, det_df = run_deterministic_validation(frs_df, oq_df, gap_df, urs_df)
-            # Ensure no None/NaN reaches Excel
+            # Replace all None/blank with N/A in every output dataframe
             for _df in [gap_df, det_df, trace_df]:
-                _df.fillna("", inplace=True)
+                _df.fillna("N/A", inplace=True)
+                _df.replace("", "N/A", inplace=True)
 
             # ── Step 3: Persist documents (version-controlled, never overwrite)
             id_urs   = save_document("URS_Extraction", urs_df.to_csv(index=False),  user, file_name)
@@ -2079,11 +2206,13 @@ def show_app():
             progress_bar.empty()
 
             # ── Compute coverage metrics for session state ────────────────────
-            covered = 0
+            covered = partial_cov = 0
             if not trace_df.empty and "Coverage_Status" in trace_df.columns:
-                covered = int((trace_df["Coverage_Status"] == "Covered").sum())
+                covered     = int((trace_df["Coverage_Status"] == "Covered").sum())
+                partial_cov = int((trace_df["Coverage_Status"] == "Partial").sum())
             total_reqs = len(frs_df)
-            cov_pct    = round(covered / total_reqs * 100, 1) if total_reqs > 0 else 0.0
+            has_tests  = covered + partial_cov
+            cov_pct    = round(has_tests / total_reqs * 100, 1) if total_reqs > 0 else 0.0
 
             # ── Persist to session state so download button rerun doesn't clear ──
             st.session_state["last_result"] = {
