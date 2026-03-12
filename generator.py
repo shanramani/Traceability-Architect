@@ -55,13 +55,13 @@ except ImportError:
 # =============================================================================
 # 1. CONFIG
 # =============================================================================
-VERSION        = "28.0"
-PROMPT_VERSION = "v16.0-chain-of-custody-hitl-labels"
+VERSION        = "29.0"
+PROMPT_VERSION = "v17.0-cover-sheet-r6-cross-source"
 TEMPERATURE    = 0.2
 CHUNK_SIZE     = 8
 DB_PATH        = os.path.join(os.path.dirname(os.path.abspath(__file__)), "validation_app.db")
 
-SESSION_TIMEOUT_MINUTES = 30
+SESSION_TIMEOUT_MINUTES = 15   # 21 CFR Part 11 — 15-minute inactivity timeout
 MAX_FAILED_ATTEMPTS     = 5
 LOCKOUT_MINUTES         = 15
 
@@ -188,7 +188,8 @@ def db_migrate():
                 old_value      TEXT,
                 new_value      TEXT,
                 reason         TEXT,
-                location       TEXT
+                location       TEXT,
+                user_ip        TEXT
             )
         """)
 
@@ -237,7 +238,8 @@ def db_migrate():
             ("old_value",      "TEXT"),
             ("new_value",      "TEXT"),
             ("reason",         "TEXT"),
-            ("location",       "TEXT"),   # GxP geographic lock — added v23
+            ("location",       "TEXT"),
+            ("user_ip",        "TEXT"),   # v29 — separate column for faster audit search
         ]:
             if col not in audit_cols:
                 try:
@@ -316,15 +318,20 @@ def log_audit(user: str, action: str, object_changed: str = "",
               old_value: str = "", new_value: str = "", reason: str = ""):
     """
     Append-only audit write. This function must never UPDATE or DELETE rows.
-    Location column is preserved in the schema for schema compatibility but is
-    no longer surfaced in the UI or generated output (removed in v27).
+    user_ip is pulled from st.session_state and written as a separate indexed
+    column (not embedded in Reason) to support fast audit searches per 21 CFR Part 11.
     """
+    try:
+        user_ip = st.session_state.get("user_ip", "")
+    except Exception:
+        user_ip = ""
     try:
         conn = db_connect()
         conn.execute(
             """INSERT INTO audit_log
-               (user, timestamp, action, object_changed, old_value, new_value, reason, location)
-               VALUES (?,?,?,?,?,?,?,?)""",
+               (user, timestamp, action, object_changed, old_value, new_value,
+                reason, location, user_ip)
+               VALUES (?,?,?,?,?,?,?,?,?)""",
             (user,
              datetime.datetime.utcnow().isoformat(),
              action,
@@ -332,7 +339,8 @@ def log_audit(user: str, action: str, object_changed: str = "",
              str(old_value)[:2000]  if old_value  else "",
              str(new_value)[:2000]  if new_value  else "",
              str(reason)[:1000]     if reason     else "",
-             "")          # location intentionally blank — removed from UI in v27
+             "",          # location intentionally blank — removed from UI in v27
+             str(user_ip)[:100])
         )
         conn.commit()
         conn.close()
@@ -1423,6 +1431,108 @@ def _apply_confidence_flags(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def run_cross_source_analysis(
+    urs_text: str,
+    sys_context_text: str,
+    model_id: str,
+    sys_context_name: str = "User Guide"
+) -> tuple:
+    """
+    Cross-Source Gap Analysis (v29):
+    Compares the URS against the User Guide to find:
+      1. Features in the User Guide NOT mentioned in the URS
+         → generate an FRS flagged [GAP-SOURCE: User Guide Only]
+         → these represent system capabilities the company failed to validate
+      2. URS requirements with NO corresponding feature in the User Guide
+         → flag as [GAP-SOURCE: URS Only — Not in User Guide]
+         → these suggest the system may not support the requirement at all
+
+    Returns: (cross_frs_rows: list[dict], cross_gap_rows: list[dict])
+    Both are appended to the main FRS and Gap_Analysis tables.
+    """
+    CROSS_SOURCE_PROMPT = f"""
+You are a GxP validation engineer performing a bidirectional gap analysis.
+
+DOCUMENT A — USER REQUIREMENTS SPECIFICATION (URS):
+{urs_text[:4000]}
+
+DOCUMENT B — SYSTEM USER GUIDE / PRODUCT MANUAL ('{sys_context_name}'):
+{sys_context_text[:4000]}
+
+TASK: Perform a bidirectional gap analysis between the two documents.
+
+PART 1 — Features in User Guide NOT in URS:
+Identify system features or capabilities described in the User Guide that have NO
+corresponding requirement in the URS. These represent missed validation scope.
+For each, generate one FRS row with Source_URS_Ref = "[GAP-SOURCE: User Guide Only]".
+
+PART 2 — URS Requirements NOT supported by User Guide:
+Identify URS requirements that describe functionality NOT described anywhere in the
+User Guide. These suggest the system may not support the requirement.
+Generate one gap row for each with Gap_Type = "URS_Not_In_UserGuide".
+
+Output EXACTLY 2 CSV datasets separated by |||.
+Include the header row in EACH dataset. Wrap comma-containing values in double-quotes.
+Use N/A for any field that is not applicable.
+
+Dataset 1 (cross-source FRS rows):
+ID,Requirement_Description,Priority,Risk,GxP_Impact,Source_URS_Ref,Source_Text,Source_Page,Confidence,Confidence_Flag
+- ID: XFRS-001, XFRS-002, etc.
+- Requirement_Description: engineering/technical description of the feature from the User Guide
+- Source_URS_Ref: EXACTLY the string "[GAP-SOURCE: User Guide Only]"
+- Confidence_Flag: "Cross-Source Gap — Review Required"
+
+Dataset 2 (cross-source gap rows):
+Req_ID,Gap_Type,Description,Recommendation,Severity
+- Req_ID: use the URS Req_ID if known, otherwise "URS-UNMATCHED-NNN"
+- Gap_Type: URS_Not_In_UserGuide
+- Description: what the URS requires and why the User Guide doesn't cover it
+- Recommendation: specific action (e.g. contact vendor, raise a change request, or add to URS)
+- Severity: Critical / High / Medium
+
+If no gaps exist in either direction, output two CSV headers with no data rows.
+"""
+    try:
+        response = completion(
+            model=model_id,
+            stream=False,
+            temperature=0.1,   # low temp for deterministic gap comparison
+            messages=[
+                {"role": "system", "content": (
+                    "You are a senior GxP validation specialist. "
+                    "You produce only structured CSV output — no prose, no markdown fences. "
+                    "Your gap analysis findings will be incorporated into a regulated validation package."
+                )},
+                {"role": "user", "content": CROSS_SOURCE_PROMPT}
+            ]
+        )
+        raw = response.choices[0].message.content or ""
+        raw = re.sub(r'^```[a-zA-Z]*\n?', '', raw, flags=re.MULTILINE)
+        raw = re.sub(r'```\s*$',          '', raw, flags=re.MULTILINE)
+
+        parts = raw.split("|||")
+        xfrs_csv = parts[0].strip() if len(parts) > 0 else ""
+        xgap_csv = parts[1].strip() if len(parts) > 1 else ""
+
+        xfrs_df = _csv_to_df(_strip_preamble(xfrs_csv))
+        xgap_df = _csv_to_df(_strip_preamble(xgap_csv))
+
+        # Filter out "no gaps" prose rows
+        if not xfrs_df.empty and "ID" in xfrs_df.columns:
+            xfrs_df = xfrs_df[xfrs_df["ID"].astype(str).str.startswith("XFRS")].reset_index(drop=True)
+        if not xgap_df.empty and "Req_ID" in xgap_df.columns:
+            no_gap_mask = xgap_df["Req_ID"].astype(str).str.lower().str.contains(
+                r'no gap|none|n/a|not applicable', na=False, regex=True
+            )
+            xgap_df = xgap_df[~no_gap_mask].reset_index(drop=True)
+
+        return xfrs_df, xgap_df
+
+    except Exception as e:
+        st.warning(f"⚠️ Cross-source analysis failed ({e}) — proceeding without it.")
+        return pd.DataFrame(), pd.DataFrame()
+
+
 def run_segmented_analysis(
     file_bytes: bytes,
     model_id: str,
@@ -1651,6 +1761,35 @@ def run_segmented_analysis(
 
     gap_final   = _clean_gap_analysis(gap_final)
     trace_final = _build_traceability(urs_final, frs_final, oq_final)
+
+    # ── Pass 3 (optional): Cross-Source Gap Analysis ─────────────────────────
+    # Only runs when a User Guide was uploaded. Compares the URS against the
+    # guide to find: (a) features in the guide not in the URS, (b) URS reqs
+    # not supported by the guide. Results are appended to FRS and Gap tables.
+    if sys_context and len(sys_context.strip()) > 200:
+        status_text.text("🔀 Pass 3 — Cross-source URS ↔ User Guide gap analysis...")
+        urs_text_for_cross = "\n".join(all_pages[:8])   # first 8 pages of URS
+        xfrs_df, xgap_df = run_cross_source_analysis(
+            urs_text    = urs_text_for_cross,
+            sys_context_text = sys_context,
+            model_id    = model_id,
+            sys_context_name = "User Guide"
+        )
+        # Append cross-source FRS rows to main FRS table
+        if not xfrs_df.empty:
+            frs_final = pd.concat([frs_final, xfrs_df], ignore_index=True)
+            frs_final.fillna("N/A", inplace=True)
+        # Append cross-source gap rows to main gap table
+        if not xgap_df.empty:
+            # Ensure matching columns
+            for col in ["Req_ID", "Gap_Type", "Description", "Recommendation", "Severity"]:
+                if col not in xgap_df.columns:
+                    xgap_df[col] = "N/A"
+            gap_final = pd.concat([gap_final, xgap_df], ignore_index=True)
+            gap_final.fillna("N/A", inplace=True)
+
+        # Rebuild traceability to include cross-source FRS rows
+        trace_final = _build_traceability(urs_final, frs_final, oq_final)
 
     progress_bar.progress(1.0)
     status_text.text("✅ All segments processed — compiling workbook...")
@@ -2024,6 +2163,28 @@ def run_deterministic_validation(
                         "Severity":        "Medium",
                     }])], ignore_index=True)
 
+    # ── R6: Human-in-the-Loop safeguard rows ─────────────────────────────────
+    # OQ rows with the HITL placeholder text require manual completion.
+    # These are not errors but represent mandatory human actions before sign-off.
+    if not oq_df.empty and "Test_Step" in oq_df.columns:
+        for _, row in oq_df.iterrows():
+            step    = str(row.get("Test_Step", ""))
+            test_id = str(row.get("Test_ID", "")).strip()
+            if "HUMAN-IN-THE-LOOP SAFEGUARD" in step or "MANUAL REVIEW REQUIRED" in step:
+                req_link = str(row.get("Requirement_Link", "")).strip()
+                issues.append({
+                    "Rule":            "R6",
+                    "Req_ID":          test_id,
+                    "Gap_Type":        "Manual_Action_Required",
+                    "Description":     (f"{test_id} (linked to {req_link}) was not generated "
+                                        f"by the AI and requires manual test steps to be written "
+                                        f"before this validation package can be signed off."),
+                    "Recommendation":  (f"Open the OQ sheet, locate {test_id}, and write executable "
+                                        f"test steps, expected results, and pass/fail criteria. "
+                                        f"This row must be completed before IQ/OQ execution."),
+                    "Severity":        "Critical",
+                })
+
     det_issues_df = pd.DataFrame(issues) if issues else pd.DataFrame(
         columns=["Rule", "Req_ID", "Gap_Type", "Description", "Recommendation", "Severity"]
     )
@@ -2256,6 +2417,7 @@ def _write_dashboard_chart(wb, ws_dash):
 
 
 SHEET_COLORS = {
+    "Summary":          {"header_fill": "0F172A", "tab_color": "1E293B"},
     "Dashboard":        {"header_fill": "0F172A", "tab_color": "0F172A"},
     "URS_Extraction":   {"header_fill": "1D4ED8", "tab_color": "1D4ED8"},
     "FRS":              {"header_fill": "2563EB", "tab_color": "2563EB"},
@@ -2265,6 +2427,166 @@ SHEET_COLORS = {
     "Det_Validation":   {"header_fill": "EA580C", "tab_color": "EA580C"},
     "Audit_Log":        {"header_fill": "B45309", "tab_color": "B45309"},
 }
+
+
+def build_cover_sheet(wb, user: str, file_name: str, model_name: str,
+                      dashboard_df: pd.DataFrame,
+                      sys_context_name: str = ""):
+    """
+    Create an executive-ready Summary tab as the first sheet.
+    Displays KPIs in large font, includes Digital Signature lines.
+    """
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from openpyxl.utils import get_column_letter
+
+    ws = wb.create_sheet("Summary", 0)   # insert at position 0 (first tab)
+    ws.sheet_properties.tabColor = "1E293B"
+
+    # ── Freeze first row ──
+    ws.freeze_panes = "A2"
+
+    navy   = PatternFill("solid", fgColor="0F172A")
+    teal   = PatternFill("solid", fgColor="0E7490")
+    white  = PatternFill("solid", fgColor="FFFFFF")
+    lgrey  = PatternFill("solid", fgColor="F8FAFC")
+    green  = PatternFill("solid", fgColor="D1FAE5")
+    yellow = PatternFill("solid", fgColor="FEF9C3")
+    red    = PatternFill("solid", fgColor="FEE2E2")
+    thin   = Side(style="thin", color="CBD5E1")
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+
+    def _set(row, col, value, bold=False, size=11, color="000000",
+             fill=None, align="left", wrap=False):
+        cell = ws.cell(row=row, column=col, value=value)
+        cell.font      = Font(bold=bold, size=size, color=color)
+        cell.alignment = Alignment(horizontal=align, vertical="center", wrap_text=wrap)
+        if fill:
+            cell.fill = fill
+        cell.border = border
+        return cell
+
+    # ── Row 1: Title banner ──
+    ws.merge_cells("A1:F1")
+    ws.row_dimensions[1].height = 40
+    _set(1, 1, "GxP Validation Package — Executive Summary",
+         bold=True, size=18, color="FFFFFF", fill=navy, align="center")
+
+    # ── Row 2: Sub-header ──
+    ws.merge_cells("A2:F2")
+    ws.row_dimensions[2].height = 22
+    gen_time = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+    _set(2, 1, f"Generated: {gen_time}  |  Source: {file_name}  |  Model: {model_name}",
+         bold=False, size=10, color="FFFFFF", fill=teal, align="center")
+
+    if sys_context_name:
+        ws.merge_cells("A3:F3")
+        ws.row_dimensions[3].height = 18
+        _set(3, 1, f"User Guide Reference: {sys_context_name}",
+             bold=False, size=9, color="334155", fill=lgrey, align="center")
+        next_row = 4
+    else:
+        next_row = 3
+
+    # ── Blank spacer ──
+    ws.row_dimensions[next_row].height = 10
+    next_row += 1
+
+    # ── KPI section header ──
+    ws.merge_cells(f"A{next_row}:F{next_row}")
+    ws.row_dimensions[next_row].height = 24
+    _set(next_row, 1, "KEY PERFORMANCE INDICATORS",
+         bold=True, size=13, color="FFFFFF", fill=navy, align="center")
+    next_row += 1
+
+    # ── KPI rows from dashboard_df ──
+    kpi_fill_map = {}   # detect pass/fail for colouring
+    if not dashboard_df.empty and "KPI" in dashboard_df.columns:
+        ws.row_dimensions[next_row].height = 20
+        _set(next_row, 1, "Metric",   bold=True, size=10, color="FFFFFF", fill=teal, align="center")
+        _set(next_row, 2, "Value",    bold=True, size=10, color="FFFFFF", fill=teal, align="center")
+        _set(next_row, 4, "Status",   bold=True, size=10, color="FFFFFF", fill=teal, align="center")
+        # Merge B + C for value, E+F for status
+        ws.merge_cells(f"B{next_row}:C{next_row}")
+        ws.merge_cells(f"D{next_row}:F{next_row}")
+        ws.cell(row=next_row, column=4).value = "Status"
+        ws.cell(row=next_row, column=4).font  = Font(bold=True, size=10, color="FFFFFF")
+        ws.cell(row=next_row, column=4).fill  = teal
+        ws.cell(row=next_row, column=4).alignment = Alignment(horizontal="center", vertical="center")
+        ws.cell(row=next_row, column=4).border = border
+        next_row += 1
+
+        for _, kpi_row in dashboard_df.iterrows():
+            kpi_name   = str(kpi_row.get("KPI",    ""))
+            kpi_val    = str(kpi_row.get("Value",  ""))
+            kpi_status = str(kpi_row.get("Status", ""))
+            row_fill   = green if "PASS" in kpi_status else (
+                         red   if "FAIL" in kpi_status else (
+                         yellow if "REVIEW" in kpi_status else lgrey))
+            ws.row_dimensions[next_row].height = 22
+            ws.merge_cells(f"B{next_row}:C{next_row}")
+            ws.merge_cells(f"D{next_row}:F{next_row}")
+            _set(next_row, 1, kpi_name, bold=False, size=10, fill=row_fill, align="left",  wrap=True)
+            _set(next_row, 2, kpi_val,  bold=True,  size=10, fill=row_fill, align="center")
+            ws.cell(row=next_row, column=4).value     = kpi_status
+            ws.cell(row=next_row, column=4).font      = Font(bold=False, size=10)
+            ws.cell(row=next_row, column=4).fill      = row_fill
+            ws.cell(row=next_row, column=4).alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+            ws.cell(row=next_row, column=4).border    = border
+            next_row += 1
+
+    # ── Blank spacer ──
+    ws.row_dimensions[next_row].height = 16
+    next_row += 1
+
+    # ── Digital Signatures section ──
+    ws.merge_cells(f"A{next_row}:F{next_row}")
+    ws.row_dimensions[next_row].height = 24
+    _set(next_row, 1, "ELECTRONIC SIGNATURE — 21 CFR PART 11",
+         bold=True, size=13, color="FFFFFF", fill=navy, align="center")
+    next_row += 1
+
+    sig_fields = [
+        ("Prepared By (Validation Engineer)",  user,        "Signature / Initials"),
+        ("Prepared Date",                       gen_time,    "Date (UTC)"),
+        ("AI Model Used",                       model_name,  "System"),
+        ("Prompt Version",                      PROMPT_VERSION, "Audit Reference"),
+        ("Reviewed By (QA Manager)",            "________________________", "Signature"),
+        ("Review Date",                         "________________________", "Date"),
+        ("Approved By (QA Director / Sponsor)", "________________________", "Signature"),
+        ("Approval Date",                       "________________________", "Date"),
+    ]
+    for sig_label, sig_val, sig_type in sig_fields:
+        ws.row_dimensions[next_row].height = 24
+        ws.merge_cells(f"C{next_row}:D{next_row}")
+        ws.merge_cells(f"E{next_row}:F{next_row}")
+        _set(next_row, 1, sig_label,  bold=True,  size=10, fill=lgrey, align="left")
+        ws.merge_cells(f"B{next_row}:B{next_row}")
+        _set(next_row, 2, sig_type,   bold=False, size=9,  fill=lgrey, color="64748B", align="center")
+        ws.cell(row=next_row, column=3).value     = sig_val
+        ws.cell(row=next_row, column=3).font      = Font(bold=True, size=10, color="1E40AF")
+        ws.cell(row=next_row, column=3).fill      = white
+        ws.cell(row=next_row, column=3).alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+        ws.cell(row=next_row, column=3).border    = border
+        next_row += 1
+
+    # ── Disclaimer footer ──
+    ws.row_dimensions[next_row].height = 10
+    next_row += 1
+    ws.merge_cells(f"A{next_row}:F{next_row}")
+    ws.row_dimensions[next_row].height = 30
+    _set(next_row, 1,
+         "DISCLAIMER: This document was AI-generated as a draft validation artefact. "
+         "All content must be reviewed and approved by a qualified GxP professional "
+         "before use in a regulated submission. AI outputs do not constitute a validated "
+         "system qualification without human review per GAMP 5 and ICH Q10.",
+         bold=False, size=8, color="64748B", fill=lgrey, align="center", wrap=True)
+
+    # ── Column widths ──
+    for col_letter, width in [("A", 38), ("B", 18), ("C", 28), ("D", 18), ("E", 22), ("F", 18)]:
+        ws.column_dimensions[col_letter].width = width
+
+
 
 
 def style_worksheet(ws, sheet_name: str):
@@ -2311,8 +2633,73 @@ def style_worksheet(ws, sheet_name: str):
                 max_len = max(max_len, cell_len)
         ws.column_dimensions[col_letter].width = min(max_len + 4, 80)
 
+    # ── Conditional row colouring ─────────────────────────────────────────────
+    gap_fill    = PatternFill("solid", fgColor="FEE2E2")   # light red — gaps
+    hitl_fill   = PatternFill("solid", fgColor="FEF9C3")   # light yellow — HITL
+    xsrc_fill   = PatternFill("solid", fgColor="EDE9FE")   # light purple — cross-source
+    pass_fill   = PatternFill("solid", fgColor="D1FAE5")   # light green — covered/pass
+    warn_fill   = PatternFill("solid", fgColor="FFF7ED")   # light orange — partial/review
 
-def build_styled_excel(dataframes: dict) -> bytes:
+    # Identify key column indices by header name for this sheet
+    header_vals = {ws.cell(row=1, column=c).value: c for c in range(1, max_col + 1)}
+
+    def _colour_row(row_idx, fill_obj):
+        for c in range(1, max_col + 1):
+            cell = ws.cell(row=row_idx, column=c)
+            cell.fill = fill_obj
+
+    for row_idx in range(2, max_row + 1):
+        if sheet_name == "Traceability":
+            cov_col = header_vals.get("Coverage_Status")
+            if cov_col:
+                val = str(ws.cell(row=row_idx, column=cov_col).value or "").strip()
+                if val in ("Not Covered", "Missing FRS", "[GAP]"):
+                    _colour_row(row_idx, gap_fill)
+                elif val == "Partial":
+                    _colour_row(row_idx, warn_fill)
+                elif val == "Covered":
+                    _colour_row(row_idx, pass_fill)
+
+        elif sheet_name == "Gap_Analysis":
+            sev_col = header_vals.get("Severity")
+            if sev_col:
+                sev = str(ws.cell(row=row_idx, column=sev_col).value or "").strip().lower()
+                if sev == "critical":
+                    _colour_row(row_idx, gap_fill)
+                elif sev == "high":
+                    _colour_row(row_idx, warn_fill)
+
+        elif sheet_name == "Det_Validation":
+            rule_col = header_vals.get("Rule")
+            sev_col  = header_vals.get("Severity")
+            if rule_col:
+                rule = str(ws.cell(row=row_idx, column=rule_col).value or "").strip()
+                if rule == "R6":
+                    _colour_row(row_idx, hitl_fill)
+                elif rule in ("R0", "R1"):
+                    _colour_row(row_idx, gap_fill)
+
+        elif sheet_name == "FRS":
+            src_col = header_vals.get("Source_URS_Ref")
+            cf_col  = header_vals.get("Confidence_Flag")
+            if src_col:
+                src = str(ws.cell(row=row_idx, column=src_col).value or "")
+                if "User Guide Only" in src:
+                    _colour_row(row_idx, xsrc_fill)
+                elif "Cross-Source Gap" in str(ws.cell(row=row_idx, column=cf_col).value if cf_col else ""):
+                    _colour_row(row_idx, xsrc_fill)
+
+        elif sheet_name == "OQ":
+            step_col = header_vals.get("Test_Step")
+            if step_col:
+                step = str(ws.cell(row=row_idx, column=step_col).value or "")
+                if "HUMAN-IN-THE-LOOP" in step:
+                    _colour_row(row_idx, hitl_fill)
+
+
+def build_styled_excel(dataframes: dict, user: str = "", file_name: str = "",
+                       model_name: str = "", sys_context_name: str = "",
+                       dashboard_df=None) -> bytes:
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
         for sheet_name, df in dataframes.items():
@@ -2324,6 +2711,12 @@ def build_styled_excel(dataframes: dict) -> bytes:
         # Add bar chart to Dashboard sheet
         if "Dashboard" in wb.sheetnames:
             _write_dashboard_chart(wb, wb["Dashboard"])
+        # Add executive Summary cover sheet (inserted at position 0)
+        _dash = dashboard_df if dashboard_df is not None else (
+            dataframes.get("Dashboard", pd.DataFrame()))
+        build_cover_sheet(wb, user=user, file_name=file_name,
+                          model_name=model_name, dashboard_df=_dash,
+                          sys_context_name=sys_context_name)
     return output.getvalue()
 
 
@@ -2356,7 +2749,9 @@ _defaults = {
     "sop_file_name":      None,
     "sys_context_bytes":  None,
     "sys_context_name":   None,
-    "uploader_key_n":     0,       # incremented to reset the file-uploader widget
+    "uploader_key_n":     0,       # incremented to reset the URS file-uploader widget
+    "sys_uploader_key_n": 0,       # incremented to reset the sidebar sys-context uploader
+    "user_ip":            "",      # client IP stored as separate audit column (v29)
 }
 for _k, _v in _defaults.items():
     if _k not in st.session_state:
@@ -2495,6 +2890,37 @@ st.markdown("""
         background: #475569 !important; color: white !important;
         border-color: #64748b !important;
     }
+
+    /* ── Sticky top-right terminate button overlay ── */
+    #sticky-terminate-overlay {
+        position: fixed !important;
+        top: 10px !important;
+        right: 20px !important;
+        z-index: 999999 !important;
+    }
+    #sticky-terminate-overlay button {
+        background: #dc2626 !important;
+        color: white !important;
+        border: none !important;
+        border-radius: 8px !important;
+        padding: 6px 16px !important;
+        font-size: 0.82rem !important;
+        font-weight: 600 !important;
+        cursor: pointer !important;
+        box-shadow: 0 2px 8px rgba(220,38,38,0.4) !important;
+        transition: background 0.15s !important;
+    }
+    #sticky-terminate-overlay button:hover {
+        background: #b91c1c !important;
+    }
+
+    /* ── Hide the invisible trigger button ── */
+    button[data-testid="stButton"][key="terminate_hidden_trigger"] {
+        display: none !important;
+        visibility: hidden !important;
+        height: 0 !important;
+        overflow: hidden !important;
+    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -2504,6 +2930,43 @@ MODELS = {
     "GPT-4o":            "openai/gpt-4o",
     "Groq (Llama 3.3)":  "groq/llama-3.3-70b-versatile"
 }
+
+
+def _capture_client_ip():
+    """
+    Capture client IP via JS → query_params on first page load.
+    Stores in st.session_state['user_ip'] which is then written as a
+    separate column in audit_log (v29). This satisfies 21 CFR Part 11
+    electronic-signature traceability without relying on cloud server IPs.
+    """
+    if st.session_state.get("user_ip"):
+        return  # already captured this session
+
+    # Check if JS already posted the IP via query param
+    qp = st.query_params
+    if "uip" in qp:
+        st.session_state["user_ip"] = str(qp["uip"])[:100]
+        return
+
+    # Inject JS: fetch client IP from cloudflare trace (no CORS issues), write to query param
+    _st_components.html("""
+    <script>
+    (function() {
+      try {
+        fetch('https://www.cloudflare.com/cdn-cgi/trace')
+          .then(r => r.text())
+          .then(txt => {
+            const m = txt.match(/ip=([\\d\\.a-fA-F:]+)/);
+            if (m) {
+              const url = new URL(window.parent.location.href);
+              url.searchParams.set('uip', m[1]);
+              window.parent.history.replaceState({}, '', url.toString());
+            }
+          }).catch(() => {});
+      } catch(e) {}
+    })();
+    </script>
+    """, height=0)
 
 # =============================================================================
 # 11. LOGIN
@@ -2595,12 +3058,11 @@ def show_app():
         )
         st.session_state.selected_model = engine_name
 
-        st.markdown('<div class="system-spacer"></div>', unsafe_allow_html=True)
-        st.markdown('<div class="sys-context-spacer"></div>', unsafe_allow_html=True)
-        st.markdown("<br>", unsafe_allow_html=True)
         st.markdown('<p class="sb-sub">📂 Target System Context</p>', unsafe_allow_html=True)
+        # Dynamic key so New Analysis can reset the sidebar uploader too
+        sys_up_key = f"sidebar_sys_uploader_{st.session_state.sys_uploader_key_n}"
         sidebar_sys = st.file_uploader(
-            "SysContext", type="pdf", key="sidebar_sys_uploader", label_visibility="collapsed"
+            "SysContext", type="pdf", key=sys_up_key, label_visibility="collapsed"
         )
         if sidebar_sys is not None:
             raw = sidebar_sys.getvalue()
@@ -2611,7 +3073,6 @@ def show_app():
             st.session_state["sys_context_bytes"] = None
             st.session_state["sys_context_name"]  = None
 
-        # Show filename in white when a guide is loaded
         ctx_name = st.session_state.get("sys_context_name")
         if ctx_name:
             st.markdown(
@@ -2632,7 +3093,6 @@ def show_app():
                 )
             st.rerun()
 
-        # Admin-only panels
         if role == "Admin":
             with st.expander("🗄️ DB Status", expanded=False):
                 st.markdown(f'<p class="sidebar-stats">📁 {DB_PATH}</p>', unsafe_allow_html=True)
@@ -2666,6 +3126,32 @@ def show_app():
                             st.success(f"User '{new_u_clean}' created with role: {new_r}.")
                     else:
                         st.warning("Username and password are required.")
+
+    # ── Sticky top-right "End Session" button (fixed, always visible on scroll) ──
+    # Pattern: a hidden Streamlit button triggers the logout logic;
+    # a JS overlay button positioned fixed top-right clicks it programmatically.
+    if st.button("⏹ End Session", key="terminate_hidden_trigger"):
+        log_audit(user, "LOGOUT", "SESSION", reason="Fixed top-right terminate button")
+        for k in ["authenticated", "user_name", "user_role", "last_activity",
+                  "sop_file_bytes", "sop_file_name"]:
+            st.session_state[k] = False if k == "authenticated" else (
+                None if k in ["sop_file_bytes", "sop_file_name", "last_activity"] else ""
+            )
+        st.rerun()
+
+    _st_components.html("""
+    <div id="sticky-terminate-overlay">
+      <button onclick="(function(){
+        var btns = window.parent.document.querySelectorAll('button');
+        for(var i=0;i<btns.length;i++){
+          if(btns[i].innerText.indexOf('\u23f9 End Session')>=0){btns[i].click();return;}
+        }
+      })()">&#9209; End Session</button>
+    </div>
+    """, height=0)
+
+    # IP capture on every authenticated load
+    _capture_client_ip()
 
     # ── Main area ──
     st.title("Auto-Generate Validation Package")
@@ -2940,7 +3426,14 @@ def show_app():
                     "Audit_Log":      audit_df,
                 }
 
-            xlsx_bytes = build_styled_excel(dataframes)
+            xlsx_bytes = build_styled_excel(
+                dataframes,
+                user=user,
+                file_name=file_name,
+                model_name=st.session_state.selected_model,
+                sys_context_name=st.session_state.get("sys_context_name") or "",
+                dashboard_df=dashboard_df,
+            )
             log_audit(user, "WORKBOOK_EXPORTED", "VALIDATION_PACKAGE",
                       new_value=f"Validation_Package_{datetime.date.today()}.xlsx",
                       reason=f"doc_ids={doc_ids}")
@@ -3032,14 +3525,17 @@ def show_app():
         with clear_col:
             if st.button("🔄 New Analysis", key="clear_results_btn", use_container_width=True,
                          help="Clear results and upload a new URS document"):
-                # Increment key counter to force a fresh file-uploader widget instance
-                st.session_state["uploader_key_n"] = st.session_state.get("uploader_key_n", 0) + 1
-                st.session_state.sop_file_bytes = None
-                st.session_state.sop_file_name  = None
+                # Increment both key counters to force fresh widget instances
+                st.session_state["uploader_key_n"]     = st.session_state.get("uploader_key_n", 0) + 1
+                st.session_state["sys_uploader_key_n"] = st.session_state.get("sys_uploader_key_n", 0) + 1
+                st.session_state.sop_file_bytes  = None
+                st.session_state.sop_file_name   = None
+                st.session_state["sys_context_bytes"] = None
+                st.session_state["sys_context_name"]  = None
                 st.session_state.pop("last_result",        None)
                 st.session_state.pop("doc_validation_msg", None)
                 log_audit(user, "NEW_ANALYSIS_STARTED", "SESSION",
-                          reason="User cleared previous results to start a new analysis")
+                          reason="User cleared previous results and sidebar guide to start a new analysis")
                 st.rerun()
 
 
