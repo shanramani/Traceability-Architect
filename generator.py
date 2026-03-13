@@ -3375,11 +3375,13 @@ def show_login():
         st.markdown("<br><br>", unsafe_allow_html=True)
         st.markdown(
             "<p style='text-align:center; font-style:italic; font-size:0.78rem; color:#94a3b8;'>"
+          # ── MANUAL EDIT v29-custom — DO NOT OVERWRITE ──────────────
             "LLM-Powered GxP Validation</p>"
             "<p style='text-align:center; font-size:0.72rem; color:#b0bec5; margin-top:-6px;'>"
             "AI-driven validation accelerator that generates FRS, OQ tests, and Traceability matrices from URS and system documentation, while detecting validation gaps. "
             "</p>",
             unsafe_allow_html=True
+          # ── END MANUAL EDIT ────────────────────────────────────────
         )
 
 
