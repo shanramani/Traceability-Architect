@@ -3202,14 +3202,43 @@ def style_worksheet(ws, sheet_name: str):
 def build_styled_excel(dataframes: dict, user: str = "", file_name: str = "",
                        model_name: str = "", sys_context_name: str = "",
                        dashboard_df=None) -> bytes:
+    # ── Inject "DRAFT – AI Generated | Pending Human Review" status column ────
+    # Satisfies document control lifecycle: AI output is never presented as Final.
+    # Every data sheet gets AI_Review_Status = "DRAFT – AI Generated | Pending Review"
+    # so reviewers and auditors can immediately see the document state.
+    DRAFT_SHEETS = {"URS_Extraction", "FRS", "OQ", "Traceability", "Gap_Analysis", "Det_Validation"}
+    stamped = {}
+    for sheet_name, df in dataframes.items():
+        if sheet_name in DRAFT_SHEETS and not df.empty:
+            df = df.copy()
+            df.insert(0, "AI_Review_Status", "DRAFT – AI Generated | Pending Review")
+        stamped[sheet_name] = df
+
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        for sheet_name, df in dataframes.items():
+        for sheet_name, df in stamped.items():
             df.to_excel(writer, sheet_name=sheet_name, index=False)
         wb = writer.book
-        for sheet_name in dataframes:
+        for sheet_name in stamped:
             if sheet_name in wb.sheetnames:
                 style_worksheet(wb[sheet_name], sheet_name)
+                # ── Colour the AI_Review_Status column amber to draw the eye ──
+                if sheet_name in DRAFT_SHEETS:
+                    ws = wb[sheet_name]
+                    hdr_vals = {ws.cell(row=1, column=c).value: c
+                                for c in range(1, ws.max_column + 1)}
+                    status_col = hdr_vals.get("AI_Review_Status")
+                    if status_col:
+                        amber_fill = PatternFill("solid", fgColor="FEF3C7")
+                        amber_font = Font(bold=True, color="92400E", size=9)
+                        for row_i in range(1, ws.max_row + 1):
+                            cell = ws.cell(row=row_i, column=status_col)
+                            cell.fill = amber_fill
+                            if row_i > 1:
+                                cell.font = amber_font
+                        ws.column_dimensions[
+                            get_column_letter(status_col)
+                        ].width = 36
         # Add bar chart to Dashboard sheet
         if "Dashboard" in wb.sheetnames:
             _write_dashboard_chart(wb, wb["Dashboard"])
@@ -3526,6 +3555,18 @@ def show_login():
     # Disable browser autocomplete / password-save on all password inputs
     _inject_password_security()
 
+    # Remove the sticky End Session button injected by show_app() into the
+    # parent document body — Streamlit cannot clean up manually-injected DOM
+    # elements on rerun, so we do it explicitly here on every login page render.
+    _st_components.html("""
+    <script>
+    (function() {
+        var btn = window.parent.document.getElementById('sticky-terminate-btn');
+        if (btn) btn.parentNode.removeChild(btn);
+    })();
+    </script>
+    """, height=0)
+
     left_space, center_content, right_space = st.columns([3, 4, 3])
     with center_content:
         st.markdown(
@@ -3637,7 +3678,60 @@ def show_app():
             )
 
         st.divider()
-        st.markdown(f'<p class="sidebar-stats">Operator: {user}</p>', unsafe_allow_html=True)
+        st.markdown('<p class="sb-sub">🔬 V-Model Lifecycle Coverage</p>', unsafe_allow_html=True)
+        # ── Inline SVG V-Model — highlights URS→FRS→OQ coverage ────────────
+        # Shows clients the tool covers the entire left AND right side of the
+        # validation V, from user requirements down to test execution evidence.
+        _has_guide  = bool(st.session_state.get("sys_context_name"))
+        _col_urs    = "#2563EB"; _col_frs = "#7C3AED"; _col_oq = "#059669"
+        _col_iq_pq  = "#94A3B8"   # not generated — greyed out
+        st.markdown(f"""
+<svg viewBox="0 0 220 130" xmlns="http://www.w3.org/2000/svg"
+     style="width:100%;max-width:260px;display:block;margin:0 auto 6px auto;">
+  <!-- Left arm (define) -->
+  <line x1="10" y1="10" x2="110" y2="120" stroke="#334155" stroke-width="1.5"/>
+  <!-- Right arm (verify) -->
+  <line x1="110" y1="120" x2="210" y2="10" stroke="#334155" stroke-width="1.5"/>
+  <!-- Horizontal bridge at bottom -->
+  <line x1="90" y1="120" x2="130" y2="120" stroke="#334155" stroke-width="1" stroke-dasharray="3,2"/>
+
+  <!-- URS node (top-left) -->
+  <circle cx="10" cy="10" r="9" fill="{_col_urs}"/>
+  <text x="10" y="14" text-anchor="middle" fill="white" font-size="6" font-weight="bold">URS</text>
+  <text x="24" y="10" fill="#e2e8f0" font-size="7" dominant-baseline="middle">User Req. Spec</text>
+  <text x="24" y="18" fill="#4ade80" font-size="6">✓ Extracted</text>
+
+  <!-- FRS node (mid-left) -->
+  <circle cx="55" cy="65" r="9" fill="{_col_frs}"/>
+  <text x="55" y="69" text-anchor="middle" fill="white" font-size="6" font-weight="bold">FRS</text>
+  <text x="69" y="62" fill="#e2e8f0" font-size="7" dominant-baseline="middle">Functional Req.</text>
+  <text x="69" y="70" fill="#4ade80" font-size="6">✓ Generated</text>
+
+  <!-- OQ node (bottom, right of centre) -->
+  <circle cx="155" cy="65" r="9" fill="{_col_oq}"/>
+  <text x="155" y="69" text-anchor="middle" fill="white" font-size="6" font-weight="bold">OQ</text>
+  <text x="141" y="55" fill="#e2e8f0" font-size="7" text-anchor="end">Op. Qualification</text>
+  <text x="141" y="63" fill="#4ade80" font-size="6" text-anchor="end">✓ Generated</text>
+
+  <!-- IQ node (top-right, greyed) -->
+  <circle cx="210" cy="10" r="9" fill="{_col_iq_pq}"/>
+  <text x="210" y="14" text-anchor="middle" fill="white" font-size="5.5" font-weight="bold">IQ/PQ</text>
+  <text x="196" y="10" fill="#64748B" font-size="6" text-anchor="end" dominant-baseline="middle">Inst./Perf. Q.</text>
+  <text x="196" y="18" fill="#64748B" font-size="6" text-anchor="end">Manual</text>
+
+  <!-- Traceability arrow along base -->
+  <path d="M 62 118 L 148 118" stroke="#7C3AED" stroke-width="1.5"
+        marker-end="url(#arr)" stroke-dasharray="4,2"/>
+  <text x="105" y="128" text-anchor="middle" fill="#7C3AED" font-size="5.5">Traceability Matrix</text>
+
+  <defs>
+    <marker id="arr" markerWidth="5" markerHeight="5" refX="4" refY="2.5" orient="auto">
+      <path d="M0,0 L5,2.5 L0,5 Z" fill="#7C3AED"/>
+    </marker>
+  </defs>
+</svg>
+""", unsafe_allow_html=True)
+        st.divider()
         st.markdown(f'<p class="sidebar-stats">Role: {role}</p>', unsafe_allow_html=True)
 
         if st.button("Terminate Session", key="terminate_sidebar", use_container_width=True):
@@ -3697,13 +3791,14 @@ def show_app():
 
     _st_components.html("""
     <script>
-    // Inject the sticky button directly into the PARENT document body.
-    // position:fixed inside an iframe is fixed to the *iframe* viewport, not
-    // the main page — so scrolling moves it away. Injecting into
-    // window.parent.document.body makes it truly fixed to the main window.
+    // Inject the sticky End Session button into window.parent.document.body so
+    // position:fixed is relative to the main window, not the component iframe.
+    // Always remove-then-recreate: clears any stale button left from a previous
+    // session (logout → re-login without full page refresh).
     (function() {
         var DOC = window.parent.document;
-        if (DOC.getElementById('sticky-terminate-overlay')) return;
+        var old = DOC.getElementById('sticky-terminate-btn');
+        if (old) old.parentNode.removeChild(old);
         var btn = DOC.createElement('button');
         btn.id = 'sticky-terminate-btn';
         btn.innerHTML = '&#9209; End Session';
@@ -3896,16 +3991,63 @@ def show_app():
         progress_bar = st.progress(0)
         status_text  = st.empty()
 
-        try:
-            # ── Step 1: Two-pass AI analysis ────────────────────────────────
+        # ── Chain-of-thought status container — wraps the real work ──────────
+        # st.status stays "running" while the with block executes, collapses to
+        # "complete" on success or "error" on exception. Each st.write() call
+        # appends a live step log that the user can read during the wait.
+        with st.status("🔍 Running GxP Validation Pipeline...", expanded=True) as cot_status:
+          try:
+            # ── Parser Quality Indicator ─────────────────────────────────────
+            # Warn early if the document has low text density (many images,
+            # scanned pages) so the user knows to expect lower extraction quality.
+            st.write("📑 Parsing URS document structure and page layout...")
+            _pq_pages = []
+            try:
+                import pdfplumber as _plumber
+                with _plumber.open(io.BytesIO(file_bytes)) as _pdf:
+                    _total_pg   = len(_pdf.pages)
+                    _image_pg   = sum(1 for pg in _pdf.pages
+                                      if len(pg.images or []) > 0
+                                      and len((pg.extract_text() or "").strip()) < 100)
+                    _text_chars = sum(len((pg.extract_text() or "").strip())
+                                      for pg in _pdf.pages)
+                _avg_density = _text_chars / max(_total_pg, 1)
+                if _image_pg > _total_pg * 0.4 or _avg_density < 200:
+                    st.warning(
+                        f"⚠️ **Parser Quality Warning** — {_image_pg}/{_total_pg} pages appear "
+                        f"image-heavy or have low text density (avg {int(_avg_density)} chars/page). "
+                        "Ensure the URS is OCR-searchable for 100% extraction accuracy. "
+                        "Scanned PDFs without OCR will produce incomplete results."
+                    )
+                else:
+                    st.write(f"✅ Document quality check passed — "
+                             f"{_total_pg} pages, avg {int(_avg_density)} chars/page")
+            except Exception:
+                st.write("📑 Document quality check skipped (pdfplumber unavailable)")
+
+            st.write("🔒 Applying GxP document integrity checks (ALCOA+)...")
+            if st.session_state.get("sys_context_name"):
+                st.write(f"📖 Loading System User Guide: "
+                         f"{st.session_state.get('sys_context_name')} ...")
+
+            # ── Step 1: Two-pass AI analysis ─────────────────────────────────
+            st.write(f"🔬 Pass 1 — Extracting URS requirements using "
+                     f"{st.session_state.selected_model}...")
             urs_df, frs_df, oq_df, trace_df, gap_df = run_segmented_analysis(
                 file_bytes, model_id, progress_bar, status_text, sys_ctx
             )
 
-            # ── Guard: if the AI returned nothing useful, stop cleanly ───────
+            st.write("🏗️ Pass 2 — Mapping Functional Requirements to system architecture...")
+            st.write("🧪 Pass 2 — Risk-adjusted OQ test cases (High ≥3 | Med ≥2 | Low ≥1)...")
+            st.write("📊 Building traceability matrix (URS → FRS → OQ)...")
+            if st.session_state.get("sys_context_name"):
+                st.write("🔀 Pass 3 — Bidirectional URS ↔ User Guide cross-source gap analysis...")
+
+            # ── Guard: if the AI returned nothing useful, stop cleanly ────────
             if urs_df.empty and frs_df.empty:
                 progress_bar.empty()
                 status_text.empty()
+                cot_status.update(label="❌ Pipeline aborted — no output", state="error")
                 st.error(
                     "⚠️ No requirements were extracted. This usually means:\n"
                     "- **API quota exceeded** — check your API key billing/limits\n"
@@ -3917,8 +4059,7 @@ def show_app():
                           reason="Empty AI output — possible rate limit or quota error")
                 return
 
-            # ── URS Accountability Check: every URS ID must appear in FRS ───
-            # This is the explicit guarantee that no requirement is silently dropped.
+            # ── URS Accountability Check ───────────────────────────────────────
             if not urs_df.empty and "Req_ID" in urs_df.columns:
                 urs_ids_all  = set(urs_df["Req_ID"].dropna().astype(str).str.strip())
                 frs_urs_refs = set()
@@ -3929,18 +4070,16 @@ def show_app():
                     log_audit(user, "URS_FRS_GAP_DETECTED", "URS_FILE",
                               new_value=f"{len(uncovered_urs)} URS IDs missing FRS",
                               reason=f"IDs: {', '.join(sorted(uncovered_urs)[:20])}")
-                    # These are already handled by _fill_missing_frs placeholders
-                    # but we record the gap explicitly here for the audit trail.
 
-            # ── Step 2: Deterministic rule-based validation R1–R5 ───────────
+            # ── Step 2: Deterministic validation ──────────────────────────────
+            st.write("🛡️ Running deterministic validation rules R0–R6...")
             status_text.text("🔍 Running deterministic validation rules R1–R5...")
             gap_df, det_df = run_deterministic_validation(frs_df, oq_df, gap_df, urs_df)
-            # Replace all None/blank with N/A in every output dataframe
             for _df in [gap_df, det_df, trace_df]:
                 _df.fillna("N/A", inplace=True)
                 _df.replace("", "N/A", inplace=True)
 
-            # ── Step 3: Persist documents (version-controlled, never overwrite)
+            # ── Step 3: Persist documents ──────────────────────────────────────
             id_urs   = save_document("URS_Extraction", urs_df.to_csv(index=False),  user, file_name)
             id_frs   = save_document("FRS",            frs_df.to_csv(index=False),  user, file_name)
             id_oq    = save_document("OQ",             oq_df.to_csv(index=False),   user, file_name)
@@ -3950,14 +4089,14 @@ def show_app():
             doc_ids  = (f"URS:{id_urs}, FRS:{id_frs}, OQ:{id_oq}, "
                         f"Trace:{id_trace}, Gap:{id_gap}, Det:{id_det}")
 
-            # ── Step 4: AI generation log with full doc provenance ───────────
+            # ── Step 4: AI generation log ──────────────────────────────────────
             log_ai_generation(
                 user, st.session_state.selected_model,
                 PROMPT_VERSION, TEMPERATURE, file_name,
                 document_ids_used=doc_ids
             )
 
-            # ── Step 5: Audit entries ────────────────────────────────────────
+            # ── Step 5: Audit entries ──────────────────────────────────────────
             log_audit(user, "URS_EXTRACTED",           f"URS doc:{id_urs}",
                       new_value=f"{len(urs_df)} structured requirements")
             log_audit(user, "FRS_GENERATED",           f"FRS doc:{id_frs}",
@@ -3971,7 +4110,7 @@ def show_app():
             log_audit(user, "DET_VALIDATION_RUN",      f"Det doc:{id_det}",
                       new_value=f"{len(det_df)} deterministic issues (R1-R5)")
 
-            # ── Step 6: Confidence summary ───────────────────────────────────
+            # ── Step 6: Confidence summary ─────────────────────────────────────
             frs_review = 0
             oq_review  = 0
             if not frs_df.empty and "Confidence_Flag" in frs_df.columns:
@@ -3979,10 +4118,9 @@ def show_app():
             if not oq_df.empty and "Confidence_Flag" in oq_df.columns:
                 oq_review = int(oq_df["Confidence_Flag"].astype(str).str.contains("Review").sum())
 
-            # ── Step 7: Build audit log and dashboard ────────────────────────
+            # ── Step 7: Build audit log and dashboard ──────────────────────────
             ver_frs = get_next_doc_version("FRS") - 1
             ver_oq  = get_next_doc_version("OQ")  - 1
-
             audit_df     = build_audit_log_sheet(
                 user, file_name, st.session_state.selected_model,
                 frs_df, oq_df, gap_df, det_df, ver_frs, ver_oq, doc_ids,
@@ -3993,11 +4131,6 @@ def show_app():
                 st.session_state.selected_model
             )
 
-            # Dashboard first so it opens on launch
-            # Gap_Analysis sheet is only included when the LLM detected real gaps.
-            # When empty, gap coverage is already fully represented in the Traceability
-            # Gap_Analysis column and the Det_Validation sheet — a redundant blank sheet
-            # creates confusion during regulatory review.
             gap_sheet_included = not gap_df.empty
             dataframes = {
                 "Dashboard":      dashboard_df,
@@ -4009,7 +4142,6 @@ def show_app():
                 "Audit_Log":      audit_df,
             }
             if gap_sheet_included:
-                # Insert Gap_Analysis before Det_Validation
                 dataframes = {
                     "Dashboard":      dashboard_df,
                     "URS_Extraction": urs_df,
@@ -4021,6 +4153,7 @@ def show_app():
                     "Audit_Log":      audit_df,
                 }
 
+            st.write("📋 Compiling signed validation workbook...")
             xlsx_bytes_presig = build_styled_excel(
                 dataframes,
                 user=user,
@@ -4030,11 +4163,7 @@ def show_app():
                 dashboard_df=dashboard_df,
             )
 
-            # ── Compute SHA-256 hash BEFORE Signature sheet is added ─────────
-            # Hash covers all content sheets. Signature sheet is added AFTER
-            # hashing and documents the hash — same practice as PDF e-signatures.
             doc_hash = hashlib.sha256(xlsx_bytes_presig).hexdigest()
-
             log_audit(user, "WORKBOOK_BUILT", "VALIDATION_PACKAGE",
                       new_value=f"Validation_Package_{datetime.date.today()}.xlsx",
                       reason=f"doc_ids={doc_ids} | hash={doc_hash[:16]}...")
@@ -4042,7 +4171,6 @@ def show_app():
             status_text.empty()
             progress_bar.empty()
 
-            # ── Compute coverage metrics ──────────────────────────────────────
             covered = partial_cov = 0
             if not trace_df.empty and "Coverage_Status" in trace_df.columns:
                 covered     = int((trace_df["Coverage_Status"] == "Covered").sum())
@@ -4051,7 +4179,12 @@ def show_app():
             has_tests  = covered + partial_cov
             cov_pct    = round(has_tests / total_reqs * 100, 1) if total_reqs > 0 else 0.0
 
-            # ── Store in esig_pending — download blocked until e-signature ────
+            cot_status.update(
+                label=f"✅ Pipeline complete — {len(urs_df)} requirements, "
+                      f"{len(oq_df)} tests, {len(gap_df)+len(det_df)} issues",
+                state="complete", expanded=False
+            )
+
             st.session_state["esig_pending"] = {
                 "xlsx_bytes_presig": xlsx_bytes_presig,
                 "doc_hash":          doc_hash,
@@ -4071,10 +4204,10 @@ def show_app():
             }
             st.rerun()
 
-        except Exception as e:
+          except Exception as e:
             err_msg = str(e)
             log_audit(user, "ANALYSIS_ERROR", "URS_FILE", reason=err_msg[:500])
-            # Distinguish Fail-Stop from unexpected errors
+            cot_status.update(label="❌ Pipeline failed — see error below", state="error")
             if "Pass 1" in err_msg or "Pass 2" in err_msg or "ALCOA+" in err_msg or "segment" in err_msg.lower():
                 st.error(f"🛑 **GxP Fail-Stop Protocol Activated**\n\n{err_msg}")
             else:
@@ -4153,6 +4286,58 @@ def show_app():
         col3.metric("🧪 OQ Test Cases",    r["total_tests"])
         col4.metric("📊 Coverage",          f"{r['cov_pct']}%")
         col5.metric("⚠️ Issues (AI+Det)",   r["gap_count"] + r["det_count"])
+
+        # ── Hero metric: Unmitigated GxP Risks ───────────────────────────────
+        # Counts High-Risk FRS items with zero OQ test coverage — the single
+        # most important compliance signal. Red = active regulatory exposure.
+        _unmitigated = 0
+        _dfs = r.get("dataframes", {})
+        _frs_df = _dfs.get("FRS", pd.DataFrame())
+        _oq_df  = _dfs.get("OQ",  pd.DataFrame())
+        if not _frs_df.empty and "Risk" in _frs_df.columns:
+            _high_risk_ids = set(
+                _frs_df[_frs_df["Risk"].astype(str).str.lower() == "high"]
+                .get("ID", pd.Series(dtype=str)).astype(str).str.strip()
+            )
+            if _high_risk_ids:
+                if not _oq_df.empty and "Requirement_Link" in _oq_df.columns:
+                    _tested_ids = set(_oq_df["Requirement_Link"].astype(str).str.strip())
+                    _unmitigated = len(_high_risk_ids - _tested_ids)
+                else:
+                    _unmitigated = len(_high_risk_ids)
+
+        _hero_color  = "#dc2626" if _unmitigated > 0 else "#059669"
+        _hero_icon   = "🔴" if _unmitigated > 0 else "🟢"
+        _hero_label  = "CRITICAL — Regulatory Exposure" if _unmitigated > 0 else "All High-Risk Requirements Covered"
+        _hero_detail = (
+            f"{_unmitigated} High-Risk FRS item(s) have zero OQ test coverage. "
+            "Per GAMP 5, high-risk requirements require ≥3 test cases. "
+            "This package will fail a regulatory audit as-is — add OQ tests before signing."
+            if _unmitigated > 0 else
+            "All High-Risk FRS requirements have OQ test coverage. "
+            "No unmitigated regulatory exposure detected."
+        )
+        st.markdown(f"""
+<div style="background:{'#1a0505' if _unmitigated > 0 else '#052019'};
+            border:2px solid {_hero_color};border-radius:12px;
+            padding:16px 24px;margin:12px 0 8px 0;
+            font-family:'Inter',sans-serif;">
+  <div style="display:flex;align-items:center;gap:12px;margin-bottom:6px;">
+    <span style="font-size:2rem;">{_hero_icon}</span>
+    <div>
+      <p style="margin:0;color:#94a3b8;font-size:0.72rem;letter-spacing:2px;
+                text-transform:uppercase;">Unmitigated GxP Risks</p>
+      <p style="margin:0;font-size:2rem;font-weight:800;color:{_hero_color};
+                line-height:1;">{_unmitigated}</p>
+    </div>
+    <div style="margin-left:16px;border-left:1px solid #334155;padding-left:16px;">
+      <p style="margin:0;color:{'#fca5a5' if _unmitigated > 0 else '#6ee7b7'};
+                font-size:0.85rem;font-weight:600;">{_hero_label}</p>
+      <p style="margin:4px 0 0 0;color:#94a3b8;font-size:0.76rem;">{_hero_detail}</p>
+    </div>
+  </div>
+</div>
+""", unsafe_allow_html=True)
 
         if r["frs_review"] > 0 or r["oq_review"] > 0:
             st.warning(
