@@ -3421,9 +3421,13 @@ def show_app():
             label_visibility="collapsed",
             key="model_selectbox"
         )
+      
+        # ── MANUAL EDIT v29-custom — DO NOT OVERWRITE ──────────────
+        st.sidebar.markdown("<br><br><br>", unsafe_allow_html=True)
         st.session_state.selected_model = engine_name
 
-        st.markdown('<p class="sb-sub">📂 Target System Context</p>', unsafe_allow_html=True)
+        st.markdown('<p class="sb-sub">📂 Target System Document like Operational SOP or User guide, manual etc.</p>', unsafe_allow_html=True)
+        # ── END MANUAL EDIT ────────────────────────────────────────
         # Dynamic key so New Analysis can reset the sidebar uploader too
         sys_up_key = f"sidebar_sys_uploader_{st.session_state.sys_uploader_key_n}"
         sidebar_sys = st.file_uploader(
