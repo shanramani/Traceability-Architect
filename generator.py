@@ -2622,6 +2622,188 @@ SHEET_COLORS = {
 }
 
 
+def build_pdf_bytes(r: dict, sig_id: int, sig_meaning: str,
+                    sig_timestamp: str, user: str, role: str) -> bytes:
+    """
+    Generate a signed PDF summary of the validation package.
+
+    Includes: KPI summary table, electronic signature block, SHA-256 hash
+    with scope statement, and regulatory disclaimer.
+
+    The document_hash embedded here is identical to the one in the Excel
+    Signature sheet — both are produced by the same signing event (sig_id).
+    """
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib import colors
+    from reportlab.lib.units import mm
+    from reportlab.platypus import (SimpleDocTemplate, Paragraph, Spacer,
+                                    Table, TableStyle, HRFlowable)
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.enums import TA_CENTER
+
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=A4,
+                            leftMargin=20*mm, rightMargin=20*mm,
+                            topMargin=18*mm, bottomMargin=18*mm)
+    styles = getSampleStyleSheet()
+
+    C_NAVY   = colors.HexColor("#0F172A")
+    C_DKBLUE = colors.HexColor("#1E3A5F")
+    C_TEAL   = colors.HexColor("#2563EB")
+    C_GREEN  = colors.HexColor("#059669")
+    C_RED    = colors.HexColor("#DC2626")
+    C_AMBER  = colors.HexColor("#D97706")
+    C_LGREY  = colors.HexColor("#F8FAFC")
+    C_MGREY  = colors.HexColor("#94A3B8")
+    C_DGREY  = colors.HexColor("#374151")
+    C_GRID   = colors.HexColor("#CBD5E1")
+
+    def _style(name, **kw):
+        return ParagraphStyle(name, parent=styles["Normal"], **kw)
+
+    h1   = _style("h1",   fontSize=16, textColor=colors.white, backColor=C_NAVY,
+                           alignment=TA_CENTER, fontName="Helvetica-Bold",
+                           spaceAfter=0, topPadding=10, bottomPadding=10)
+    h2   = _style("h2",   fontSize=9,  textColor=colors.white, backColor=C_TEAL,
+                           alignment=TA_CENTER, fontName="Helvetica-BoldOblique",
+                           spaceAfter=0, topPadding=6, bottomPadding=6)
+    sec  = _style("sec",  fontSize=9,  textColor=colors.white, backColor=C_DKBLUE,
+                           alignment=TA_CENTER, fontName="Helvetica-Bold",
+                           spaceAfter=0, spaceBefore=6, topPadding=5, bottomPadding=5)
+    body = _style("body", fontSize=8.5, textColor=C_DGREY, spaceAfter=2)
+    sm   = _style("sm",   fontSize=7,  textColor=C_MGREY,
+                           fontName="Helvetica-Oblique", spaceAfter=3)
+
+    cov_pct   = r.get("cov_pct", 0)
+    gap_total = r.get("gap_count", 0) + r.get("det_count", 0)
+    doc_hash  = r.get("doc_hash", "N/A")
+    file_name = r.get("file_name", "")
+
+    story = []
+
+    # ── Title ─────────────────────────────────────────────────────────────────
+    story.append(Paragraph("VALIDATION PACKAGE — SIGNED SUMMARY", h1))
+    story.append(Paragraph(
+        f"21 CFR Part 11 Compliant &nbsp;|&nbsp; App v{VERSION} &nbsp;|&nbsp; "
+        f"Generated {datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M')} UTC", h2))
+    story.append(Spacer(1, 5*mm))
+
+    # ── KPI Summary ───────────────────────────────────────────────────────────
+    story.append(Paragraph("VALIDATION PACKAGE SUMMARY", sec))
+    story.append(Spacer(1, 1*mm))
+    kpi_rows = [
+        ["Metric", "Value", "Status"],
+        ["Requirements extracted (URS)", str(r.get("total_urs", 0)), ""],
+        ["FRS requirements generated",   str(r.get("total_reqs", 0)), ""],
+        ["OQ test cases generated",      str(r.get("total_tests", 0)), ""],
+        ["Fully covered requirements",   str(r.get("covered", 0)), ""],
+        ["Traceability coverage",        f"{cov_pct}%",
+         "PASS" if cov_pct >= 80 else ("REVIEW" if cov_pct >= 60 else "FAIL")],
+        ["Gaps detected (AI + Det.)",    str(gap_total),
+         "PASS" if gap_total == 0 else "REVIEW"],
+    ]
+    kpi_tbl = Table(kpi_rows, colWidths=[90*mm, 30*mm, 30*mm])
+    kpi_sty = [
+        ("BACKGROUND",    (0, 0), (-1, 0), C_TEAL),
+        ("TEXTCOLOR",     (0, 0), (-1, 0), colors.white),
+        ("FONTNAME",      (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("FONTSIZE",      (0, 0), (-1,-1), 8.5),
+        ("ROWBACKGROUNDS",(0, 1), (-1,-1), [C_LGREY, colors.white]),
+        ("GRID",          (0, 0), (-1,-1), 0.3, C_GRID),
+        ("TOPPADDING",    (0, 0), (-1,-1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1,-1), 4),
+        ("LEFTPADDING",   (0, 0), (-1,-1), 6),
+    ]
+    for ri, row in enumerate(kpi_rows[1:], start=1):
+        s = row[2]
+        c = C_GREEN if s == "PASS" else (C_AMBER if s == "REVIEW" else (C_RED if s == "FAIL" else C_DGREY))
+        kpi_sty += [("TEXTCOLOR", (2, ri), (2, ri), c),
+                    ("FONTNAME",  (2, ri), (2, ri), "Helvetica-Bold")]
+    kpi_tbl.setStyle(TableStyle(kpi_sty))
+    story.append(kpi_tbl)
+    story.append(Spacer(1, 5*mm))
+
+    # ── Electronic Signature ──────────────────────────────────────────────────
+    story.append(Paragraph("ELECTRONIC SIGNATURE RECORD", sec))
+    story.append(Spacer(1, 1*mm))
+    story.append(Paragraph(
+        "21 CFR Part 11 §11.50 / §11.200 — Non-Biometric Electronic Signature", sm))
+    sig_rows = [
+        ["Field",             "Value",                      "Regulatory Reference"],
+        ["Signer Name",       user,                          "§11.50(a)(1) — printed name"],
+        ["Role",              role,                          "Role at time of signing"],
+        ["Signature ID",      f"SIG-{sig_id:06d}",          "Unique signature identifier"],
+        ["Date / Time (UTC)", sig_timestamp[:19],            "§11.50(a)(1) — date and time"],
+        ["Action Signed",     "Generated Validation Package","Specific act being signed"],
+        ["Meaning",           sig_meaning,                   "§11.50(a)(1) — meaning"],
+        ["System Version",    VERSION,                       "App version at signing"],
+        ["Prompt Version",    PROMPT_VERSION,                "AI prompt version"],
+        ["Source Document",   file_name,                     "URS file analysed"],
+    ]
+    sig_tbl = Table(sig_rows, colWidths=[40*mm, 68*mm, 42*mm])
+    sig_sty = [
+        ("BACKGROUND",    (0, 0), (-1, 0), C_DKBLUE),
+        ("TEXTCOLOR",     (0, 0), (-1, 0), colors.white),
+        ("FONTNAME",      (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("FONTSIZE",      (0, 0), (-1,-1), 8),
+        ("FONTNAME",      (0, 1), (0, -1), "Helvetica-Bold"),
+        ("ROWBACKGROUNDS",(0, 1), (-1,-1), [C_LGREY, colors.white]),
+        ("GRID",          (0, 0), (-1,-1), 0.3, C_GRID),
+        ("TOPPADDING",    (0, 0), (-1,-1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1,-1), 4),
+        ("LEFTPADDING",   (0, 0), (-1,-1), 6),
+        ("TEXTCOLOR",     (2, 1), (2, -1), C_MGREY),
+        ("FONTNAME",      (2, 1), (2, -1), "Helvetica-Oblique"),
+    ]
+    sig_tbl.setStyle(TableStyle(sig_sty))
+    story.append(sig_tbl)
+    story.append(Spacer(1, 5*mm))
+
+    # ── Document Hash ─────────────────────────────────────────────────────────
+    story.append(Paragraph("DOCUMENT INTEGRITY — SHA-256 HASH", sec))
+    story.append(Spacer(1, 1*mm))
+    hash_rows = [
+        ["Hash Algorithm", "SHA-256 (hashlib.sha256)"],
+        ["Document Hash",  doc_hash],
+        ["Hash Scope",
+         "Covers all Excel workbook sheets EXCEPT the Signature sheet "
+         "(standard practice — same as PDF digital signatures). "
+         "To verify: re-export the workbook without the Signature sheet "
+         "and recompute SHA-256."],
+    ]
+    hash_tbl = Table(hash_rows, colWidths=[35*mm, 115*mm])
+    hash_sty = [
+        ("FONTNAME",      (0, 0), (0, -1), "Helvetica-Bold"),
+        ("FONTSIZE",      (0, 0), (-1,-1), 8),
+        ("ROWBACKGROUNDS",(0, 0), (-1,-1), [C_LGREY, colors.HexColor("#D1FAE5"), C_LGREY]),
+        ("GRID",          (0, 0), (-1,-1), 0.3, C_GRID),
+        ("TOPPADDING",    (0, 0), (-1,-1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1,-1), 4),
+        ("LEFTPADDING",   (0, 0), (-1,-1), 6),
+        ("FONTNAME",      (1, 1), (1,  1), "Courier"),
+        ("FONTSIZE",      (1, 1), (1,  1), 7),
+        ("TEXTCOLOR",     (1, 1), (1,  1), C_DKBLUE),
+        ("VALIGN",        (0, 0), (-1,-1), "TOP"),
+        ("FONTSIZE",      (1, 2), (1,  2), 7.5),
+    ]
+    hash_tbl.setStyle(TableStyle(hash_sty))
+    story.append(hash_tbl)
+    story.append(Spacer(1, 4*mm))
+
+    # ── Regulatory disclaimer ─────────────────────────────────────────────────
+    story.append(HRFlowable(width="100%", thickness=0.5, color=C_GRID))
+    story.append(Spacer(1, 2*mm))
+    story.append(Paragraph(
+        "<b>REGULATORY STATEMENT:</b> This electronic signature was applied in accordance with "
+        "21 CFR Part 11. The signer's identity was verified at the time of signing by re-entry "
+        "of their system password (two-component non-biometric e-signature per §11.200(b)(1)). "
+        "This record is stored in an append-only signature log and cannot be altered or deleted.",
+        _style("disc", fontSize=7, textColor=C_DGREY, fontName="Helvetica-Oblique")))
+
+    doc.build(story)
+    return buf.getvalue()
+
+
 def build_signature_sheet(wb,
                           user: str,
                           role: str,
@@ -3073,6 +3255,8 @@ _defaults = {
     "sys_uploader_key_n": 0,       # incremented to reset the sidebar sys-context uploader
     "user_ip":            "",      # client IP stored as separate audit column (v29)
     "esig_pending":       None,    # holds completed analysis awaiting e-signature
+    "show_esig_form":     False,   # True when user clicked a download button → show inline form
+    "esig_target":        None,    # "xlsx" or "pdf" — which format triggered the e-sig form
 }
 for _k, _v in _defaults.items():
     if _k not in st.session_state:
@@ -3429,7 +3613,7 @@ def show_app():
         st.sidebar.markdown("<br><br>", unsafe_allow_html=True)
         st.session_state.selected_model = engine_name
 
-        st.markdown('<p class="sb-sub">📂 Target System Document like Operational SOP or User guide, manual etc.</p>', unsafe_allow_html=True)
+        st.markdown('<p class="sb-sub">📂 Upload system document such as operational SOP or user guide, manual etc.</p>', unsafe_allow_html=True)
         # ── END MANUAL EDIT ────────────────────────────────────────
         # Dynamic key so New Analysis can reset the sidebar uploader too
         sys_up_key = f"sidebar_sys_uploader_{st.session_state.sys_uploader_key_n}"
@@ -3512,14 +3696,47 @@ def show_app():
         st.rerun()
 
     _st_components.html("""
-    <div id="sticky-terminate-overlay">
-      <button onclick="(function(){
-        var btns = window.parent.document.querySelectorAll('button');
-        for(var i=0;i<btns.length;i++){
-          if(btns[i].innerText.indexOf('\u23f9 End Session')>=0){btns[i].click();return;}
-        }
-      })()">&#9209; End Session</button>
-    </div>
+    <script>
+    // Inject the sticky button directly into the PARENT document body.
+    // position:fixed inside an iframe is fixed to the *iframe* viewport, not
+    // the main page — so scrolling moves it away. Injecting into
+    // window.parent.document.body makes it truly fixed to the main window.
+    (function() {
+        var DOC = window.parent.document;
+        if (DOC.getElementById('sticky-terminate-overlay')) return;
+        var btn = DOC.createElement('button');
+        btn.id = 'sticky-terminate-btn';
+        btn.innerHTML = '&#9209; End Session';
+        Object.assign(btn.style, {
+            position:     'fixed',
+            top:          '10px',
+            right:        '20px',
+            zIndex:       '2147483647',
+            background:   '#dc2626',
+            color:        'white',
+            border:       'none',
+            borderRadius: '8px',
+            padding:      '6px 16px',
+            fontSize:     '0.82rem',
+            fontWeight:   '600',
+            cursor:       'pointer',
+            boxShadow:    '0 2px 8px rgba(220,38,38,0.4)',
+            fontFamily:   'inherit',
+            pointerEvents:'all'
+        });
+        btn.onmouseover = function(){ this.style.background = '#b91c1c'; };
+        btn.onmouseout  = function(){ this.style.background = '#dc2626'; };
+        btn.onclick = function() {
+            var btns = DOC.querySelectorAll('button');
+            for (var i = 0; i < btns.length; i++) {
+                if (btns[i].innerText.trim().indexOf('\u23f9 End Session') >= 0) {
+                    btns[i].click(); return;
+                }
+            }
+        };
+        DOC.body.appendChild(btn);
+    })();
+    </script>
     """, height=0)
 
     # IP capture on every authenticated load
@@ -3865,146 +4082,24 @@ def show_app():
                 import traceback
                 st.error(traceback.format_exc())
 
-    # ══════════════════════════════════════════════════════════════════════════
-    # E-SIGNATURE GATE — shown when analysis complete but not yet signed
-    # ══════════════════════════════════════════════════════════════════════════
-    if st.session_state.get("esig_pending") and "last_result" not in st.session_state:
-        p = st.session_state["esig_pending"]
+    # ── Determine what to display: signed result or pending preview ──────────
+    # Preview is shown from either state so the user sees tables immediately.
+    # The e-sig form only appears inline when they click a download button.
+    _display = st.session_state.get("last_result") or st.session_state.get("esig_pending")
 
-        st.markdown("""
-<div class="esig-container">
-  <p class="esig-title">🔏 Electronic Signature Required</p>
-  <p class="esig-subtitle">
-    21 CFR Part 11 §11.200 — Two-component non-biometric signature.<br>
-    Re-enter your password to sign and release this validation package.
-  </p>
-</div>
-""", unsafe_allow_html=True)
+    if _display:
+        r            = _display
+        is_signed    = "last_result" in st.session_state
+        pending      = st.session_state.get("esig_pending")
 
-        with st.form("esig_form", clear_on_submit=False):
-            st.markdown(
-                f'<p class="esig-field-label">Signer</p>'
-                f'<div class="esig-user-display">👤 &nbsp; {user} &nbsp;&nbsp;|&nbsp;&nbsp; '
-                f'{role}</div>',
-                unsafe_allow_html=True
-            )
-            st.markdown('<p class="esig-field-label">Password (re-enter to verify identity)</p>',
-                        unsafe_allow_html=True)
-            esig_password = st.text_input(
-                "Password", type="password",
-                placeholder="Enter your login password",
-                label_visibility="collapsed",
-                key="esig_password_input"
-            )
-            st.markdown('<p class="esig-field-label">Meaning of Signature</p>',
-                        unsafe_allow_html=True)
-            esig_meaning = st.selectbox(
-                "Meaning", ESIG_MEANINGS, index=0,
-                label_visibility="collapsed",
-                key="esig_meaning_select"
-            )
-            st.markdown(
-                '<p class="esig-warning">⚠️ By submitting this signature you confirm that '
-                'the information in this validation package is accurate and complete. '
-                'This action is recorded and cannot be undone.</p>',
-                unsafe_allow_html=True
-            )
-            col_sign, col_cancel = st.columns([2, 1])
-            with col_sign:
-                submitted = st.form_submit_button(
-                    "✍️ Sign & Release Package",
-                    use_container_width=True, type="primary"
-                )
-            with col_cancel:
-                cancelled = st.form_submit_button("✖ Cancel", use_container_width=True)
-
-        if cancelled:
-            st.session_state.pop("esig_pending", None)
-            log_audit(user, "ESIG_CANCELLED", "VALIDATION_PACKAGE",
-                      reason="User cancelled e-signature — package not released")
-            st.info("Signature cancelled. The validation package was not released. "
-                    "Re-run the analysis to try again.")
-            st.rerun()
-
-        if submitted:
-            if not esig_password:
-                st.error("⛔ Password is required to sign.")
-            else:
-                conn_v  = db_connect()
-                stored  = conn_v.execute(
-                    "SELECT password_hash FROM users WHERE username=?", (user,)
-                ).fetchone()
-                conn_v.close()
-
-                if not stored or not verify_password(esig_password, stored[0]):
-                    log_audit(user, "ESIG_IDENTITY_FAILED", "VALIDATION_PACKAGE",
-                              reason="E-signature identity verification failed — wrong password")
-                    st.error(
-                        "⛔ Identity verification failed. The password you entered does not "
-                        "match your account. This attempt has been recorded in the audit trail."
-                    )
-                else:
-                    sig_ts = datetime.datetime.utcnow().isoformat()
-                    sig_id = log_esignature(
-                        user          = user,
-                        role          = role,
-                        action        = "GENERATED_VALIDATION_PACKAGE",
-                        meaning       = esig_meaning,
-                        document_hash = p["doc_hash"],
-                        document_name = p["file_name"],
-                        model_used    = p["model_name"],
-                        prompt_ver    = PROMPT_VERSION,
-                        ip_address    = st.session_state.get("user_ip", ""),
-                        doc_ids       = p["doc_ids"],
-                    )
-                    log_audit(user, "ESIG_APPLIED", "VALIDATION_PACKAGE",
-                              new_value=f"SIG-{sig_id:06d}",
-                              reason=(f"Meaning: {esig_meaning} | "
-                                      f"Hash: {p['doc_hash'][:16]}... | "
-                                      f"Model: {p['model_name']}"))
-
-                    # Add Signature sheet to in-memory workbook
-                    import openpyxl
-                    wb_final = openpyxl.load_workbook(
-                        filename=io.BytesIO(p["xlsx_bytes_presig"])
-                    )
-                    build_signature_sheet(
-                        wb            = wb_final,
-                        user          = user,
-                        role          = role,
-                        meaning       = esig_meaning,
-                        document_hash = p["doc_hash"],
-                        document_name = p["file_name"],
-                        model_used    = p["model_name"],
-                        signature_id  = sig_id,
-                        timestamp     = sig_ts,
-                    )
-                    final_buf = io.BytesIO()
-                    wb_final.save(final_buf)
-                    xlsx_bytes_final = final_buf.getvalue()
-
-                    st.session_state["last_result"] = {
-                        **p,
-                        "xlsx_bytes":    xlsx_bytes_final,
-                        "sig_id":        sig_id,
-                        "sig_meaning":   esig_meaning,
-                        "sig_timestamp": sig_ts,
-                    }
-                    st.session_state.pop("esig_pending", None)
-                    st.rerun()
-
-    # ── Render results from session state (persists across download reruns) ──
-    if "last_result" in st.session_state:
-        r = st.session_state["last_result"]
-
-        # ── Signature confirmation banner ─────────────────────────────────────
-        if r.get("sig_id"):
+        # ── Signature confirmation banner (only after signing) ────────────────
+        if is_signed and r.get("sig_id"):
             st.success(
                 f"✅ Electronically signed — SIG-{r['sig_id']:06d} | "
                 f"{r['sig_meaning']} | {r['sig_timestamp'][:19]} UTC"
             )
 
-        # ── Validation Package Summary ────────────────────────────────────────
+        # ── Validation Package Summary ─────────────────────────────────────────
         fully_covered = r.get("covered", 0)
         total_reqs    = r["total_reqs"]
         cov_pct       = r["cov_pct"]
@@ -4083,30 +4178,232 @@ def show_app():
                 st.markdown(f"**{sheet_name}** — {len(df)} rows")
                 st.dataframe(df, use_container_width=True)
 
-        dl_col, clear_col = st.columns([3, 1])
-        with dl_col:
-            st.download_button(
-                label="📥 Download Signed Validation Workbook (.xlsx)",
-                data=r["xlsx_bytes"],
-                file_name=f"Validation_Package_{r['file_name'].replace('.pdf','')}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                key="download_xlsx_btn",
-            )
-        with clear_col:
-            if st.button("🔄 New Analysis", key="clear_results_btn", use_container_width=True,
-                         help="Clear results and upload a new URS document"):
-                st.session_state["uploader_key_n"]     = st.session_state.get("uploader_key_n", 0) + 1
-                st.session_state["sys_uploader_key_n"] = st.session_state.get("sys_uploader_key_n", 0) + 1
-                st.session_state.sop_file_bytes  = None
-                st.session_state.sop_file_name   = None
-                st.session_state["sys_context_bytes"] = None
-                st.session_state["sys_context_name"]  = None
-                st.session_state.pop("last_result",        None)
-                st.session_state.pop("esig_pending",       None)
-                st.session_state.pop("doc_validation_msg", None)
-                log_audit(user, "NEW_ANALYSIS_STARTED", "SESSION",
-                          reason="User cleared previous results and sidebar guide to start a new analysis")
-                st.rerun()
+        # ── Download / Sign buttons ────────────────────────────────────────────
+        st.markdown("---")
+
+        if is_signed:
+            # ── Already signed: show real download buttons for both formats ──
+            dl1, dl2, clear_col = st.columns([5, 5, 2])
+            with dl1:
+                st.download_button(
+                    label="📥 Download Signed Workbook (.xlsx)",
+                    data=r["xlsx_bytes"],
+                    file_name=f"Validation_Package_{r['file_name'].replace('.pdf','')}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    key="download_xlsx_btn",
+                    use_container_width=True,
+                )
+            with dl2:
+                st.download_button(
+                    label="📄 Download Signed Summary (.pdf)",
+                    data=r["pdf_bytes"],
+                    file_name=f"Validation_Summary_{r['file_name'].replace('.pdf','')}.pdf",
+                    mime="application/pdf",
+                    key="download_pdf_btn",
+                    use_container_width=True,
+                )
+            with clear_col:
+                if st.button("🔄 New Analysis", key="clear_results_btn",
+                             use_container_width=True,
+                             help="Clear results and upload a new URS document"):
+                    st.session_state["uploader_key_n"]     = st.session_state.get("uploader_key_n", 0) + 1
+                    st.session_state["sys_uploader_key_n"] = st.session_state.get("sys_uploader_key_n", 0) + 1
+                    st.session_state.sop_file_bytes  = None
+                    st.session_state.sop_file_name   = None
+                    st.session_state["sys_context_bytes"] = None
+                    st.session_state["sys_context_name"]  = None
+                    st.session_state.pop("last_result",        None)
+                    st.session_state.pop("esig_pending",       None)
+                    st.session_state.pop("show_esig_form",     None)
+                    st.session_state.pop("esig_target",        None)
+                    st.session_state.pop("doc_validation_msg", None)
+                    log_audit(user, "NEW_ANALYSIS_STARTED", "SESSION",
+                              reason="User cleared previous results and sidebar guide to start a new analysis")
+                    st.rerun()
+
+        else:
+            # ── Not yet signed: show "Sign & Download" trigger buttons ────────
+            show_form = st.session_state.get("show_esig_form", False)
+
+            if not show_form:
+                st.info(
+                    "🔏 **Electronic signature required** (21 CFR Part 11). "
+                    "Click a download button below to sign and release your package."
+                )
+                btn1, btn2, clear_col = st.columns([5, 5, 2])
+                with btn1:
+                    if st.button("🔏 Sign & Download Excel (.xlsx)",
+                                 key="trigger_esig_xlsx", use_container_width=True,
+                                 type="primary"):
+                        st.session_state["show_esig_form"] = True
+                        st.session_state["esig_target"]    = "xlsx"
+                        st.rerun()
+                with btn2:
+                    if st.button("🔏 Sign & Download PDF (.pdf)",
+                                 key="trigger_esig_pdf", use_container_width=True,
+                                 type="primary"):
+                        st.session_state["show_esig_form"] = True
+                        st.session_state["esig_target"]    = "pdf"
+                        st.rerun()
+                with clear_col:
+                    if st.button("🔄 New Analysis", key="clear_results_btn",
+                                 use_container_width=True,
+                                 help="Clear results and upload a new URS document"):
+                        st.session_state["uploader_key_n"]     = st.session_state.get("uploader_key_n", 0) + 1
+                        st.session_state["sys_uploader_key_n"] = st.session_state.get("sys_uploader_key_n", 0) + 1
+                        st.session_state.sop_file_bytes  = None
+                        st.session_state.sop_file_name   = None
+                        st.session_state["sys_context_bytes"] = None
+                        st.session_state["sys_context_name"]  = None
+                        st.session_state.pop("last_result",        None)
+                        st.session_state.pop("esig_pending",       None)
+                        st.session_state.pop("show_esig_form",     None)
+                        st.session_state.pop("esig_target",        None)
+                        st.session_state.pop("doc_validation_msg", None)
+                        log_audit(user, "NEW_ANALYSIS_STARTED", "SESSION",
+                                  reason="User cleared previous results to start a new analysis")
+                        st.rerun()
+
+            # ── Inline e-sig form (appears below preview when triggered) ──────
+            if show_form and pending:
+                p = pending
+                st.markdown("""
+<div class="esig-container">
+  <p class="esig-title">🔏 Electronic Signature Required</p>
+  <p class="esig-subtitle">
+    21 CFR Part 11 §11.200 — Two-component non-biometric signature.<br>
+    Re-enter your password to sign and release this validation package.
+  </p>
+</div>
+""", unsafe_allow_html=True)
+
+                with st.form("esig_form", clear_on_submit=False):
+                    st.markdown(
+                        f'<p class="esig-field-label">Signer</p>'
+                        f'<div class="esig-user-display">👤 &nbsp; {user}'
+                        f' &nbsp;&nbsp;|&nbsp;&nbsp; {role}</div>',
+                        unsafe_allow_html=True
+                    )
+                    st.markdown(
+                        '<p class="esig-field-label">Password (re-enter to verify identity)</p>',
+                        unsafe_allow_html=True)
+                    esig_password = st.text_input(
+                        "Password", type="password",
+                        placeholder="Enter your login password",
+                        label_visibility="collapsed",
+                        key="esig_password_input"
+                    )
+                    st.markdown('<p class="esig-field-label">Meaning of Signature</p>',
+                                unsafe_allow_html=True)
+                    esig_meaning = st.selectbox(
+                        "Meaning", ESIG_MEANINGS, index=0,
+                        label_visibility="collapsed",
+                        key="esig_meaning_select"
+                    )
+                    st.markdown(
+                        '<p class="esig-warning">⚠️ By submitting this signature you confirm '
+                        'that the information in this validation package is accurate and '
+                        'complete. This action is recorded and cannot be undone.</p>',
+                        unsafe_allow_html=True
+                    )
+                    col_sign, col_cancel = st.columns([2, 1])
+                    with col_sign:
+                        submitted = st.form_submit_button(
+                            "✍️ Sign & Release Package",
+                            use_container_width=True, type="primary"
+                        )
+                    with col_cancel:
+                        cancelled = st.form_submit_button("✖ Cancel",
+                                                          use_container_width=True)
+
+                if cancelled:
+                    st.session_state["show_esig_form"] = False
+                    st.session_state.pop("esig_target", None)
+                    log_audit(user, "ESIG_CANCELLED", "VALIDATION_PACKAGE",
+                              reason="User cancelled e-signature — package not released")
+                    st.info("Signature cancelled. Review the preview and click a download "
+                            "button when ready to sign.")
+                    st.rerun()
+
+                if submitted:
+                    if not esig_password:
+                        st.error("⛔ Password is required to sign.")
+                    else:
+                        conn_v = db_connect()
+                        stored = conn_v.execute(
+                            "SELECT password_hash FROM users WHERE username=?", (user,)
+                        ).fetchone()
+                        conn_v.close()
+
+                        if not stored or not verify_password(esig_password, stored[0]):
+                            log_audit(user, "ESIG_IDENTITY_FAILED", "VALIDATION_PACKAGE",
+                                      reason="E-sig identity verification failed — wrong password")
+                            st.error(
+                                "⛔ Identity verification failed. The password does not match "
+                                "your account. This attempt has been recorded in the audit trail."
+                            )
+                        else:
+                            sig_ts = datetime.datetime.utcnow().isoformat()
+                            sig_id = log_esignature(
+                                user          = user,
+                                role          = role,
+                                action        = "GENERATED_VALIDATION_PACKAGE",
+                                meaning       = esig_meaning,
+                                document_hash = p["doc_hash"],
+                                document_name = p["file_name"],
+                                model_used    = p["model_name"],
+                                prompt_ver    = PROMPT_VERSION,
+                                ip_address    = st.session_state.get("user_ip", ""),
+                                doc_ids       = p["doc_ids"],
+                            )
+                            log_audit(user, "ESIG_APPLIED", "VALIDATION_PACKAGE",
+                                      new_value=f"SIG-{sig_id:06d}",
+                                      reason=(f"Meaning: {esig_meaning} | "
+                                              f"Hash: {p['doc_hash'][:16]}... | "
+                                              f"Model: {p['model_name']}"))
+
+                            # ── Build signed Excel ────────────────────────────
+                            import openpyxl
+                            wb_final = openpyxl.load_workbook(
+                                filename=io.BytesIO(p["xlsx_bytes_presig"])
+                            )
+                            build_signature_sheet(
+                                wb            = wb_final,
+                                user          = user,
+                                role          = role,
+                                meaning       = esig_meaning,
+                                document_hash = p["doc_hash"],
+                                document_name = p["file_name"],
+                                model_used    = p["model_name"],
+                                signature_id  = sig_id,
+                                timestamp     = sig_ts,
+                            )
+                            final_buf = io.BytesIO()
+                            wb_final.save(final_buf)
+                            xlsx_bytes_final = final_buf.getvalue()
+
+                            # ── Build signed PDF ──────────────────────────────
+                            pdf_bytes_final = build_pdf_bytes(
+                                r             = p,
+                                sig_id        = sig_id,
+                                sig_meaning   = esig_meaning,
+                                sig_timestamp = sig_ts,
+                                user          = user,
+                                role          = role,
+                            )
+
+                            st.session_state["last_result"] = {
+                                **p,
+                                "xlsx_bytes":    xlsx_bytes_final,
+                                "pdf_bytes":     pdf_bytes_final,
+                                "sig_id":        sig_id,
+                                "sig_meaning":   esig_meaning,
+                                "sig_timestamp": sig_ts,
+                            }
+                            st.session_state.pop("esig_pending",   None)
+                            st.session_state.pop("show_esig_form", None)
+                            st.session_state.pop("esig_target",    None)
+                            st.rerun()
 
 
 # =============================================================================
