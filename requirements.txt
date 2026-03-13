@@ -11,6 +11,7 @@ pdfplumber
 bcrypt==4.2.1
 python-dotenv
 pandas
+reportlab
 openpyxl
 
 
