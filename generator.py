@@ -3613,7 +3613,7 @@ def show_app():
         st.sidebar.markdown("<br><br>", unsafe_allow_html=True)
         st.session_state.selected_model = engine_name
 
-        st.markdown('<p class="sb-sub">📂 Upload system document such as operational SOP or user guide, manual etc.</p>', unsafe_allow_html=True)
+        st.markdown('<p class="sb-sub">📂 Upload system document like operational SOP or user guide, manual etc.</p>', unsafe_allow_html=True)
         # ── END MANUAL EDIT ────────────────────────────────────────
         # Dynamic key so New Analysis can reset the sidebar uploader too
         sys_up_key = f"sidebar_sys_uploader_{st.session_state.sys_uploader_key_n}"
