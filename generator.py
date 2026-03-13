@@ -3423,8 +3423,8 @@ def show_app():
         )
       
         # ── MANUAL EDIT v29-custom — DO NOT OVERWRITE ──────────────
-        st.sidebar.markdown("<br><br><br>", unsafe_allow_html=True)
-        st.sidebar.markdown("<br><br><br>", unsafe_allow_html=True)
+        st.sidebar.markdown("<br><br>", unsafe_allow_html=True)
+        st.sidebar.markdown("<br><br>", unsafe_allow_html=True)
         st.session_state.selected_model = engine_name
 
         st.markdown('<p class="sb-sub">📂 Target System Document like Operational SOP or User guide, manual etc.</p>', unsafe_allow_html=True)
