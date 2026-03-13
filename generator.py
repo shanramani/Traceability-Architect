@@ -388,14 +388,14 @@ def log_audit(user: str, action: str, object_changed: str = "",
 # =============================================================================
 # Controlled vocabulary for signature meaning per §11.50(a)(1).
 # Free text is NOT allowed — auditors expect a finite, pre-approved list.
+# ── MANUAL EDIT v29-custom — DO NOT OVERWRITE ──────────────
 ESIG_MEANINGS = [
-    "I authored this validation package",
+    "I executed this validation package",
     "I reviewed this validation package",
     "I approved this validation package",
-    "I executed this validation package",
-]
+    ]
 ESIG_DEFAULT_MEANING = ESIG_MEANINGS[0]
-
+# ── END MANUAL EDIT ────────────────────────────────────────
 
 def log_esignature(user: str, role: str, action: str, meaning: str,
                    document_hash: str, document_name: str = "",
