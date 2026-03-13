@@ -3377,8 +3377,7 @@ def show_login():
             "<p style='text-align:center; font-style:italic; font-size:0.78rem; color:#94a3b8;'>"
             "LLM-Powered GxP Validation</p>"
             "<p style='text-align:center; font-size:0.72rem; color:#b0bec5; margin-top:-6px;'>"
-            "Parse URS &amp; User Guide · Generate FRS, OQ Test Steps &amp; Traceability Matrix · "
-            "Detect Validation Gaps"
+            "AI-driven validation accelerator that generates FRS, OQ tests, and Traceability matrices from URS and system documentation, while detecting validation gaps. "
             "</p>",
             unsafe_allow_html=True
         )
