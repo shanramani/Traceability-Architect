@@ -774,7 +774,7 @@ def extract_pages(file_bytes: bytes) -> list:
 # Positive signals — language expected in a URS / SOP
 _URS_POSITIVE = [
     r'\bshall\b', r'\bmust\b', r'\brequirement[s]?\b', r'\buser requirement\b',
-    r'\bsystem shall\b', r'\bthe system\b', r'\burs\b', r'\bsop\b',
+    r'\bsystem shall\b', r'\bthe system\b', r'\burs\b',
     r'\bfunctional requirement\b', r'\buse case\b', r'\bstakeholder\b',
     r'\bscope\b', r'\bpurpose\b', r'\bspecification\b',
     r'\bvalidation\b', r'\bcompliance\b', r'\baudit trail\b',
@@ -793,14 +793,34 @@ _URS_NEGATIVE = [
     r'\bdear\b.*\bsincerely\b',            # letter pattern
     r'\bresume\b', r'\bcurriculum vitae\b',
     r'\bmenu\b.*\bprice\b',               # restaurant menu
+    # ── Operational SOP / user guide mis-filed here ──────────────────────────
+    # These belong in the sidebar, not the main URS slot.
+    r'\bstandard operating procedure\b',
+    r'\bsop[-\s]?\d+\b',                  # SOP-808, SOP 808 style IDs
+    r'\bclick\b.*\bbutton\b',             # screen-click instructions
+    r'\bnavigate to\b',                   # navigation steps
+    r'\blog.?in\b.*\bbrowser\b',          # login via browser (user guide language)
+    r'\bstep\s+\d+.*click\b',            # "Step 1: Click..."
+    r'\buser guide\b', r'\binstruction manual\b',
+    r'\btraining guide\b', r'\bend user\b',
 ]
 
 # LLM pre-flight prompt — binary YES/NO, one sentence reasoning
 _PREFLIGHT_PROMPT = """You are a GxP document classifier. Read the document excerpt below.
 
-TASK: Determine if this document is a User Requirements Specification (URS), 
-System Requirements Specification (SRS), Standard Operating Procedure (SOP), 
-or similar GxP/regulatory specification document that describes system or process requirements.
+TASK: Determine if this document is a User Requirements Specification (URS) or 
+System Requirements Specification (SRS) — a document that lists WHAT a system 
+must do, using requirement statements (shall/must).
+
+Answer YES only for: URS, SRS, FRS (Functional Requirements Spec), or equivalent 
+requirements documents that define system capabilities via numbered requirements.
+
+Answer NO for ALL of the following — these belong in the sidebar System Guide slot, not here:
+- Standard Operating Procedures (SOP) — describes HOW to operate a system
+- User Guides or instruction manuals — describes HOW to use screens and features
+- Training guides or end-user documentation
+- Validation Plans, Test Scripts, or Protocols
+- Any document whose primary content is step-by-step operational instructions
 
 Respond with EXACTLY this format:
 VERDICT: YES
@@ -4001,12 +4021,27 @@ def show_app():
                             st.session_state.sop_file_bytes = None
                             st.session_state.sop_file_name  = None
                         elif neg_hits:
-                            matched = [p.replace(r'\b','').replace('\\','') for p in neg_hits[:3]]
-                            st.session_state["doc_validation_msg"] = (
-                                "error",
-                                f"⛔ **Document rejected:** non-URS content detected "
-                                f"({', '.join(matched)}). Upload a URS, SRS, or SOP."
-                            )
+                            _is_sop = any(re.search(p, sample, re.IGNORECASE)
+                                          for p in [r'\bstandard operating procedure\b',
+                                                    r'\bsop[-\s]?\d+\b', r'\buser guide\b',
+                                                    r'\binstruction manual\b', r'\btraining guide\b'])
+                            if _is_sop:
+                                st.session_state["doc_validation_msg"] = (
+                                    "error",
+                                    "⛔ **Wrong slot** — this looks like an **SOP, User Guide, or "
+                                    "instruction manual**. This field is for your URS (User "
+                                    "Requirements Specification) only. "
+                                    "\n\n📂 Upload your SOP or User Guide in the **sidebar** "
+                                    "(\"Upload system document...\") instead."
+                                )
+                            else:
+                                matched = [p.replace(r'\b','').replace('\\','') for p in neg_hits[:3]]
+                                st.session_state["doc_validation_msg"] = (
+                                    "error",
+                                    f"⛔ **Document rejected:** non-URS content detected "
+                                    f"({', '.join(matched)}). Upload a URS or SRS — a requirements "
+                                    "specification that describes what the system must do."
+                                )
                             st.session_state.sop_file_bytes = None
                             st.session_state.sop_file_name  = None
                         elif shall_count < 2:
