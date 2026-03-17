@@ -3733,10 +3733,6 @@ def show_app():
     <script>
     (function() {
         var DOC = window.parent.document;
-
-        // ── 1. Inject sticky End Session into parent body ────────────────────
-        // top:58px clears the Streamlit Cloud toolbar row.
-        // position:fixed means it stays visible on scroll without any JS tricks.
         var old = DOC.getElementById('sticky-terminate-btn');
         if (old) old.parentNode.removeChild(old);
         var btn = DOC.createElement('button');
@@ -3763,28 +3759,12 @@ def show_app():
         btn.onclick = function() {
             var all = DOC.querySelectorAll('button');
             for (var i = 0; i < all.length; i++) {
-                if (all[i].innerText && all[i].innerText.trim() === '\u23f9 End Session') {
+                if (all[i].innerText && all[i].innerText.trim().indexOf('\u23f9') === 0) {
                     all[i].click(); return;
                 }
             }
         };
         DOC.body.appendChild(btn);
-
-        // ── 2. Hide the Streamlit trigger button ────────────────────────────
-        // Only hide the button element itself — do NOT touch its parent wrapper
-        // or Streamlit's layout containers, which causes blank-screen rendering.
-        function hideBtn() {
-            var all = DOC.querySelectorAll('button');
-            for (var i = 0; i < all.length; i++) {
-                if (all[i].innerText && all[i].innerText.trim() === '\u23f9 End Session') {
-                    all[i].style.display  = 'none';
-                    all[i].style.height   = '0';
-                    all[i].style.overflow = 'hidden';
-                }
-            }
-        }
-        setTimeout(hideBtn, 300);
-        setTimeout(hideBtn, 1000);
     })();
     </script>
     """, height=0)
