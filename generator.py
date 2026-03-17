@@ -3725,12 +3725,13 @@ def show_app():
 
     _st_components.html("""
     <script>
-    // Inject the sticky End Session button into window.parent.document.body so
-    // position:fixed is relative to the main window, not the component iframe.
-    // Always remove-then-recreate: clears any stale button left from a previous
-    // session (logout → re-login without full page refresh).
-    // Visibility: only shown when the page actually has a scrollbar, so it does
-    // not overlap content on short/empty pages.
+    // Inject the sticky End Session button into window.parent.document.body.
+    // position:fixed pins it to the viewport — it stays visible on scroll.
+    // Always remove-then-recreate so stale buttons from previous sessions
+    // are cleaned up on logout/re-login without a full page refresh.
+    // NOTE: do NOT start with display:none + a scroll check. Streamlit reruns
+    // the component iframe on every interaction, which would recreate the button
+    // hidden and the scroll check fires before content renders → stays hidden.
     (function() {
         var DOC = window.parent.document;
         var old = DOC.getElementById('sticky-terminate-btn');
@@ -3754,7 +3755,7 @@ def show_app():
             boxShadow:    '0 2px 8px rgba(220,38,38,0.4)',
             fontFamily:   'inherit',
             pointerEvents:'all',
-            display:      'none'   // hidden until scroll check says page is scrollable
+            display:      'block'
         });
         btn.onmouseover = function(){ this.style.background = '#b91c1c'; };
         btn.onmouseout  = function(){ this.style.background = '#dc2626'; };
@@ -3767,18 +3768,6 @@ def show_app():
             }
         };
         DOC.body.appendChild(btn);
-
-        // Show/hide based on whether the page is actually scrollable.
-        // Checked immediately and whenever the window resizes or content changes.
-        function checkScroll() {
-            var scrollable = DOC.documentElement.scrollHeight > DOC.documentElement.clientHeight;
-            btn.style.display = scrollable ? 'block' : 'none';
-        }
-        checkScroll();
-        window.parent.addEventListener('resize', checkScroll);
-        // Re-check after a short delay to catch Streamlit content rendering
-        setTimeout(checkScroll, 800);
-        setTimeout(checkScroll, 2000);
     })();
     </script>
     """, height=0)
@@ -4316,8 +4305,8 @@ def show_app():
         st.markdown("---")
 
         if is_signed:
-            # ── Already signed: show real download buttons for both formats ──
-            dl1, dl2, clear_col = st.columns([5, 5, 2])
+            # ── Already signed: real download buttons + New Analysis far right ─
+            dl1, dl2, _spacer, clear_col = st.columns([5, 5, 1, 2])
             with dl1:
                 st.download_button(
                     label="📥 Download Signed Workbook (.xlsx)",
@@ -4336,8 +4325,8 @@ def show_app():
                     key="download_pdf_btn",
                     use_container_width=True,
                 )
+            # _spacer is empty — pushes New Analysis to the far right
             with clear_col:
-                st.markdown('<div style="text-align:right">', unsafe_allow_html=True)
                 if st.button("🔄 New Analysis", key="clear_results_btn",
                              use_container_width=True,
                              help="Clear results and upload a new URS document"):
@@ -4355,10 +4344,9 @@ def show_app():
                     log_audit(user, "NEW_ANALYSIS_STARTED", "SESSION",
                               reason="User cleared previous results and sidebar guide to start a new analysis")
                     st.rerun()
-                st.markdown('</div>', unsafe_allow_html=True)
 
         else:
-            # ── Not yet signed: show "Sign & Download" trigger buttons ────────
+            # ── Not yet signed: Sign & Download triggers + New Analysis far right
             show_form = st.session_state.get("show_esig_form", False)
 
             if not show_form:
@@ -4366,7 +4354,7 @@ def show_app():
                     "🔏 **Electronic signature required** (21 CFR Part 11). "
                     "Click a download button below to sign and release your package."
                 )
-                btn1, btn2, clear_col = st.columns([5, 5, 2])
+                btn1, btn2, _spacer, clear_col = st.columns([5, 5, 1, 2])
                 with btn1:
                     if st.button("🔏 Sign & Download Excel (.xlsx)",
                                  key="trigger_esig_xlsx", use_container_width=True,
@@ -4381,8 +4369,8 @@ def show_app():
                         st.session_state["show_esig_form"] = True
                         st.session_state["esig_target"]    = "pdf"
                         st.rerun()
+                # _spacer empty — pushes New Analysis to the far right
                 with clear_col:
-                    st.markdown('<div style="text-align:right">', unsafe_allow_html=True)
                     if st.button("🔄 New Analysis", key="clear_results_btn",
                                  use_container_width=True,
                                  help="Clear results and upload a new URS document"):
@@ -4400,7 +4388,6 @@ def show_app():
                         log_audit(user, "NEW_ANALYSIS_STARTED", "SESSION",
                                   reason="User cleared previous results to start a new analysis")
                         st.rerun()
-                    st.markdown('</div>', unsafe_allow_html=True)
 
             # ── Inline e-sig form (appears below preview when triggered) ──────
             if show_form and pending:
