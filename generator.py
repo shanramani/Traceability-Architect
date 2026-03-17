@@ -3664,7 +3664,7 @@ def show_app():
         )
       
         # ── MANUAL EDIT v29-custom — DO NOT OVERWRITE ──────────────
-        st.sidebar.markdown("<br>, unsafe_allow_html=True)
+        st.sidebar.markdown("<br>", unsafe_allow_html=True)
         st.session_state.selected_model = engine_name
 
         st.markdown('<p class="sb-sub">📂 Upload system document like operational SOP or user guide, manual etc.</p>', unsafe_allow_html=True)
