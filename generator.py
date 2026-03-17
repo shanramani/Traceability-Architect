@@ -3412,6 +3412,13 @@ st.markdown("""
     .sys-context-spacer { margin-top: 2.4rem; }
     .sidebar-stats      { color: white !important; font-weight: 400 !important; font-size: 0.85rem; margin-bottom: 5px; }
 
+    /* ── Radio button labels white on dark sidebar ── */
+    section[data-testid="stSidebar"] .stRadio label,
+    section[data-testid="stSidebar"] .stRadio span,
+    section[data-testid="stSidebar"] div[data-testid="stWidgetLabel"] p {
+        color: white !important;
+    }
+
     div.stButton > button[key="terminate_sidebar"] { width: 100% !important; }
 
     /* ── New Analysis button — neutral grey, right-aligned with download ── */
@@ -3653,7 +3660,6 @@ def show_app():
         )
       
         # ── MANUAL EDIT v29-custom — DO NOT OVERWRITE ──────────────
-        st.sidebar.markdown("<br><br><br>", unsafe_allow_html=True)
         st.sidebar.markdown("<br><br>", unsafe_allow_html=True)
         st.session_state.selected_model = engine_name
 
@@ -3791,9 +3797,9 @@ def show_app():
                         st.warning("Username and password are required.")
 
     # ── End Session trigger — right-aligned via spacer column ───────────────
-    _es_space, _es_col = st.columns([8, 2])
+    _es_space, _es_col = st.columns([10, 3])
     with _es_col:
-        if st.button("⏹ End Session", key="terminate_hidden_trigger", use_container_width=True):
+        if st.button("⏹ End Session", key="terminate_hidden_trigger"):
             log_audit(user, "LOGOUT", "SESSION", reason="Fixed top-right terminate button")
             st.session_state.clear()
             st.rerun()
@@ -3869,7 +3875,7 @@ def show_app():
     # a brand-new widget instance, which clears any retained file state.
     uploader_key = f"main_sop_uploader_{st.session_state.uploader_key_n}"
     sop_widget = st.file_uploader(
-        "Upload URS / SOP (The 'What')", type="pdf", key=uploader_key
+        "Upload URS (The 'What')", type="pdf", key=uploader_key
     )
 
     if sop_widget is not None:
