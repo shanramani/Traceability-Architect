@@ -4040,6 +4040,10 @@ def show_app():
             f"📎 Retained: **{st.session_state.sop_file_name}** — model change did not clear the file."
         )
 
+    # ── MANUAL EDIT v29-custom — DO NOT OVERWRITE ──────────────
+    st.markdown("<br>", unsafe_allow_html=True)
+    # ── END MANUAL EDIT ────────────────────────────────────────
+
 
     if st.button("🚀 Run Analysis", key="run_analysis_btn", disabled=not is_ready):
         file_bytes = st.session_state.sop_file_bytes
