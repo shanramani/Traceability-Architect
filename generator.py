@@ -3358,6 +3358,11 @@ st.markdown("""
         box-shadow: 0 6px 18px rgba(37, 99, 235, 0.45) !important;
     }
 
+    /* ── Main URS file uploader — 50% width ── */
+    div[data-testid="stFileUploader"] {
+        max-width: 50% !important;
+    }
+
     /* ── Run Analysis — iOS-inspired ── */
     div.stButton > button[key="run_analysis_btn"] {
         background-color: #007AFF !important;
@@ -3415,7 +3420,11 @@ st.markdown("""
     /* ── Radio button labels white on dark sidebar ── */
     section[data-testid="stSidebar"] .stRadio label,
     section[data-testid="stSidebar"] .stRadio span,
-    section[data-testid="stSidebar"] div[data-testid="stWidgetLabel"] p {
+    section[data-testid="stSidebar"] .stRadio p,
+    section[data-testid="stSidebar"] .stRadio div,
+    section[data-testid="stSidebar"] div[data-testid="stWidgetLabel"] p,
+    section[data-testid="stSidebar"] div[data-baseweb="radio"] label,
+    section[data-testid="stSidebar"] div[data-baseweb="radio"] span {
         color: white !important;
     }
 
