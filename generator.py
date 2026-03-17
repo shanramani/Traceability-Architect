@@ -3358,9 +3358,15 @@ st.markdown("""
         box-shadow: 0 6px 18px rgba(37, 99, 235, 0.45) !important;
     }
 
+    /* ── Pull "Auto-Generate" section up by one line ── */
+    section[data-testid="stMain"] h1:first-of-type {
+        margin-top: -1rem !important;
+        padding-top: 0 !important;
+    }
+
     /* ── Main URS file uploader — polished card ── */
     section[data-testid="stMain"] div[data-testid="stFileUploader"] {
-        max-width: calc(100% - 16px) !important;
+        max-width: calc(100% - 54px) !important;
     }
     /* Outer drop-zone card */
     section[data-testid="stMain"] div[data-testid="stFileUploaderDropzone"] {
@@ -4034,7 +4040,6 @@ def show_app():
             f"📎 Retained: **{st.session_state.sop_file_name}** — model change did not clear the file."
         )
 
-    st.markdown("<br>", unsafe_allow_html=True)
 
     if st.button("🚀 Run Analysis", key="run_analysis_btn", disabled=not is_ready):
         file_bytes = st.session_state.sop_file_bytes
