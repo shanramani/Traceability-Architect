@@ -3734,32 +3734,11 @@ def show_app():
     (function() {
         var DOC = window.parent.document;
 
-        // ── 1. Hide the Streamlit trigger button by its text content ────────
-        // CSS key= selectors don't work reliably on Streamlit Cloud, so we
-        // use JS to find and zero-out the button by its label text.
-        function hideTriggerBtn() {
-            var btns = DOC.querySelectorAll('button');
-            for (var i = 0; i < btns.length; i++) {
-                if (btns[i].innerText && btns[i].innerText.trim() === '\u23f9 End Session') {
-                    var wrapper = btns[i].closest('[data-testid="stButton"]') || btns[i].parentNode;
-                    if (wrapper) {
-                        wrapper.style.cssText = 'display:none!important;height:0!important;overflow:hidden!important;position:absolute!important;';
-                    }
-                    btns[i].style.cssText = 'display:none!important;';
-                }
-            }
-        }
-        hideTriggerBtn();
-        // Re-run after Streamlit renders (it can take a moment)
-        setTimeout(hideTriggerBtn, 500);
-        setTimeout(hideTriggerBtn, 1500);
-
-        // ── 2. Inject sticky End Session button into parent document body ───
-        // top:58px clears the Streamlit Cloud toolbar (Share/star/pencil row).
-        // Starts hidden; shown only when page is actually scrollable.
+        // ── 1. Inject sticky End Session into parent body ────────────────────
+        // top:58px clears the Streamlit Cloud toolbar row.
+        // position:fixed means it stays visible on scroll without any JS tricks.
         var old = DOC.getElementById('sticky-terminate-btn');
         if (old) old.parentNode.removeChild(old);
-
         var btn = DOC.createElement('button');
         btn.id = 'sticky-terminate-btn';
         btn.innerHTML = '&#9209; End Session';
@@ -3777,47 +3756,35 @@ def show_app():
             fontWeight:   '600',
             cursor:       'pointer',
             boxShadow:    '0 2px 8px rgba(220,38,38,0.4)',
-            fontFamily:   'inherit',
-            pointerEvents:'all',
-            display:      'none'   // hidden until scroll check confirms page is scrollable
+            fontFamily:   'inherit'
         });
         btn.onmouseover = function(){ this.style.background = '#b91c1c'; };
         btn.onmouseout  = function(){ this.style.background = '#dc2626'; };
         btn.onclick = function() {
-            var btns2 = DOC.querySelectorAll('button');
-            for (var j = 0; j < btns2.length; j++) {
-                if (btns2[j].innerText && btns2[j].innerText.trim() === '\u23f9 End Session') {
-                    btns2[j].click(); return;
+            var all = DOC.querySelectorAll('button');
+            for (var i = 0; i < all.length; i++) {
+                if (all[i].innerText && all[i].innerText.trim() === '\u23f9 End Session') {
+                    all[i].click(); return;
                 }
             }
         };
         DOC.body.appendChild(btn);
 
-        // ── 3. Scroll-conditional visibility via polling ─────────────────────
-        // A one-shot setTimeout fires before Streamlit finishes rendering.
-        // Polling every 600ms for the first 15 seconds is reliable: it catches
-        // the page becoming scrollable as analysis results render in.
-        // Stops polling once the button has been shown (no wasted cycles after).
-        var shown = false;
-        var polls = 0;
-        var maxPolls = 25;  // 25 × 600ms = 15 seconds max
-        var poller = setInterval(function() {
-            polls++;
-            var scrollable = DOC.documentElement.scrollHeight > DOC.documentElement.clientHeight + 5;
-            if (scrollable && !shown) {
-                btn.style.display = 'block';
-                shown = true;
-                clearInterval(poller);
+        // ── 2. Hide the Streamlit trigger button ────────────────────────────
+        // Only hide the button element itself — do NOT touch its parent wrapper
+        // or Streamlit's layout containers, which causes blank-screen rendering.
+        function hideBtn() {
+            var all = DOC.querySelectorAll('button');
+            for (var i = 0; i < all.length; i++) {
+                if (all[i].innerText && all[i].innerText.trim() === '\u23f9 End Session') {
+                    all[i].style.display  = 'none';
+                    all[i].style.height   = '0';
+                    all[i].style.overflow = 'hidden';
+                }
             }
-            if (polls >= maxPolls) clearInterval(poller);
-        }, 600);
-
-        // Also respond to scroll events — in case polling window has expired
-        // but new content appears later (e.g. after analysis completes).
-        window.parent.addEventListener('scroll', function() {
-            var scrollable = DOC.documentElement.scrollHeight > DOC.documentElement.clientHeight + 5;
-            btn.style.display = scrollable ? 'block' : 'none';
-        }, { passive: true });
+        }
+        setTimeout(hideBtn, 300);
+        setTimeout(hideBtn, 1000);
     })();
     </script>
     """, height=0)
