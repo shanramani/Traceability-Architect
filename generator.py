@@ -3636,7 +3636,7 @@ def show_app():
     with st.sidebar:
         st.markdown(f'<p class="sb-title">CSV Generator v{VERSION}</p>', unsafe_allow_html=True)
         st.divider()
-        st.markdown('<p class="sb-sub">🤖 Intelligence Engine</p>', unsafe_allow_html=True)
+        st.markdown('<p class="sb-sub">🤖 AI Model</p>', unsafe_allow_html=True)
 
         engine_name = st.selectbox(
             "Model", list(MODELS.keys()),
@@ -3674,61 +3674,7 @@ def show_app():
             )
 
         st.divider()
-        st.markdown('<p class="sb-sub">🔬 V-Model Lifecycle Coverage</p>', unsafe_allow_html=True)
-        # ── Inline SVG V-Model — highlights URS→FRS→OQ coverage ────────────
-        # Shows clients the tool covers the entire left AND right side of the
-        # validation V, from user requirements down to test execution evidence.
-        _has_guide  = bool(st.session_state.get("sys_context_name"))
-        _col_urs    = "#2563EB"; _col_frs = "#7C3AED"; _col_oq = "#059669"
-        _col_iq_pq  = "#94A3B8"   # not generated — greyed out
-        st.markdown(f"""
-<svg viewBox="0 0 220 130" xmlns="http://www.w3.org/2000/svg"
-     style="width:100%;max-width:260px;display:block;margin:0 auto 6px auto;">
-  <!-- Left arm (define) -->
-  <line x1="10" y1="10" x2="110" y2="120" stroke="#334155" stroke-width="1.5"/>
-  <!-- Right arm (verify) -->
-  <line x1="110" y1="120" x2="210" y2="10" stroke="#334155" stroke-width="1.5"/>
-  <!-- Horizontal bridge at bottom -->
-  <line x1="90" y1="120" x2="130" y2="120" stroke="#334155" stroke-width="1" stroke-dasharray="3,2"/>
-
-  <!-- URS node (top-left) -->
-  <circle cx="10" cy="10" r="9" fill="{_col_urs}"/>
-  <text x="10" y="14" text-anchor="middle" fill="white" font-size="6" font-weight="bold">URS</text>
-  <text x="24" y="10" fill="#e2e8f0" font-size="7" dominant-baseline="middle">User Req. Spec</text>
-  <text x="24" y="18" fill="#4ade80" font-size="6">✓ Extracted</text>
-
-  <!-- FRS node (mid-left) -->
-  <circle cx="55" cy="65" r="9" fill="{_col_frs}"/>
-  <text x="55" y="69" text-anchor="middle" fill="white" font-size="6" font-weight="bold">FRS</text>
-  <text x="69" y="62" fill="#e2e8f0" font-size="7" dominant-baseline="middle">Functional Req.</text>
-  <text x="69" y="70" fill="#4ade80" font-size="6">✓ Generated</text>
-
-  <!-- OQ node (bottom, right of centre) -->
-  <circle cx="155" cy="65" r="9" fill="{_col_oq}"/>
-  <text x="155" y="69" text-anchor="middle" fill="white" font-size="6" font-weight="bold">OQ</text>
-  <text x="141" y="55" fill="#e2e8f0" font-size="7" text-anchor="end">Op. Qualification</text>
-  <text x="141" y="63" fill="#4ade80" font-size="6" text-anchor="end">✓ Generated</text>
-
-  <!-- IQ node (top-right, greyed) -->
-  <circle cx="210" cy="10" r="9" fill="{_col_iq_pq}"/>
-  <text x="210" y="14" text-anchor="middle" fill="white" font-size="5.5" font-weight="bold">IQ/PQ</text>
-  <text x="196" y="10" fill="#64748B" font-size="6" text-anchor="end" dominant-baseline="middle">Inst./Perf. Q.</text>
-  <text x="196" y="18" fill="#64748B" font-size="6" text-anchor="end">Manual</text>
-
-  <!-- Traceability arrow along base -->
-  <path d="M 62 118 L 148 118" stroke="#7C3AED" stroke-width="1.5"
-        marker-end="url(#arr)" stroke-dasharray="4,2"/>
-  <text x="105" y="128" text-anchor="middle" fill="#7C3AED" font-size="5.5">Traceability Matrix</text>
-
-  <defs>
-    <marker id="arr" markerWidth="5" markerHeight="5" refX="4" refY="2.5" orient="auto">
-      <path d="M0,0 L5,2.5 L0,5 Z" fill="#7C3AED"/>
-    </marker>
-  </defs>
-</svg>
-""", unsafe_allow_html=True)
-        st.divider()
-        st.markdown(f'<p class="sidebar-stats">Role: {role}</p>', unsafe_allow_html=True)
+        st.markdown(f'<p class="sidebar-stats">Operator: {user} &nbsp;|&nbsp; Role: {role}</p>', unsafe_allow_html=True)
 
         if st.button("Terminate Session", key="terminate_sidebar", use_container_width=True):
             log_audit(user, "LOGOUT", "SESSION")
@@ -3783,6 +3729,8 @@ def show_app():
     // position:fixed is relative to the main window, not the component iframe.
     // Always remove-then-recreate: clears any stale button left from a previous
     // session (logout → re-login without full page refresh).
+    // Visibility: only shown when the page actually has a scrollbar, so it does
+    // not overlap content on short/empty pages.
     (function() {
         var DOC = window.parent.document;
         var old = DOC.getElementById('sticky-terminate-btn');
@@ -3805,7 +3753,8 @@ def show_app():
             cursor:       'pointer',
             boxShadow:    '0 2px 8px rgba(220,38,38,0.4)',
             fontFamily:   'inherit',
-            pointerEvents:'all'
+            pointerEvents:'all',
+            display:      'none'   // hidden until scroll check says page is scrollable
         });
         btn.onmouseover = function(){ this.style.background = '#b91c1c'; };
         btn.onmouseout  = function(){ this.style.background = '#dc2626'; };
@@ -3818,6 +3767,18 @@ def show_app():
             }
         };
         DOC.body.appendChild(btn);
+
+        // Show/hide based on whether the page is actually scrollable.
+        // Checked immediately and whenever the window resizes or content changes.
+        function checkScroll() {
+            var scrollable = DOC.documentElement.scrollHeight > DOC.documentElement.clientHeight;
+            btn.style.display = scrollable ? 'block' : 'none';
+        }
+        checkScroll();
+        window.parent.addEventListener('resize', checkScroll);
+        // Re-check after a short delay to catch Streamlit content rendering
+        setTimeout(checkScroll, 800);
+        setTimeout(checkScroll, 2000);
     })();
     </script>
     """, height=0)
@@ -4040,7 +4001,7 @@ def show_app():
                     "⚠️ No requirements were extracted. This usually means:\n"
                     "- **API quota exceeded** — check your API key billing/limits\n"
                     "- **Rate limit** — wait a minute and try again\n"
-                    "- **Model unavailable** — try a different Intelligence Engine\n\n"
+                    "- **Model unavailable** — try a different AI Model\n\n"
                     "The error detail is shown above."
                 )
                 log_audit(user, "ANALYSIS_ABORTED", "URS_FILE",
@@ -4376,6 +4337,7 @@ def show_app():
                     use_container_width=True,
                 )
             with clear_col:
+                st.markdown('<div style="text-align:right">', unsafe_allow_html=True)
                 if st.button("🔄 New Analysis", key="clear_results_btn",
                              use_container_width=True,
                              help="Clear results and upload a new URS document"):
@@ -4393,6 +4355,7 @@ def show_app():
                     log_audit(user, "NEW_ANALYSIS_STARTED", "SESSION",
                               reason="User cleared previous results and sidebar guide to start a new analysis")
                     st.rerun()
+                st.markdown('</div>', unsafe_allow_html=True)
 
         else:
             # ── Not yet signed: show "Sign & Download" trigger buttons ────────
@@ -4419,6 +4382,7 @@ def show_app():
                         st.session_state["esig_target"]    = "pdf"
                         st.rerun()
                 with clear_col:
+                    st.markdown('<div style="text-align:right">', unsafe_allow_html=True)
                     if st.button("🔄 New Analysis", key="clear_results_btn",
                                  use_container_width=True,
                                  help="Clear results and upload a new URS document"):
@@ -4436,6 +4400,7 @@ def show_app():
                         log_audit(user, "NEW_ANALYSIS_STARTED", "SESSION",
                                   reason="User cleared previous results to start a new analysis")
                         st.rerun()
+                    st.markdown('</div>', unsafe_allow_html=True)
 
             # ── Inline e-sig form (appears below preview when triggered) ──────
             if show_form and pending:
