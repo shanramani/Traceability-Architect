@@ -3852,7 +3852,7 @@ def show_app():
                         st.warning("Username and password are required.")
 
     # ── End Session trigger — right-aligned via spacer column ───────────────
-    _es_space, _es_col = st.columns([10.5, 3])
+    _es_space, _es_col = st.columns([11, 3])
     with _es_col:
         if st.button("⏹ End Session", key="terminate_hidden_trigger"):
             log_audit(user, "LOGOUT", "SESSION", reason="Fixed top-right terminate button")
