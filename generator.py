@@ -3358,6 +3358,57 @@ st.markdown("""
         box-shadow: 0 6px 18px rgba(37, 99, 235, 0.45) !important;
     }
 
+    /* ── Main URS file uploader — polished card ── */
+    section[data-testid="stMain"] div[data-testid="stFileUploader"] {
+        max-width: calc(100% - 16px) !important;
+    }
+    /* Outer drop-zone card */
+    section[data-testid="stMain"] div[data-testid="stFileUploaderDropzone"] {
+        background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%) !important;
+        border: 1.5px dashed #2563eb !important;
+        border-radius: 14px !important;
+        padding: 28px 32px !important;
+        transition: border-color 0.2s, box-shadow 0.2s !important;
+        box-shadow: 0 2px 16px rgba(37, 99, 235, 0.08) !important;
+    }
+    section[data-testid="stMain"] div[data-testid="stFileUploaderDropzone"]:hover {
+        border-color: #3b82f6 !important;
+        box-shadow: 0 4px 24px rgba(37, 99, 235, 0.18) !important;
+    }
+    /* "Drag and drop file here" primary text */
+    section[data-testid="stMain"] div[data-testid="stFileUploaderDropzone"] span[data-testid="stFileUploaderDropzoneInstructions"] > div > span:first-child {
+        color: #e2e8f0 !important;
+        font-size: 0.95rem !important;
+        font-weight: 600 !important;
+        letter-spacing: 0.01em !important;
+    }
+    /* "Limit 200MB per file • PDF" sub-text */
+    section[data-testid="stMain"] div[data-testid="stFileUploaderDropzone"] small,
+    section[data-testid="stMain"] div[data-testid="stFileUploaderDropzone"] span[data-testid="stFileUploaderDropzoneInstructions"] > div > small {
+        color: #64748b !important;
+        font-size: 0.78rem !important;
+    }
+    /* Upload cloud icon */
+    section[data-testid="stMain"] div[data-testid="stFileUploaderDropzone"] svg {
+        fill: #2563eb !important;
+        opacity: 0.85 !important;
+    }
+    /* "Browse files" button */
+    section[data-testid="stMain"] div[data-testid="stFileUploaderDropzone"] button[data-testid="baseButton-secondary"] {
+        background: #1e40af !important;
+        color: #e2e8f0 !important;
+        border: 1px solid #2563eb !important;
+        border-radius: 8px !important;
+        font-size: 0.82rem !important;
+        font-weight: 600 !important;
+        padding: 5px 18px !important;
+        transition: background 0.15s !important;
+    }
+    section[data-testid="stMain"] div[data-testid="stFileUploaderDropzone"] button[data-testid="baseButton-secondary"]:hover {
+        background: #2563eb !important;
+        color: white !important;
+    }
+
     /* ── Run Analysis — iOS-inspired ── */
     div.stButton > button[key="run_analysis_btn"] {
         background-color: #007AFF !important;
@@ -3664,7 +3715,7 @@ def show_app():
         )
       
         # ── MANUAL EDIT v29-custom — DO NOT OVERWRITE ──────────────
-        st.sidebar.markdown("<br>", unsafe_allow_html=True)
+        st.sidebar.markdown("<br><br>", unsafe_allow_html=True)
         st.session_state.selected_model = engine_name
 
         st.markdown('<p class="sb-sub">📂 Upload system document like operational SOP or user guide, manual etc.</p>', unsafe_allow_html=True)
