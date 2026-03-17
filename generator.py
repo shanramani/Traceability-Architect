@@ -3721,15 +3721,25 @@ def show_app():
                     else:
                         st.warning("Username and password are required.")
 
-    # ── Sticky top-right "End Session" button (fixed, always visible on scroll) ──
-    # Pattern: a hidden Streamlit button triggers the logout logic;
-    # a JS overlay button positioned fixed top-right clicks it programmatically.
-    if st.button("⏹ End Session", key="terminate_hidden_trigger"):
-        log_audit(user, "LOGOUT", "SESSION", reason="Fixed top-right terminate button")
-        st.session_state.clear()   # wipe everything — no stale results on re-login
-        st.rerun()
+    # ── End Session trigger — right-aligned via spacer column ───────────────
+    _es_space, _es_col = st.columns([8, 2])
+    with _es_col:
+        if st.button("⏹ End Session", key="terminate_hidden_trigger", use_container_width=True):
+            log_audit(user, "LOGOUT", "SESSION", reason="Fixed top-right terminate button")
+            st.session_state.clear()
+            st.rerun()
 
-    _st_components.html("""
+    # ── Sticky End Session: only inject when page has results (scrollable) ──
+    # Using Python session state is the only reliable way to gate this —
+    # JS DOM scroll measurements inside an iframe are defeated by Streamlit's
+    # rerun cycle. When results are present the page is always scrollable;
+    # when no results are loaded the page fits the viewport.
+    _has_results = bool(
+        st.session_state.get("last_result") or
+        st.session_state.get("esig_pending")
+    )
+    if _has_results:
+        _st_components.html("""
     <script>
     (function() {
         var DOC = window.parent.document;
@@ -3767,7 +3777,17 @@ def show_app():
         DOC.body.appendChild(btn);
     })();
     </script>
-    """, height=0)
+        """, height=0)
+    else:
+        # No results — remove any stale sticky button (e.g. after New Analysis)
+        _st_components.html("""
+    <script>
+    (function() {
+        var old = window.parent.document.getElementById('sticky-terminate-btn');
+        if (old) old.parentNode.removeChild(old);
+    })();
+    </script>
+        """, height=0)
 
     # IP capture on every authenticated load
     _capture_client_ip()
