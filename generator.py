@@ -3448,12 +3448,18 @@ st.markdown("""
         background: #b91c1c !important;
     }
 
-    /* ── Hide the invisible trigger button ── */
-    button[data-testid="stButton"][key="terminate_hidden_trigger"] {
+    /* ── Completely hide the invisible trigger button and its wrapper ── */
+    /* Streamlit Cloud doesn't expose key= as an HTML attribute, so target
+       by multiple selectors to ensure it's invisible across all environments */
+    button[data-testid="stButton"][key="terminate_hidden_trigger"],
+    div[data-testid="stButton"]:has(button[key="terminate_hidden_trigger"]) {
         display: none !important;
         visibility: hidden !important;
         height: 0 !important;
+        width: 0 !important;
         overflow: hidden !important;
+        position: absolute !important;
+        pointer-events: none !important;
     }
 
     /* ── E-Signature modal ── */
@@ -3725,23 +3731,41 @@ def show_app():
 
     _st_components.html("""
     <script>
-    // Inject the sticky End Session button into window.parent.document.body.
-    // position:fixed pins it to the viewport — it stays visible on scroll.
-    // Always remove-then-recreate so stale buttons from previous sessions
-    // are cleaned up on logout/re-login without a full page refresh.
-    // NOTE: do NOT start with display:none + a scroll check. Streamlit reruns
-    // the component iframe on every interaction, which would recreate the button
-    // hidden and the scroll check fires before content renders → stays hidden.
     (function() {
         var DOC = window.parent.document;
+
+        // ── 1. Hide the Streamlit trigger button by its text content ────────
+        // CSS key= selectors don't work reliably on Streamlit Cloud, so we
+        // use JS to find and zero-out the button by its label text.
+        function hideTriggerBtn() {
+            var btns = DOC.querySelectorAll('button');
+            for (var i = 0; i < btns.length; i++) {
+                if (btns[i].innerText && btns[i].innerText.trim() === '\u23f9 End Session') {
+                    var wrapper = btns[i].closest('[data-testid="stButton"]') || btns[i].parentNode;
+                    if (wrapper) {
+                        wrapper.style.cssText = 'display:none!important;height:0!important;overflow:hidden!important;position:absolute!important;';
+                    }
+                    btns[i].style.cssText = 'display:none!important;';
+                }
+            }
+        }
+        hideTriggerBtn();
+        // Re-run after Streamlit renders (it can take a moment)
+        setTimeout(hideTriggerBtn, 500);
+        setTimeout(hideTriggerBtn, 1500);
+
+        // ── 2. Inject sticky End Session button into parent document body ───
+        // top:58px clears the Streamlit Cloud toolbar (Share/star/pencil row).
+        // Starts hidden; shown only when page is actually scrollable.
         var old = DOC.getElementById('sticky-terminate-btn');
         if (old) old.parentNode.removeChild(old);
+
         var btn = DOC.createElement('button');
         btn.id = 'sticky-terminate-btn';
         btn.innerHTML = '&#9209; End Session';
         Object.assign(btn.style, {
             position:     'fixed',
-            top:          '10px',
+            top:          '58px',
             right:        '20px',
             zIndex:       '2147483647',
             background:   '#dc2626',
@@ -3755,19 +3779,45 @@ def show_app():
             boxShadow:    '0 2px 8px rgba(220,38,38,0.4)',
             fontFamily:   'inherit',
             pointerEvents:'all',
-            display:      'block'
+            display:      'none'   // hidden until scroll check confirms page is scrollable
         });
         btn.onmouseover = function(){ this.style.background = '#b91c1c'; };
         btn.onmouseout  = function(){ this.style.background = '#dc2626'; };
         btn.onclick = function() {
-            var btns = DOC.querySelectorAll('button');
-            for (var i = 0; i < btns.length; i++) {
-                if (btns[i].innerText.trim().indexOf('\u23f9 End Session') >= 0) {
-                    btns[i].click(); return;
+            var btns2 = DOC.querySelectorAll('button');
+            for (var j = 0; j < btns2.length; j++) {
+                if (btns2[j].innerText && btns2[j].innerText.trim() === '\u23f9 End Session') {
+                    btns2[j].click(); return;
                 }
             }
         };
         DOC.body.appendChild(btn);
+
+        // ── 3. Scroll-conditional visibility via polling ─────────────────────
+        // A one-shot setTimeout fires before Streamlit finishes rendering.
+        // Polling every 600ms for the first 15 seconds is reliable: it catches
+        // the page becoming scrollable as analysis results render in.
+        // Stops polling once the button has been shown (no wasted cycles after).
+        var shown = false;
+        var polls = 0;
+        var maxPolls = 25;  // 25 × 600ms = 15 seconds max
+        var poller = setInterval(function() {
+            polls++;
+            var scrollable = DOC.documentElement.scrollHeight > DOC.documentElement.clientHeight + 5;
+            if (scrollable && !shown) {
+                btn.style.display = 'block';
+                shown = true;
+                clearInterval(poller);
+            }
+            if (polls >= maxPolls) clearInterval(poller);
+        }, 600);
+
+        // Also respond to scroll events — in case polling window has expired
+        // but new content appears later (e.g. after analysis completes).
+        window.parent.addEventListener('scroll', function() {
+            var scrollable = DOC.documentElement.scrollHeight > DOC.documentElement.clientHeight + 5;
+            btn.style.display = scrollable ? 'block' : 'none';
+        }, { passive: true });
     })();
     </script>
     """, height=0)
