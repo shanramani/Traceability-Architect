@@ -774,7 +774,7 @@ def extract_pages(file_bytes: bytes) -> list:
 # Positive signals — language expected in a URS / SOP
 _URS_POSITIVE = [
     r'\bshall\b', r'\bmust\b', r'\brequirement[s]?\b', r'\buser requirement\b',
-    r'\bsystem shall\b', r'\bthe system\b', r'\burs\b',
+    r'\bsystem shall\b', r'\bthe system\b', r'\burs\b', r'\bsop\b',
     r'\bfunctional requirement\b', r'\buse case\b', r'\bstakeholder\b',
     r'\bscope\b', r'\bpurpose\b', r'\bspecification\b',
     r'\bvalidation\b', r'\bcompliance\b', r'\baudit trail\b',
@@ -793,34 +793,14 @@ _URS_NEGATIVE = [
     r'\bdear\b.*\bsincerely\b',            # letter pattern
     r'\bresume\b', r'\bcurriculum vitae\b',
     r'\bmenu\b.*\bprice\b',               # restaurant menu
-    # ── Operational SOP / user guide mis-filed here ──────────────────────────
-    # These belong in the sidebar, not the main URS slot.
-    r'\bstandard operating procedure\b',
-    r'\bsop[-\s]?\d+\b',                  # SOP-808, SOP 808 style IDs
-    r'\bclick\b.*\bbutton\b',             # screen-click instructions
-    r'\bnavigate to\b',                   # navigation steps
-    r'\blog.?in\b.*\bbrowser\b',          # login via browser (user guide language)
-    r'\bstep\s+\d+.*click\b',            # "Step 1: Click..."
-    r'\buser guide\b', r'\binstruction manual\b',
-    r'\btraining guide\b', r'\bend user\b',
 ]
 
 # LLM pre-flight prompt — binary YES/NO, one sentence reasoning
 _PREFLIGHT_PROMPT = """You are a GxP document classifier. Read the document excerpt below.
 
-TASK: Determine if this document is a User Requirements Specification (URS) or 
-System Requirements Specification (SRS) — a document that lists WHAT a system 
-must do, using requirement statements (shall/must).
-
-Answer YES only for: URS, SRS, FRS (Functional Requirements Spec), or equivalent 
-requirements documents that define system capabilities via numbered requirements.
-
-Answer NO for ALL of the following — these belong in the sidebar System Guide slot, not here:
-- Standard Operating Procedures (SOP) — describes HOW to operate a system
-- User Guides or instruction manuals — describes HOW to use screens and features
-- Training guides or end-user documentation
-- Validation Plans, Test Scripts, or Protocols
-- Any document whose primary content is step-by-step operational instructions
+TASK: Determine if this document is a User Requirements Specification (URS), 
+System Requirements Specification (SRS), Standard Operating Procedure (SOP), 
+or similar GxP/regulatory specification document that describes system or process requirements.
 
 Respond with EXACTLY this format:
 VERDICT: YES
@@ -1142,7 +1122,7 @@ Output ONLY raw CSV rows — include the header row in EVERY dataset.
 Wrap any comma-containing value in double-quotes.
 Use N/A (not blank) for any field that is not applicable.
 
-Dataset 1 (FRS): ID,Requirement_Description,Priority,Risk,GxP_Impact,Source_URS_Ref,Source_Text,Source_Page,Confidence,Confidence_Flag
+Dataset 1 (FRS): ID,Requirement_Description,Priority,Risk,GxP_Impact,Source_URS_Ref,Source_Text,Source_Page,Source_Section,Confidence,Confidence_Flag
   - ID: FRS-NNN (e.g. FRS-001, FRS-002)
   - Requirement_Description: ENGINEERING/IMPLEMENTATION language (see CRITICAL RULE above).
     Must describe: specific screen or module, field names, data types, validation logic,
@@ -1156,10 +1136,14 @@ Dataset 1 (FRS): ID,Requirement_Description,Priority,Risk,GxP_Impact,Source_URS_
   - Source_URS_Ref: URS Req_ID this FRS was derived from (e.g. URS-004)
   - Source_Text: copy Source_Text verbatim from the URS table
   - Source_Page: copy Source_Page from the URS table
+  - Source_Section: If a System User Guide was provided and this FRS draws on it, write the
+    exact section heading or paragraph title from the guide (e.g. "8.3 Login to DocuSign",
+    "Section 4.2 Password Policy"). If derived from the URS only, write "URS-derived".
+    This allows reviewers to locate the source in a 500-page manual in seconds.
   - Confidence: 0.00–1.00 confidence that this FRS accurately implements the URS intent
   - Confidence_Flag: "Review Required" if Confidence < 0.70, else blank
 
-Dataset 2 (OQ): Test_ID,Requirement_Link,Requirement_Link_Type,Test_Type,Test_Step,Expected_Result,Pass_Fail_Criteria,Source,Confidence,Confidence_Flag
+Dataset 2 (OQ): Test_ID,Requirement_Link,Requirement_Link_Type,Test_Type,Test_Step,Expected_Result,Pass_Fail_Criteria,Suggested_Evidence,Source,Confidence,Confidence_Flag
   - Test_ID: OQ-NNN
   - Requirement_Link: FRS ID being tested (e.g. FRS-001)
   - Requirement_Link_Type: "FRS"
@@ -1176,6 +1160,12 @@ Dataset 2 (OQ): Test_ID,Requirement_Link,Requirement_Link_Type,Test_Type,Test_St
     appears in the sample master table. No error message shown.")
   - Pass_Fail_Criteria: objective pass condition (e.g. "Pass if record confirmed in DB within
     3 seconds and no ERR- codes returned.")
+  - Suggested_Evidence: Describe the SPECIFIC artifact an FDA auditor would demand as objective
+    evidence this test passed. Be concrete — name the exact screen, report, log entry, config
+    record, or error message. Example for password test: "Screenshot of 'Error: Password too
+    short' message from Login screen AND export of Security Policy settings confirming
+    min_length=8 from the Admin Configuration panel." Never write vague answers like
+    "screenshot of results."
   - Source: "Derived from <URS Req_ID>" e.g. "Derived from URS-004"
   - Confidence: 0.00–1.00 test coverage confidence
   - Confidence_Flag: "Review Required" if Confidence < 0.70, else blank
@@ -1208,7 +1198,7 @@ Output ONLY raw CSV rows — include the header row in EVERY dataset.
 NOTE: Do NOT generate a Traceability dataset. Traceability is computed by the
 application after your output is validated. Your job is FRS, OQ, and Gap only.
 
-Dataset 1 (FRS): ID,Requirement_Description,Priority,Risk,GxP_Impact,Source_URS_Ref,Source_Text,Source_Page,Confidence,Confidence_Flag
+Dataset 1 (FRS): ID,Requirement_Description,Priority,Risk,GxP_Impact,Source_URS_Ref,Source_Text,Source_Page,Source_Section,Confidence,Confidence_Flag
   - ID: short code only — FRS-001, FRS-002, FRS-003. Max 7 characters. NEVER a sentence.
   - Requirement_Description: engineering implementation detail (single line, use semicolons
     instead of newlines, wrap in quotes if it contains commas).
@@ -1221,10 +1211,12 @@ Dataset 1 (FRS): ID,Requirement_Description,Priority,Risk,GxP_Impact,Source_URS_
   - Source_URS_Ref: URS Req_ID (e.g. URS-004)
   - Source_Text: exact quoted source text from URS (single line, max 100 chars)
   - Source_Page: e.g. Page 3
+  - Source_Section: exact section heading/title from the System User Guide if used (e.g.
+    "8.3 Login to DocuSign"); write "URS-derived" if no guide was uploaded.
   - Confidence: decimal 0.00–1.00
   - Confidence_Flag: write exactly "Review Required" if Confidence < 0.70, else leave blank
 
-Dataset 2 (OQ): Test_ID,Requirement_Link,Requirement_Link_Type,Test_Type,Test_Step,Expected_Result,Pass_Fail_Criteria,Source,Confidence,Confidence_Flag
+Dataset 2 (OQ): Test_ID,Requirement_Link,Requirement_Link_Type,Test_Type,Test_Step,Expected_Result,Pass_Fail_Criteria,Suggested_Evidence,Source,Confidence,Confidence_Flag
   - Test_ID: OQ-001, OQ-002 etc.
   - Requirement_Link: FRS-NNN (e.g. FRS-001)
   - Requirement_Link_Type: FRS
@@ -1232,6 +1224,9 @@ Dataset 2 (OQ): Test_ID,Requirement_Link,Requirement_Link_Type,Test_Type,Test_St
   - Test_Step: single line; use semicolons to separate steps, e.g. "Open Login screen; enter username 'testuser'; enter password; click Login"
   - Expected_Result: single line outcome, e.g. "User is authenticated and redirected to Dashboard"
   - Pass_Fail_Criteria: single line pass condition, e.g. "Pass if dashboard loads within 3s and no error shown"
+  - Suggested_Evidence: specific artifact an FDA auditor requires as objective evidence — name
+    exact screen, log, config record, or error message. E.g. "Screenshot of 'Error: Password
+    too short' from Login screen AND Security Policy export showing min_length=8."
   - Source: "Derived from URS-NNN"
   - Confidence: decimal 0.00–1.00
   - Confidence_Flag: "Review Required" if Confidence < 0.70, else blank
@@ -1255,9 +1250,9 @@ Dataset 3 (Gap_Analysis): Req_ID,Gap_Type,Description,Recommendation,Severity
 # Used by the robust splitter to locate dataset boundaries even when the
 # LLM embeds stray ||| tokens inside quoted field values.
 _PASS2_HEADERS = [
-    # Dataset 1 — FRS
+    # Dataset 1 — FRS (now includes Source_Section)
     r"^ID[,\t]Requirement_Description",
-    # Dataset 2 — OQ
+    # Dataset 2 — OQ (now includes Suggested_Evidence)
     r"^Test_ID[,\t]Requirement_Link",
     # Dataset 3 — Gap_Analysis (LLM-detected URS-level gaps only)
     r"^Req_ID[,\t]Gap_Type",
@@ -1850,7 +1845,7 @@ def run_segmented_analysis(
     urs_lines   = urs_csv_str.split("\n")
     header_line = urs_lines[0]
     data_lines  = urs_lines[1:]
-    PASS2_CHUNK = 40
+    PASS2_CHUNK = st.session_state.get("pass2_chunk_size", 40)
     p2_chunks   = [data_lines[i:i+PASS2_CHUNK] for i in range(0, len(data_lines), PASS2_CHUNK)]
     p2_total    = len(p2_chunks)
 
@@ -2122,7 +2117,7 @@ def _token_overlap(a: str, b: str) -> float:
 
 VALID_GAP_TYPES = {"Untestable", "No_Test_Coverage", "Orphan_Test",
                    "Ambiguous", "Duplicate", "Missing_FRS",
-                   "Non_Functional", "Missing_Test"}
+                   "Non_Functional", "Missing_Test", "Non_Testable_Requirement"}
 
 def _clean_gap_analysis(gap_df: pd.DataFrame) -> pd.DataFrame:
     """
@@ -2322,6 +2317,73 @@ def run_deterministic_validation(
                                         "SLA monitoring, or performance benchmark. Document in IQ/PQ."),
                     "Severity":        "Medium",
                 })
+
+    # ── R3d: Non-Testable Requirement detection (scans URS, not FRS) ─────────
+    # Flags URS requirements marked Testable=No or containing weak/ambiguous
+    # verbs with no quantitative criteria. These are a direct 21 CFR Part 11
+    # compliance risk — a requirement that cannot be tested cannot be validated.
+    # Maps each weak term to a concrete remediation recommendation.
+    WEAK_VERB_REMEDIATION = {
+        "user-friendly":  "Define measurable usability criteria (e.g., task completion rate ≥95%, error rate <5%)",
+        "user friendly":  "Define measurable usability criteria (e.g., task completion rate ≥95%, error rate <5%)",
+        "easy":           "Specify what 'easy' means quantitatively (e.g., onboarding ≤3 clicks, help requests <2/session)",
+        "intuitive":      "Define learnability criteria (e.g., new user completes primary task without help within 5 minutes)",
+        "fast":           "Specify maximum response time (e.g., page load ≤2 seconds under 100 concurrent users)",
+        "quickly":        "Specify maximum response time (e.g., query returns results within 1 second)",
+        "seamless":       "Define integration acceptance criteria (e.g., zero data loss, end-to-end transaction ≤3 seconds)",
+        "simple":         "Specify complexity metric (e.g., ISO 9241 SUS score ≥80)",
+        "flexible":       "Define the specific configuration options required (list each configurable parameter)",
+        "robust":         "Specify fault-tolerance criteria (e.g., system recovers from single component failure within 30 seconds)",
+        "scalable":       "Define quantitative capacity targets (e.g., supports 500 concurrent users with <5% response degradation)",
+        "reliable":       "Specify uptime/availability target (e.g., 99.9% uptime excluding planned maintenance)",
+        "convenient":     "Define task-time criteria (e.g., common workflows completable in ≤3 steps)",
+        "smooth":         "Specify latency/throughput targets for the identified workflow",
+        "modern":         "Remove subjective aesthetic term; specify functional requirements instead",
+        "efficient":      "Specify time-on-task or resource consumption target (e.g., batch process ≤10 minutes for 10,000 records)",
+        "should":         "Replace 'should' with 'shall' to make this a mandatory requirement, or remove if optional",
+        "may":            "Clarify whether this is mandatory (use 'shall') or optional — ambiguous modal verb",
+        "appropriate":    "Define specific acceptance criteria for what constitutes 'appropriate'",
+        "adequate":       "Define minimum quantitative threshold for adequacy",
+        "sufficient":     "Define minimum quantitative threshold for sufficiency",
+    }
+    if not urs_df.empty:
+        urs_req_col  = "Requirement_Description" if "Requirement_Description" in urs_df.columns else None
+        urs_test_col = "Testable" if "Testable" in urs_df.columns else None
+        urs_id_col   = "Req_ID"   if "Req_ID"   in urs_df.columns else None
+        if urs_req_col and urs_id_col:
+            for _, row in urs_df.iterrows():
+                uid  = str(row.get(urs_id_col, "")).strip()
+                desc = str(row.get(urs_req_col, "")).lower()
+                testable = str(row.get(urs_test_col, "")).strip().lower() if urs_test_col else "yes"
+
+                # Find the first matching weak verb/phrase
+                matched_term = next(
+                    (term for term in WEAK_VERB_REMEDIATION if term in desc),
+                    None
+                )
+                if matched_term or testable == "no":
+                    term_label = matched_term or "non-testable language"
+                    recommendation = WEAK_VERB_REMEDIATION.get(
+                        matched_term,
+                        "Replace vague language with specific, measurable acceptance criteria."
+                    )
+                    issues.append({
+                        "Rule":           "R3d",
+                        "Req_ID":         uid,
+                        "Gap_Type":       "Non_Testable_Requirement",
+                        "Description":    (f"Contains ambiguous/non-testable term: '{term_label}'. "
+                                           f"This requirement cannot be objectively validated — "
+                                           f"a direct 21 CFR Part 11 compliance risk."),
+                        "Recommendation": recommendation,
+                        "Severity":       "High",
+                    })
+                    gap_df = pd.concat([gap_df, pd.DataFrame([{
+                        "Req_ID":         uid,
+                        "Gap_Type":       "Non_Testable_Requirement",
+                        "Description":    f"Ambiguous term: '{term_label}'",
+                        "Recommendation": recommendation,
+                        "Severity":       "High",
+                    }])], ignore_index=True)
 
     # ── R4: High-risk reqs with insufficient OQ test count ───────────────────
     if not frs_df.empty and "Risk" in frs_df.columns and not oq_df.empty:
@@ -3231,7 +3293,7 @@ def build_styled_excel(dataframes: dict, user: str = "", file_name: str = "",
     for sheet_name, df in dataframes.items():
         if sheet_name in DRAFT_SHEETS and not df.empty:
             df = df.copy()
-            df.insert(0, "AI_Review_Status", "Generated by Validation Doc Assist — Pending Review")
+            df.insert(0, "AI_Review_Status", "DRAFT – AI Generated | Pending Review")
         stamped[sheet_name] = df
 
     output = io.BytesIO()
@@ -3304,6 +3366,7 @@ _defaults = {
     "sys_uploader_key_n": 0,       # incremented to reset the sidebar sys-context uploader
     "user_ip":            "",      # client IP stored as separate audit column (v29)
     "esig_pending":       None,    # holds completed analysis awaiting e-signature
+    "pass2_chunk_size":   40,      # user-tunable batch size for Pass 2 (20/40/60)
     "show_esig_form":     False,   # True when user clicked a download button → show inline form
     "esig_target":        None,    # "xlsx" or "pdf" — which format triggered the e-sig form
 }
@@ -3744,6 +3807,18 @@ def show_app():
         st.sidebar.markdown("<br><br>", unsafe_allow_html=True)
         st.session_state.selected_model = engine_name
 
+        st.markdown('<p class="sb-sub">⚙️ Batch Size (reqs/pass)</p>', unsafe_allow_html=True)
+        st.session_state["pass2_chunk_size"] = st.select_slider(
+            "Batch size",
+            options=[20, 40, 60],
+            value=st.session_state.get("pass2_chunk_size", 40),
+            label_visibility="collapsed",
+            key="pass2_chunk_slider",
+            help="20 = safer for rate-limited / small-context models. "
+                 "60 = faster for large-context models (Gemini 1.5 Pro). "
+                 "Default 40 works for all models."
+        )
+
         st.markdown('<p class="sb-sub">📂 Upload system document like operational SOP or user guide, manual etc.</p>', unsafe_allow_html=True)
         # ── END MANUAL EDIT ────────────────────────────────────────
         # Dynamic key so New Analysis can reset the sidebar uploader too
@@ -3779,9 +3854,8 @@ def show_app():
                     r'\bstep\s+\d\b', r'\bmodule\b', r'\btab\b', r'\bform\b',
                     r'\bsystem\b', r'\bapplication\b', r'\bsoftware\b',
                 ]
-                # Negative signals — personal/non-operational documents AND mis-filed URS docs
+                # Negative signals — personal/non-operational documents
                 _SYS_NEGATIVE = [
-                    # ── Personal / financial documents ──
                     r'\bwork experience\b', r'\bemployment history\b',
                     r'\bcurriculum vitae\b', r'\b\bcv\b\b',
                     r'\beducation\b.*\buniversity\b', r'\bdegree\b.*\bgraduat',
@@ -3790,63 +3864,33 @@ def show_app():
                     r'\binvoice\b', r'\bpurchase order\b',
                     r'\btotal due\b', r'\bremit payment\b',
                     r'\bdear\b.*\bsincerely\b',
-                    # ── URS / requirements documents filed in wrong slot ──
-                    # These belong in the main URS uploader, not the sidebar
-                    r'\buser requirement specification\b',
-                    r'\buser requirements specification\b',
-                    r'\burs[-\s]\d{3}\b',          # URS-001, URS 001 style IDs
-                    r'\breq[-\s]?id\b',             # REQ ID column header
-                    r'\bthe system shall\b',        # classic shall-style requirement
-                    r'\bthe system must\b',
-                    r'\bintended use\b',
-                    r'\bdocument number\b.*\bversion\b',  # URS cover page pattern
-                    r'\bvalidation plan\b',
-                    r'\bfunctional requirement\b',
                 ]
-                # ── URS mis-file check runs first ─────────────────────────────
-                _URS_SIGNALS = [
-                    r'\bthe system shall\b', r'\bthe system must\b',
-                    r'\buser requirement specification\b',
-                    r'\burs[-\s]\d{3}\b', r'\breq[-\s]?id\b',
-                ]
-                _is_urs = any(re.search(p, _sys_sample, re.IGNORECASE)
-                              for p in _URS_SIGNALS)
-
                 if _sys_sample:
-                    if _is_urs:
+                    _neg_hits = [p for p in _SYS_NEGATIVE
+                                 if re.search(p, _sys_sample, re.IGNORECASE)]
+                    _pos_hits = [p for p in _SYS_POSITIVE
+                                 if re.search(p, _sys_sample, re.IGNORECASE)]
+
+                    if _neg_hits:
                         st.sidebar.error(
-                            "⛔ **Wrong slot** — this looks like a **URS / Requirements document**. "
-                            "This sidebar is for your system's User Guide, operational SOP, or "
-                            "instruction manual — the document that describes *how the system works*. "
-                            "\n\n📥 Upload your URS in the **main panel** (\"Upload URS (The 'What')\") instead."
+                            "⛔ **Document rejected** — this appears to be a personal or "
+                            "non-operational document (CV, invoice, letter, etc.). "
+                            "Upload a system User Guide, operational SOP, or instruction manual."
                         )
                         st.session_state["sys_context_bytes"] = None
                         st.session_state["sys_context_name"]  = None
+                    elif len(_pos_hits) < 3:
+                        st.sidebar.warning(
+                            f"⚠️ **Low system-doc signal** ({len(_pos_hits)} indicator(s)). "
+                            "Expected a User Guide, SOP, or instruction manual with screen "
+                            "names, workflow steps, or procedural language. "
+                            "The document will be used but may not improve FRS quality."
+                        )
+                        st.session_state["sys_context_bytes"] = raw
+                        st.session_state["sys_context_name"]  = sidebar_sys.name
                     else:
-                        _neg_hits = [p for p in _SYS_NEGATIVE
-                                     if re.search(p, _sys_sample, re.IGNORECASE)]
-                        _pos_hits = [p for p in _SYS_POSITIVE
-                                     if re.search(p, _sys_sample, re.IGNORECASE)]
-                        if _neg_hits:
-                            st.sidebar.error(
-                                "⛔ **Document rejected** — this appears to be a personal or "
-                                "non-operational document (CV, invoice, letter, etc.). "
-                                "Upload a system User Guide, operational SOP, or instruction manual."
-                            )
-                            st.session_state["sys_context_bytes"] = None
-                            st.session_state["sys_context_name"]  = None
-                        elif len(_pos_hits) < 3:
-                            st.sidebar.warning(
-                                f"⚠️ **Low system-doc signal** ({len(_pos_hits)} indicator(s)). "
-                                "Expected a User Guide, SOP, or instruction manual with screen "
-                                "names, workflow steps, or procedural language. "
-                                "The document will be used but may not improve FRS quality."
-                            )
-                            st.session_state["sys_context_bytes"] = raw
-                            st.session_state["sys_context_name"]  = sidebar_sys.name
-                        else:
-                            st.session_state["sys_context_bytes"] = raw
-                            st.session_state["sys_context_name"]  = sidebar_sys.name
+                        st.session_state["sys_context_bytes"] = raw
+                        st.session_state["sys_context_name"]  = sidebar_sys.name
                 else:
                     # Couldn't extract text (image-only PDF) — accept with warning
                     st.sidebar.warning(
@@ -4021,27 +4065,12 @@ def show_app():
                             st.session_state.sop_file_bytes = None
                             st.session_state.sop_file_name  = None
                         elif neg_hits:
-                            _is_sop = any(re.search(p, sample, re.IGNORECASE)
-                                          for p in [r'\bstandard operating procedure\b',
-                                                    r'\bsop[-\s]?\d+\b', r'\buser guide\b',
-                                                    r'\binstruction manual\b', r'\btraining guide\b'])
-                            if _is_sop:
-                                st.session_state["doc_validation_msg"] = (
-                                    "error",
-                                    "⛔ **Wrong slot** — this looks like an **SOP, User Guide, or "
-                                    "instruction manual**. This field is for your URS (User "
-                                    "Requirements Specification) only. "
-                                    "\n\n📂 Upload your SOP or User Guide in the **sidebar** "
-                                    "(\"Upload system document...\") instead."
-                                )
-                            else:
-                                matched = [p.replace(r'\b','').replace('\\','') for p in neg_hits[:3]]
-                                st.session_state["doc_validation_msg"] = (
-                                    "error",
-                                    f"⛔ **Document rejected:** non-URS content detected "
-                                    f"({', '.join(matched)}). Upload a URS or SRS — a requirements "
-                                    "specification that describes what the system must do."
-                                )
+                            matched = [p.replace(r'\b','').replace('\\','') for p in neg_hits[:3]]
+                            st.session_state["doc_validation_msg"] = (
+                                "error",
+                                f"⛔ **Document rejected:** non-URS content detected "
+                                f"({', '.join(matched)}). Upload a URS, SRS, or SOP."
+                            )
                             st.session_state.sop_file_bytes = None
                             st.session_state.sop_file_name  = None
                         elif shall_count < 2:
@@ -4155,10 +4184,12 @@ def show_app():
         # st.status stays "running" while the with block executes, collapses to
         # "complete" on success or "error" on exception. Each st.write() call
         # appends a live step log that the user can read during the wait.
-        with st.status("📋 Chain of Custody — GxP Validation Pipeline", expanded=True) as cot_status:
+        with st.status("🔍 Running GxP Validation Pipeline...", expanded=True) as cot_status:
           try:
             # ── Parser Quality Indicator ─────────────────────────────────────
-            st.write("🔍 Step 0: Verifying document integrity and OCR quality...")
+            # Warn early if the document has low text density (many images,
+            # scanned pages) so the user knows to expect lower extraction quality.
+            st.write("📑 Parsing URS document structure and page layout...")
             _pq_pages = []
             try:
                 import pdfplumber as _plumber
@@ -4188,18 +4219,18 @@ def show_app():
                 st.write(f"📖 Loading System User Guide: "
                          f"{st.session_state.get('sys_context_name')} ...")
 
-            # ── Step 1 ────────────────────────────────────────────────────────
-            st.write(f"📥 Step 1: Extracting GxP Requirements from URS "
-                     f"using {st.session_state.selected_model}...")
+            # ── Step 1: Two-pass AI analysis ─────────────────────────────────
+            st.write(f"🔬 Pass 1 — Extracting URS requirements using "
+                     f"{st.session_state.selected_model}...")
             urs_df, frs_df, oq_df, trace_df, gap_df = run_segmented_analysis(
                 file_bytes, model_id, progress_bar, status_text, sys_ctx
             )
 
-            st.write("🏗️ Step 2: Mapping Functional Controls to system architecture...")
-            st.write("🧪 Step 3: Calculating Risk-Adjusted Test Coverage (High ≥3 | Med ≥2 | Low ≥1)...")
-            st.write("📊 Step 4: Building end-to-end Traceability Matrix (URS → FRS → OQ)...")
+            st.write("🏗️ Pass 2 — Mapping Functional Requirements to system architecture...")
+            st.write("🧪 Pass 2 — Risk-adjusted OQ test cases (High ≥3 | Med ≥2 | Low ≥1)...")
+            st.write("📊 Building traceability matrix (URS → FRS → OQ)...")
             if st.session_state.get("sys_context_name"):
-                st.write("🔀 Step 5: Cross-source gap analysis — URS ↔ User Guide...")
+                st.write("🔀 Pass 3 — Bidirectional URS ↔ User Guide cross-source gap analysis...")
 
             # ── Guard: if the AI returned nothing useful, stop cleanly ────────
             if urs_df.empty and frs_df.empty:
@@ -4390,59 +4421,13 @@ def show_app():
                 f"{r['sig_meaning']} | {r['sig_timestamp'][:19]} UTC"
             )
 
-        # ── Hero Metrics — first thing the client sees ────────────────────────
-        # Coverage % and Fully Covered % justify the product's value immediately.
+        # ── Validation Package Summary ─────────────────────────────────────────
         fully_covered = r.get("covered", 0)
         total_reqs    = r["total_reqs"]
         cov_pct       = r["cov_pct"]
         gap_total     = r["gap_count"] + r["det_count"]
         cov_status    = "✅ PASS" if cov_pct >= 80 else ("⚠️ REVIEW" if cov_pct >= 60 else "❌ FAIL")
-        fully_cov_pct = round(fully_covered / total_reqs * 100, 1) if total_reqs > 0 else 0.0
 
-        _h1, _h2, _h3 = st.columns(3)
-        with _h1:
-            st.markdown(f"""
-<div style="background:{'#052019' if cov_pct >= 80 else ('#1a1a05' if cov_pct >= 60 else '#1a0505')};
-            border:2px solid {'#059669' if cov_pct >= 80 else ('#d97706' if cov_pct >= 60 else '#dc2626')};
-            border-radius:12px;padding:20px 24px;text-align:center;font-family:'Inter',sans-serif;">
-  <p style="margin:0;color:#94a3b8;font-size:0.72rem;letter-spacing:2px;text-transform:uppercase;">
-    Traceability Coverage</p>
-  <p style="margin:6px 0 2px 0;font-size:2.8rem;font-weight:800;
-            color:{'#4ade80' if cov_pct >= 80 else ('#fbbf24' if cov_pct >= 60 else '#f87171')};
-            line-height:1;">{cov_pct}%</p>
-  <p style="margin:0;font-size:0.8rem;font-weight:600;
-            color:{'#6ee7b7' if cov_pct >= 80 else ('#fde68a' if cov_pct >= 60 else '#fca5a5')};">
-    {cov_status}</p>
-</div>""", unsafe_allow_html=True)
-        with _h2:
-            st.markdown(f"""
-<div style="background:{'#052019' if fully_cov_pct >= 80 else ('#1a1a05' if fully_cov_pct >= 60 else '#1a0505')};
-            border:2px solid {'#059669' if fully_cov_pct >= 80 else ('#d97706' if fully_cov_pct >= 60 else '#dc2626')};
-            border-radius:12px;padding:20px 24px;text-align:center;font-family:'Inter',sans-serif;">
-  <p style="margin:0;color:#94a3b8;font-size:0.72rem;letter-spacing:2px;text-transform:uppercase;">
-    Fully Covered</p>
-  <p style="margin:6px 0 2px 0;font-size:2.8rem;font-weight:800;
-            color:{'#4ade80' if fully_cov_pct >= 80 else ('#fbbf24' if fully_cov_pct >= 60 else '#f87171')};
-            line-height:1;">{fully_cov_pct}%</p>
-  <p style="margin:0;font-size:0.8rem;color:#94a3b8;">{fully_covered} of {total_reqs} requirements</p>
-</div>""", unsafe_allow_html=True)
-        with _h3:
-            st.markdown(f"""
-<div style="background:{'#1a0505' if gap_total > 0 else '#052019'};
-            border:2px solid {'#dc2626' if gap_total > 0 else '#059669'};
-            border-radius:12px;padding:20px 24px;text-align:center;font-family:'Inter',sans-serif;">
-  <p style="margin:0;color:#94a3b8;font-size:0.72rem;letter-spacing:2px;text-transform:uppercase;">
-    GxP Gaps Detected</p>
-  <p style="margin:6px 0 2px 0;font-size:2.8rem;font-weight:800;
-            color:{'#f87171' if gap_total > 0 else '#4ade80'};line-height:1;">{gap_total}</p>
-  <p style="margin:0;font-size:0.8rem;
-            color:{'#fca5a5' if gap_total > 0 else '#6ee7b7'};">
-    {'Requires remediation' if gap_total > 0 else 'No gaps detected'}</p>
-</div>""", unsafe_allow_html=True)
-
-        st.markdown("<br>", unsafe_allow_html=True)
-
-        # ── Validation Package Summary ─────────────────────────────────────────
         st.markdown(f"""
 <div style="background:#0f172a;border-radius:12px;padding:20px 28px;margin-bottom:18px;
             border-left:5px solid #2563eb;font-family:'Inter',sans-serif;">
