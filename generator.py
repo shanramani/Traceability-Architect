@@ -3623,11 +3623,7 @@ def show_app():
         user = st.session_state.get("user_name", "unknown")
         log_audit(user, "SESSION_TIMEOUT", "SESSION",
                   reason=f"Inactivity exceeded {SESSION_TIMEOUT_MINUTES} min")
-        for k in ["authenticated", "user_name", "user_role", "last_activity",
-                  "sop_file_bytes", "sop_file_name"]:
-            st.session_state[k] = False if k == "authenticated" else (
-                None if k in ["sop_file_bytes", "sop_file_name", "last_activity"] else ""
-            )
+        st.session_state.clear()   # wipe everything — no stale results on re-login
         st.warning("⏱️ Session expired due to inactivity. Please log in again.")
         st.rerun()
 
@@ -3736,11 +3732,7 @@ def show_app():
 
         if st.button("Terminate Session", key="terminate_sidebar", use_container_width=True):
             log_audit(user, "LOGOUT", "SESSION")
-            for k in ["authenticated", "user_name", "user_role", "last_activity",
-                      "sop_file_bytes", "sop_file_name"]:
-                st.session_state[k] = False if k == "authenticated" else (
-                    None if k in ["sop_file_bytes", "sop_file_name", "last_activity"] else ""
-                )
+            st.session_state.clear()   # wipe everything — no stale results on re-login
             st.rerun()
 
         if role == "Admin":
@@ -3782,11 +3774,7 @@ def show_app():
     # a JS overlay button positioned fixed top-right clicks it programmatically.
     if st.button("⏹ End Session", key="terminate_hidden_trigger"):
         log_audit(user, "LOGOUT", "SESSION", reason="Fixed top-right terminate button")
-        for k in ["authenticated", "user_name", "user_role", "last_activity",
-                  "sop_file_bytes", "sop_file_name"]:
-            st.session_state[k] = False if k == "authenticated" else (
-                None if k in ["sop_file_bytes", "sop_file_name", "last_activity"] else ""
-            )
+        st.session_state.clear()   # wipe everything — no stale results on re-login
         st.rerun()
 
     _st_components.html("""
