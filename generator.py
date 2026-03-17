@@ -3759,8 +3759,9 @@ def show_app():
                     r'\bstep\s+\d\b', r'\bmodule\b', r'\btab\b', r'\bform\b',
                     r'\bsystem\b', r'\bapplication\b', r'\bsoftware\b',
                 ]
-                # Negative signals — personal/non-operational documents
+                # Negative signals — personal/non-operational documents AND mis-filed URS docs
                 _SYS_NEGATIVE = [
+                    # ── Personal / financial documents ──
                     r'\bwork experience\b', r'\bemployment history\b',
                     r'\bcurriculum vitae\b', r'\b\bcv\b\b',
                     r'\beducation\b.*\buniversity\b', r'\bdegree\b.*\bgraduat',
@@ -3769,33 +3770,63 @@ def show_app():
                     r'\binvoice\b', r'\bpurchase order\b',
                     r'\btotal due\b', r'\bremit payment\b',
                     r'\bdear\b.*\bsincerely\b',
+                    # ── URS / requirements documents filed in wrong slot ──
+                    # These belong in the main URS uploader, not the sidebar
+                    r'\buser requirement specification\b',
+                    r'\buser requirements specification\b',
+                    r'\burs[-\s]\d{3}\b',          # URS-001, URS 001 style IDs
+                    r'\breq[-\s]?id\b',             # REQ ID column header
+                    r'\bthe system shall\b',        # classic shall-style requirement
+                    r'\bthe system must\b',
+                    r'\bintended use\b',
+                    r'\bdocument number\b.*\bversion\b',  # URS cover page pattern
+                    r'\bvalidation plan\b',
+                    r'\bfunctional requirement\b',
                 ]
-                if _sys_sample:
-                    _neg_hits = [p for p in _SYS_NEGATIVE
-                                 if re.search(p, _sys_sample, re.IGNORECASE)]
-                    _pos_hits = [p for p in _SYS_POSITIVE
-                                 if re.search(p, _sys_sample, re.IGNORECASE)]
+                # ── URS mis-file check runs first ─────────────────────────────
+                _URS_SIGNALS = [
+                    r'\bthe system shall\b', r'\bthe system must\b',
+                    r'\buser requirement specification\b',
+                    r'\burs[-\s]\d{3}\b', r'\breq[-\s]?id\b',
+                ]
+                _is_urs = any(re.search(p, _sys_sample, re.IGNORECASE)
+                              for p in _URS_SIGNALS)
 
-                    if _neg_hits:
+                if _sys_sample:
+                    if _is_urs:
                         st.sidebar.error(
-                            "⛔ **Document rejected** — this appears to be a personal or "
-                            "non-operational document (CV, invoice, letter, etc.). "
-                            "Upload a system User Guide, operational SOP, or instruction manual."
+                            "⛔ **Wrong slot** — this looks like a **URS / Requirements document**. "
+                            "This sidebar is for your system's User Guide, operational SOP, or "
+                            "instruction manual — the document that describes *how the system works*. "
+                            "\n\n📥 Upload your URS in the **main panel** (\"Upload URS (The 'What')\") instead."
                         )
                         st.session_state["sys_context_bytes"] = None
                         st.session_state["sys_context_name"]  = None
-                    elif len(_pos_hits) < 3:
-                        st.sidebar.warning(
-                            f"⚠️ **Low system-doc signal** ({len(_pos_hits)} indicator(s)). "
-                            "Expected a User Guide, SOP, or instruction manual with screen "
-                            "names, workflow steps, or procedural language. "
-                            "The document will be used but may not improve FRS quality."
-                        )
-                        st.session_state["sys_context_bytes"] = raw
-                        st.session_state["sys_context_name"]  = sidebar_sys.name
                     else:
-                        st.session_state["sys_context_bytes"] = raw
-                        st.session_state["sys_context_name"]  = sidebar_sys.name
+                        _neg_hits = [p for p in _SYS_NEGATIVE
+                                     if re.search(p, _sys_sample, re.IGNORECASE)]
+                        _pos_hits = [p for p in _SYS_POSITIVE
+                                     if re.search(p, _sys_sample, re.IGNORECASE)]
+                        if _neg_hits:
+                            st.sidebar.error(
+                                "⛔ **Document rejected** — this appears to be a personal or "
+                                "non-operational document (CV, invoice, letter, etc.). "
+                                "Upload a system User Guide, operational SOP, or instruction manual."
+                            )
+                            st.session_state["sys_context_bytes"] = None
+                            st.session_state["sys_context_name"]  = None
+                        elif len(_pos_hits) < 3:
+                            st.sidebar.warning(
+                                f"⚠️ **Low system-doc signal** ({len(_pos_hits)} indicator(s)). "
+                                "Expected a User Guide, SOP, or instruction manual with screen "
+                                "names, workflow steps, or procedural language. "
+                                "The document will be used but may not improve FRS quality."
+                            )
+                            st.session_state["sys_context_bytes"] = raw
+                            st.session_state["sys_context_name"]  = sidebar_sys.name
+                        else:
+                            st.session_state["sys_context_bytes"] = raw
+                            st.session_state["sys_context_name"]  = sidebar_sys.name
                 else:
                     # Couldn't extract text (image-only PDF) — accept with warning
                     st.sidebar.warning(
