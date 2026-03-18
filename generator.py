@@ -1062,7 +1062,12 @@ def build_pass2_prompt(urs_csv: str, sys_context: str = "") -> str:
         system_guidance = (
             "Use the System User Guide above to determine the specific screens, fields, "
             "modules, and workflows that the system uses to implement each URS requirement. "
-            "FRS descriptions must reference the actual product terminology from that guide."
+            "FRS descriptions must reference the actual product terminology from that guide. "
+            "For OQ test steps: apply RULE A for infrastructure/non-functional requirements "
+            "(availability, uptime, SLA, failover) — write technical verification procedures, "
+            "NOT UI navigation. Apply RULE B for application features described in the guide "
+            "using exact screen and field names. Apply RULE C (prefix [SCREEN UNVERIFIED], "
+            "Confidence=0.60) for application features NOT described in the guide."
         )
     else:
         context_block = ""
@@ -1070,11 +1075,14 @@ def build_pass2_prompt(urs_csv: str, sys_context: str = "") -> str:
             "NO system user guide was provided. "
             "Infer the system type from the URS content (e.g. LIMS, SAP, Veeva Vault, ERP, "
             "MES, QMS, CTMS, eTMF, or similar GxP platform). "
-            "Then write FRS descriptions as a BEST-PRACTICE implementation for that system type. "
-            "Use plausible but generic screen names, field names, and module names appropriate "
-            "for that platform category (e.g. 'Sample Registration screen', 'Batch Record module', "
-            "'Audit Trail viewer'). The goal is a solid, credible FRS that a real validation "
-            "engineer would recognise as correctly scoped for that type of system."
+            "Write FRS descriptions as best-practice implementation for that system type using "
+            "plausible but generic screen/module names. Set Source_Section = 'URS-derived' for "
+            "all FRS rows. "
+            "For OQ test steps: apply RULE A for infrastructure/non-functional requirements "
+            "(write technical verification procedures, not UI navigation). "
+            "Apply RULE C for all application feature requirements — prefix every Test_Step "
+            "with [SCREEN UNVERIFIED] and set Confidence = 0.60. "
+            "This is required because screen names cannot be verified without a guide."
         )
 
     return f"""
@@ -1154,8 +1162,32 @@ Dataset 2 (OQ): Test_ID,Requirement_Link,Requirement_Link_Type,Test_Type,Test_St
       Negative_Test    — verifies the system rejects invalid input or handles errors
       Performance      — verifies response time or throughput criteria
     Every OQ row must have exactly one Test_Type value from this list.
-  - Test_Step: concrete, executable action (e.g. "Navigate to Sample Registration screen.
-    Enter 'SMP-0042' in Sample_ID field. Click Save.")
+
+  CRITICAL TEST_STEP RULES — apply in this priority order:
+
+  RULE A — Infrastructure / Non-functional requirements (availability, uptime, SLA, failover,
+  disaster recovery, performance under load, scalability):
+    Do NOT invent UI navigation steps. There is no screen to click.
+    Write a TECHNICAL VERIFICATION PROCEDURE instead, e.g.:
+    "Simulate primary node failure by stopping the application service; measure elapsed time
+    before secondary node assumes traffic; verify system responds within defined RTO."
+    Test_Type MUST be Performance for these. Confidence MUST be ≤0.70.
+
+  RULE B — Application feature, System User Guide PROVIDED and covers this screen:
+    Write specific, executable UI steps using exact screen names, field labels, button labels,
+    and menu paths from the guide. Be precise — name the exact screen and control.
+
+  RULE C — Application feature, NO System User Guide provided OR guide does not cover
+  this specific screen/feature:
+    Prefix the step with [SCREEN UNVERIFIED] and write logically correct steps using
+    functionally accurate but generic language, e.g.:
+    "[SCREEN UNVERIFIED] Navigate to the audit export feature; apply a date range filter;
+    initiate CSV export; verify file downloads with correct columns and row count."
+    Set Confidence to 0.60 so it auto-flags for human verification before test execution.
+    This is honest — a validator can fill in the exact screen path during review.
+    NEVER invent specific menu paths or button labels that are not in the guide.
+
+  - Test_Step: apply the rules above. Single line, semicolons between steps.
   - Expected_Result: specific, measurable outcome (e.g. "Record saved. Sample_ID 'SMP-0042'
     appears in the sample master table. No error message shown.")
   - Pass_Fail_Criteria: objective pass condition (e.g. "Pass if record confirmed in DB within
@@ -1167,7 +1199,7 @@ Dataset 2 (OQ): Test_ID,Requirement_Link,Requirement_Link_Type,Test_Type,Test_St
     min_length=8 from the Admin Configuration panel." Never write vague answers like
     "screenshot of results."
   - Source: "Derived from <URS Req_ID>" e.g. "Derived from URS-004"
-  - Confidence: 0.00–1.00 test coverage confidence
+  - Confidence: 0.00–1.00 test coverage confidence. Cap at 0.60 for RULE C. Cap at 0.70 for RULE A.
   - Confidence_Flag: "Review Required" if Confidence < 0.70, else blank
   - Coverage rule: High-Risk FRS → ≥3 OQ tests (positive, negative, boundary).
     Medium → ≥2 (positive + negative). Low → ≥1 (positive path).
@@ -1221,14 +1253,27 @@ Dataset 2 (OQ): Test_ID,Requirement_Link,Requirement_Link_Type,Test_Type,Test_St
   - Requirement_Link: FRS-NNN (e.g. FRS-001)
   - Requirement_Link_Type: FRS
   - Test_Type: one of — Functional / Security / Data_Integrity / Negative_Test / Performance
-  - Test_Step: single line; use semicolons to separate steps, e.g. "Open Login screen; enter username 'testuser'; enter password; click Login"
-  - Expected_Result: single line outcome, e.g. "User is authenticated and redirected to Dashboard"
-  - Pass_Fail_Criteria: single line pass condition, e.g. "Pass if dashboard loads within 3s and no error shown"
-  - Suggested_Evidence: specific artifact an FDA auditor requires as objective evidence — name
-    exact screen, log, config record, or error message. E.g. "Screenshot of 'Error: Password
-    too short' from Login screen AND Security Policy export showing min_length=8."
+
+  CRITICAL TEST_STEP RULES — apply in priority order:
+  RULE A — Infrastructure/non-functional (availability, uptime, SLA, failover, high-availability,
+  disaster recovery, scalability, performance under load):
+    Write a TECHNICAL VERIFICATION PROCEDURE — no UI steps. E.g.:
+    "Simulate primary node failure; measure time to failover; verify system available within RTO."
+    Test_Type = Performance. Confidence ≤ 0.70.
+  RULE B — Application feature WITH guide coverage: use exact screen/field/button names from guide.
+  RULE C — Application feature WITHOUT guide coverage (or guide does not cover this screen):
+    Prefix with [SCREEN UNVERIFIED] and write functionally correct but generic steps.
+    Set Confidence = 0.60 so it auto-flags for human verification.
+    NEVER invent specific menu paths not found in the guide.
+
+  - Test_Step: apply rules above. Single line, semicolons between steps.
+  - Expected_Result: single line outcome
+  - Pass_Fail_Criteria: single line pass condition
+  - Suggested_Evidence: specific artifact an FDA auditor requires — exact screen, log, config
+    record, or error message. E.g. "Screenshot of 'Error: Password too short' from Login screen
+    AND Security Policy export showing min_length=8."
   - Source: "Derived from URS-NNN"
-  - Confidence: decimal 0.00–1.00
+  - Confidence: 0.00–1.00. Cap at 0.60 for RULE C. Cap at 0.70 for RULE A.
   - Confidence_Flag: "Review Required" if Confidence < 0.70, else blank
   - Rule: High-Risk FRS → ≥3 OQ rows. Medium → ≥2. Low → ≥1.
 
@@ -4387,6 +4432,10 @@ def show_app():
                 "cov_pct":           cov_pct,
                 "gap_count":         len(gap_df),
                 "det_count":         len(det_df),
+                "non_testable_count": int(
+                    det_df[det_df["Gap_Type"].astype(str) == "Non_Testable_Requirement"].shape[0]
+                    if not det_df.empty and "Gap_Type" in det_df.columns else 0
+                ),
                 "file_name":         file_name,
                 "model_name":        st.session_state.selected_model,
                 "doc_ids":           doc_ids,
@@ -4469,12 +4518,16 @@ def show_app():
 </div>
 """, unsafe_allow_html=True)
 
-        col1, col2, col3, col4, col5 = st.columns(5)
+        col1, col2, col3, col4, col5, col6 = st.columns(6)
         col1.metric("📄 URS Requirements", r["total_urs"])
         col2.metric("📋 FRS Requirements", r["total_reqs"])
         col3.metric("🧪 OQ Test Cases",    r["total_tests"])
         col4.metric("📊 Coverage",          f"{r['cov_pct']}%")
         col5.metric("⚠️ Issues (AI+Det)",   r["gap_count"] + r["det_count"])
+        col6.metric("🚫 Non-Testable",
+                    f"{round(r.get('non_testable_count',0)/r['total_urs']*100,1) if r['total_urs']>0 else 0}%",
+                    delta=f"{r.get('non_testable_count',0)} reqs",
+                    delta_color="inverse")
 
         # ── Hero metric: Unmitigated GxP Risks ───────────────────────────────
         # Counts High-Risk FRS items with zero OQ test coverage — the single
@@ -4523,6 +4576,51 @@ def show_app():
       <p style="margin:0;color:{'#fca5a5' if _unmitigated > 0 else '#6ee7b7'};
                 font-size:0.85rem;font-weight:600;">{_hero_label}</p>
       <p style="margin:4px 0 0 0;color:#94a3b8;font-size:0.76rem;">{_hero_detail}</p>
+    </div>
+  </div>
+</div>
+""", unsafe_allow_html=True)
+
+        # ── Non-Testable % hero card ──────────────────────────────────────────
+        _nt_count = r.get("non_testable_count", 0)
+        _nt_pct   = round(_nt_count / r["total_urs"] * 100, 1) if r["total_urs"] > 0 else 0.0
+        _nt_color = "#dc2626" if _nt_pct >= 20 else ("#d97706" if _nt_pct >= 10 else "#059669")
+        _nt_bg    = "#1a0505"  if _nt_pct >= 20 else ("#1a1000" if _nt_pct >= 10 else "#052019")
+        _nt_status = (
+            "CRITICAL — URS requires significant rewriting before validation"
+            if _nt_pct >= 20 else
+            "WARNING — Some requirements need measurable acceptance criteria"
+            if _nt_pct >= 10 else
+            "PASS — URS is sufficiently testable for validation"
+        )
+        _nt_detail = (
+            f"{_nt_count} of {r['total_urs']} requirements contain ambiguous or non-testable language "
+            f"(e.g. 'user-friendly', 'fast', 'should'). "
+            "These cannot be objectively validated — a direct 21 CFR Part 11 compliance risk. "
+            "See Det_Validation tab → Rule R3d for specific terms and remediation guidance."
+            if _nt_count > 0 else
+            "All URS requirements contain measurable, testable language. No ambiguous terms detected."
+        )
+        st.markdown(f"""
+<div style="background:{_nt_bg};border:2px solid {_nt_color};border-radius:12px;
+            padding:16px 24px;margin:8px 0 12px 0;font-family:'Inter',sans-serif;">
+  <div style="display:flex;align-items:center;gap:12px;">
+    <span style="font-size:2rem;">{'🔴' if _nt_pct >= 20 else ('🟡' if _nt_pct >= 10 else '🟢')}</span>
+    <div>
+      <p style="margin:0;color:#94a3b8;font-size:0.72rem;letter-spacing:2px;
+                text-transform:uppercase;">Non-Testable Requirements</p>
+      <p style="margin:0;font-size:2rem;font-weight:800;color:{_nt_color};line-height:1;">
+        {_nt_pct}%
+        <span style="font-size:1rem;font-weight:400;color:#64748b;margin-left:8px;">
+          ({_nt_count} of {r['total_urs']} requirements)
+        </span>
+      </p>
+    </div>
+    <div style="margin-left:16px;border-left:1px solid #334155;padding-left:16px;">
+      <p style="margin:0;font-size:0.85rem;font-weight:600;
+                color:{'#fca5a5' if _nt_pct >= 20 else ('#fde68a' if _nt_pct >= 10 else '#6ee7b7')};">
+        {_nt_status}</p>
+      <p style="margin:4px 0 0 0;color:#94a3b8;font-size:0.76rem;">{_nt_detail}</p>
     </div>
   </div>
 </div>
