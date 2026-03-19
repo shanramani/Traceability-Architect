@@ -3414,6 +3414,18 @@ _defaults = {
     "pass2_chunk_size":   40,      # user-tunable batch size for Pass 2 (20/40/60)
     "show_esig_form":     False,   # True when user clicked a download button → show inline form
     "esig_target":        None,    # "xlsx" or "pdf" — which format triggered the e-sig form
+    "app_mode":           "New Validation",   # sidebar mode selector
+    # ── Change Impact Analysis slots ────────────────────────────────────────
+    "cia_change_spec_bytes": None,
+    "cia_change_spec_name":  None,
+    "cia_frs_bytes":         None,
+    "cia_frs_name":          None,
+    "cia_oq_bytes":          None,
+    "cia_oq_name":           None,
+    "cia_trace_bytes":       None,
+    "cia_trace_name":        None,
+    "cia_result":            None,   # completed CIA output dict
+    "cia_key_n":             0,      # increment to reset all CIA uploaders
 }
 for _k, _v in _defaults.items():
     if _k not in st.session_state:
@@ -3749,6 +3761,722 @@ def _capture_client_ip():
     </script>
     """, height=0)
 
+
+# =============================================================================
+# 10b. CHANGE IMPACT ANALYSIS — BACKEND
+# =============================================================================
+
+def detect_tabular_doc_type(df: pd.DataFrame) -> str:
+    """
+    Fingerprint an uploaded tabular document (xlsx/csv) by column headers
+    and ID patterns.  Returns: 'FRS' | 'OQ' | 'Traceability' | 'URS' | 'Unknown'
+    """
+    if df is None or df.empty:
+        return "Unknown"
+    cols     = [str(c).strip().lower() for c in df.columns]
+    first_col = df.iloc[:, 0].astype(str).str.strip()
+
+    # Count ID pattern matches in first column
+    frs_ids   = first_col.str.match(r'^FRS-\d+', case=False).sum()
+    oq_ids    = first_col.str.match(r'^OQ-\d+',  case=False).sum()
+    urs_ids   = first_col.str.match(r'^URS-\d+', case=False).sum()
+
+    has_test_step    = any(c in cols for c in ['test_step', 'expected_result', 'pass_fail_criteria'])
+    has_req_desc     = any('requirement_description' in c or 'req_desc' in c for c in cols)
+    has_coverage     = any('coverage_status' in c or 'coverage' in c for c in cols)
+    has_frs_ref      = any('frs_ref' in c or 'frs_id' in c for c in cols)
+    has_urs_ref      = any('urs_req_id' in c or 'urs_ref' in c or 'urs_id' in c for c in cols)
+    has_test_id_col  = any('test_id' in c for c in cols)
+
+    # Traceability: has URS ref + FRS ref + Test_ID in same sheet
+    if (has_urs_ref or urs_ids > 0) and (has_frs_ref or frs_ids > 0) and has_test_id_col:
+        return "Traceability"
+    if has_coverage and has_frs_ref:
+        return "Traceability"
+
+    # OQ
+    if has_test_step or oq_ids > 3:
+        return "OQ"
+
+    # FRS
+    if (has_req_desc or frs_ids > 3) and not has_test_step:
+        return "FRS"
+
+    # URS
+    if urs_ids > 3:
+        return "URS"
+
+    return "Unknown"
+
+
+def _load_tabular(file_bytes: bytes, file_name: str) -> pd.DataFrame:
+    """Load xlsx or csv into a DataFrame regardless of extension."""
+    try:
+        if file_name.lower().endswith(".csv"):
+            return pd.read_csv(io.BytesIO(file_bytes), dtype=str).fillna("")
+        else:
+            return pd.read_excel(io.BytesIO(file_bytes), dtype=str).fillna("")
+    except Exception as e:
+        st.error(f"⛔ Could not read {file_name}: {e}")
+        return pd.DataFrame()
+
+
+def _validate_cia_slot(file_bytes, file_name, expected_type: str, slot_label: str):
+    """
+    Run type detection on an uploaded tabular file and return (df, ok, message).
+    For PDFs (change spec + FRS), skip tabular detection.
+    """
+    if file_bytes is None:
+        return None, False, ""
+
+    # PDF slots — change spec and FRS are PDFs, skip column fingerprinting
+    if file_name.lower().endswith(".pdf"):
+        return file_bytes, True, f"✅ **{slot_label}** — PDF loaded ({len(file_bytes)//1024} KB)"
+
+    df = _load_tabular(file_bytes, file_name)
+    if df.empty:
+        return None, False, f"⛔ **{slot_label}** — file is empty or could not be read."
+
+    detected = detect_tabular_doc_type(df)
+
+    if detected == expected_type:
+        row_count = len(df)
+        first_id  = str(df.iloc[0, 0]) if not df.empty else "?"
+        last_id   = str(df.iloc[-1, 0]) if not df.empty else "?"
+        return df, True, (
+            f"✅ **{slot_label}** — {detected} detected, "
+            f"{row_count} rows ({first_id} → {last_id})"
+        )
+    elif detected == "Unknown":
+        return df, True, (
+            f"⚠️ **{slot_label}** — document type unclear. "
+            f"Expected {expected_type}. Verify columns match before running."
+        )
+    else:
+        return None, False, (
+            f"⛔ **{slot_label}** — wrong document. "
+            f"Detected **{detected}** but this slot expects **{expected_type}**. "
+            f"Please upload your {expected_type} file here."
+        )
+
+
+def build_cia_pass1_prompt(change_spec_text: str) -> str:
+    """Extract structured change table from change specification PDF."""
+    return f"""
+CHANGE SPECIFICATION DOCUMENT:
+{change_spec_text[:6000]}
+
+TASK: Extract every discrete change from this document into a single CSV.
+Output ONLY the CSV — include the header row.
+
+CSV columns:
+Change_ID,Change_Type,Affected_Area,Description,Impact_Scope
+
+Rules:
+- Change_ID: sequential CHG-NNN (e.g. CHG-001)
+- Change_Type: one of —
+    New_Feature         (brand new capability added)
+    Modified_Behaviour  (existing behaviour changed)
+    Removed_Feature     (existing capability removed)
+    Config_Change       (configuration/parameter change)
+    Performance_Change  (SLA, response time, capacity change)
+    Security_Change     (auth, access control, encryption change)
+    Bug_Fix             (defect corrected, may affect existing tests)
+- Affected_Area: which functional area or module is affected (e.g. "Authentication", "Audit Trail", "Reporting")
+- Description: one sentence, precise description of what changed
+- Impact_Scope: Critical / High / Medium / Low
+    Critical = patient safety, electronic records, audit trail, e-signatures
+    High     = data integrity, access control, core workflows
+    Medium   = secondary features, notifications, UI changes
+    Low      = cosmetic, labels, minor config
+"""
+
+
+def build_cia_pass2_prompt(
+    chg_csv: str,
+    frs_text: str,
+    oq_df: pd.DataFrame,
+    trace_df: pd.DataFrame
+) -> str:
+    """
+    Map each change to impact on existing FRS rows, OQ rows, and trace links.
+    Uses the trace matrix to build the relationship graph first.
+    """
+    # Build compact OQ and trace summaries to keep prompt within token budget
+    oq_summary  = oq_df[oq_df.columns[:5]].head(80).to_csv(index=False) if not oq_df.empty else "No OQ provided"
+    trc_summary = trace_df.head(80).to_csv(index=False) if not trace_df.empty else "No traceability matrix provided"
+
+    return f"""
+CHANGE TABLE (extracted in Pass 1):
+{chg_csv}
+
+EXISTING APPROVED FRS (first 4000 chars):
+{frs_text[:4000]}
+
+EXISTING OQ TEST CASES (first 80 rows):
+{oq_summary}
+
+EXISTING TRACEABILITY MATRIX (first 80 rows):
+{trc_summary}
+
+TASK: For each change in the Change Table, identify ALL impacted rows in the
+FRS and OQ. Output TWO datasets separated by |||
+
+Dataset 1 (FRS_Impact): FRS_ID,Change_Driver,Impact_Status,Rationale,Action_Required
+- FRS_ID: the existing FRS row ID (e.g. FRS-007). Only include rows that are impacted.
+- Change_Driver: the CHG-NNN ID that causes this impact
+- Impact_Status: one of —
+    Must_Update   — directly contradicted or made incorrect by this change
+    Needs_Review  — possibly affected, human must verify
+    Obsolete      — feature removed; this FRS row should be retired
+    New_Required  — net-new functionality with no existing FRS row (use FRS_ID = "NEW")
+- Rationale: one sentence explaining why this row is impacted
+- Action_Required: specific instruction for the validation engineer (e.g. "Update
+  password length criterion from 8 to 12 characters in requirement description")
+
+Dataset 2 (OQ_Impact): OQ_ID,Change_Driver,Impact_Status,Rationale,Action_Required
+- OQ_ID: the existing OQ test ID (e.g. OQ-012). Use "NEW" for net-new tests needed.
+- Use the Traceability Matrix to propagate impact: if a FRS row is Must_Update,
+  ALL OQ tests linked to that FRS row via the trace matrix are also Must_Update
+  unless you have specific reason to exclude one.
+- Impact_Status: same values as above
+- Rationale and Action_Required: same as above
+
+IMPORTANT: Only include rows that are actually impacted. Do NOT list Unaffected rows.
+|||
+"""
+
+
+def run_cia_analysis(
+    change_spec_bytes: bytes,
+    frs_bytes: bytes,
+    oq_df: pd.DataFrame,
+    trace_df: pd.DataFrame,
+    model_id: str,
+    status_widget,
+    progress_widget
+) -> dict:
+    """
+    Full Change Impact Analysis pipeline.
+    Returns dict with keys: chg_df, frs_impact_df, oq_impact_df, summary
+    """
+    from litellm import completion as _completion
+
+    # Extract text from PDFs
+    status_widget.text("📄 Extracting change specification text...")
+    progress_widget.progress(0.1)
+    chg_pages  = extract_pages(change_spec_bytes)
+    chg_text   = "\n".join(chg_pages)
+
+    frs_pages  = extract_pages(frs_bytes)
+    frs_text   = "\n".join(frs_pages)
+
+    # Pass 1 — extract structured change table
+    status_widget.text("🔍 Pass 1 — Extracting structured change table from spec...")
+    progress_widget.progress(0.25)
+    p1_resp = _completion(
+        model=model_id, stream=False, temperature=TEMPERATURE,
+        messages=[
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user",   "content": build_cia_pass1_prompt(chg_text)}
+        ]
+    )
+    raw_chg = p1_resp.choices[0].message.content or ""
+    raw_chg = re.sub(r'^```[a-zA-Z]*\n?', '', raw_chg, flags=re.MULTILINE)
+    raw_chg = re.sub(r'```\s*$', '', raw_chg, flags=re.MULTILINE).strip()
+    chg_df  = _csv_to_df(raw_chg)
+
+    if chg_df.empty:
+        raise RuntimeError(
+            "Pass 1 extracted zero changes from the change specification. "
+            "Ensure the document describes specific system changes."
+        )
+
+    status_widget.text(f"✅ {len(chg_df)} changes extracted. Running impact mapping...")
+    progress_widget.progress(0.5)
+
+    # Pass 2 — impact mapping
+    status_widget.text("🗺️ Pass 2 — Mapping changes to existing FRS and OQ rows...")
+    p2_resp = _completion(
+        model=model_id, stream=False, temperature=TEMPERATURE,
+        messages=[
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user",   "content": build_cia_pass2_prompt(
+                raw_chg, frs_text, oq_df, trace_df
+            )}
+        ]
+    )
+    raw_p2 = p2_resp.choices[0].message.content or ""
+    raw_p2 = re.sub(r'^```[a-zA-Z]*\n?', '', raw_p2, flags=re.MULTILINE)
+    raw_p2 = re.sub(r'```\s*$', '', raw_p2, flags=re.MULTILINE).strip()
+
+    parts = [p.strip() for p in raw_p2.split("|||")]
+    frs_impact_df = _csv_to_df(parts[0]) if len(parts) > 0 else pd.DataFrame()
+    oq_impact_df  = _csv_to_df(parts[1]) if len(parts) > 1 else pd.DataFrame()
+
+    # Cross-validate: propagate Must_Update through trace matrix
+    if not trace_df.empty and not frs_impact_df.empty:
+        status_widget.text("🔗 Propagating impact through traceability matrix...")
+        progress_widget.progress(0.75)
+        # Find all OQ IDs linked to Must_Update FRS rows via trace
+        must_update_frs = set(
+            frs_impact_df[frs_impact_df.get("Impact_Status", pd.Series()) == "Must_Update"]
+            .get("FRS_ID", pd.Series()).astype(str)
+        )
+        # Look for trace columns — flexible naming
+        frs_col = next((c for c in trace_df.columns if "frs" in c.lower()), None)
+        oq_col  = next((c for c in trace_df.columns if "test_id" in c.lower() or
+                        c.lower().startswith("oq")), None)
+        if frs_col and oq_col:
+            linked_oq = set(
+                trace_df[trace_df[frs_col].astype(str).isin(must_update_frs)]
+                [oq_col].astype(str)
+            )
+            if not oq_impact_df.empty and "OQ_ID" in oq_impact_df.columns:
+                already_flagged = set(oq_impact_df["OQ_ID"].astype(str))
+                newly_flagged   = linked_oq - already_flagged - {"NEW"}
+                if newly_flagged:
+                    extra_rows = pd.DataFrame([{
+                        "OQ_ID":          oid,
+                        "Change_Driver":  "Trace-propagated",
+                        "Impact_Status":  "Must_Update",
+                        "Rationale":      "Linked FRS row marked Must_Update via traceability matrix.",
+                        "Action_Required": "Verify this test still passes given the changed FRS requirement.",
+                    } for oid in sorted(newly_flagged)])
+                    oq_impact_df = pd.concat([oq_impact_df, extra_rows], ignore_index=True)
+
+    progress_widget.progress(1.0)
+    status_widget.text("✅ Change impact analysis complete.")
+
+    # Summary counts
+    def _count(df, col, val):
+        if df.empty or col not in df.columns:
+            return 0
+        return int((df[col].astype(str) == val).sum())
+
+    summary = {
+        "total_changes":    len(chg_df),
+        "frs_must_update":  _count(frs_impact_df, "Impact_Status", "Must_Update"),
+        "frs_needs_review": _count(frs_impact_df, "Impact_Status", "Needs_Review"),
+        "frs_obsolete":     _count(frs_impact_df, "Impact_Status", "Obsolete"),
+        "frs_new":          _count(frs_impact_df, "Impact_Status", "New_Required"),
+        "oq_must_update":   _count(oq_impact_df,  "Impact_Status", "Must_Update"),
+        "oq_needs_review":  _count(oq_impact_df,  "Impact_Status", "Needs_Review"),
+        "oq_obsolete":      _count(oq_impact_df,  "Impact_Status", "Obsolete"),
+        "oq_new":           _count(oq_impact_df,  "Impact_Status", "New_Required"),
+    }
+
+    return {
+        "chg_df":        chg_df,
+        "frs_impact_df": frs_impact_df,
+        "oq_impact_df":  oq_impact_df,
+        "summary":       summary,
+    }
+
+
+def build_cia_excel(result: dict, user: str, file_name: str, model_name: str) -> bytes:
+    """Build the Change Impact Analysis Excel workbook."""
+    output = io.BytesIO()
+
+    STATUS_COLORS = {
+        "Must_Update":   "FEE2E2",   # red
+        "Needs_Review":  "FEF9C3",   # yellow
+        "Obsolete":      "E5E7EB",   # grey
+        "New_Required":  "DBEAFE",   # blue
+    }
+
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        # Sheet 1 — Change Table
+        result["chg_df"].to_excel(writer, sheet_name="Changes", index=False)
+        # Sheet 2 — FRS Impact
+        result["frs_impact_df"].to_excel(writer, sheet_name="FRS_Impact", index=False)
+        # Sheet 3 — OQ Impact
+        result["oq_impact_df"].to_excel(writer, sheet_name="OQ_Impact", index=False)
+
+        wb = writer.book
+
+        for sheet_name in ["Changes", "FRS_Impact", "OQ_Impact"]:
+            if sheet_name not in wb.sheetnames:
+                continue
+            ws  = wb[sheet_name]
+            hdr = Font(bold=True, color="FFFFFF", size=10)
+            hf  = PatternFill("solid", fgColor="1E293B")
+            thin = Side(style="thin", color="CBD5E1")
+            bdr  = Border(left=thin, right=thin, top=thin, bottom=thin)
+
+            for col in range(1, ws.max_column + 1):
+                c = ws.cell(row=1, column=col)
+                c.font, c.fill, c.border = hdr, hf, bdr
+                c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+
+            # Colour rows by Impact_Status
+            if sheet_name in ("FRS_Impact", "OQ_Impact"):
+                hdr_vals = {ws.cell(row=1, column=c).value: c
+                            for c in range(1, ws.max_column + 1)}
+                status_col = hdr_vals.get("Impact_Status")
+                for row_i in range(2, ws.max_row + 1):
+                    status = ws.cell(row=row_i, column=status_col).value if status_col else ""
+                    fill_hex = STATUS_COLORS.get(str(status), "FFFFFF")
+                    fill = PatternFill("solid", fgColor=fill_hex)
+                    for col in range(1, ws.max_column + 1):
+                        cell = ws.cell(row=row_i, column=col)
+                        cell.fill   = fill
+                        cell.border = bdr
+                        cell.alignment = Alignment(vertical="top", wrap_text=True)
+
+            ws.auto_filter.ref = ws.dimensions
+            ws.freeze_panes    = "A2"
+            ws.sheet_properties.tabColor = (
+                "DC2626" if sheet_name == "FRS_Impact" else
+                "D97706" if sheet_name == "OQ_Impact" else "1E3A5F"
+            )
+            for col in range(1, ws.max_column + 1):
+                cl = get_column_letter(col)
+                ws.column_dimensions[cl].width = min(
+                    max(14, max(
+                        (len(str(ws.cell(r, col).value or "")) for r in range(1, ws.max_row + 1)),
+                        default=14
+                    ) + 4), 60
+                )
+
+        # Summary sheet
+        s = result["summary"]
+        summary_data = {
+            "Metric": [
+                "Total Changes Detected",
+                "FRS — Must Update", "FRS — Needs Review",
+                "FRS — Obsolete",    "FRS — New Required",
+                "OQ — Must Update",  "OQ — Needs Review",
+                "OQ — Obsolete",     "OQ — New Required",
+            ],
+            "Count": [
+                s["total_changes"],
+                s["frs_must_update"], s["frs_needs_review"],
+                s["frs_obsolete"],    s["frs_new"],
+                s["oq_must_update"],  s["oq_needs_review"],
+                s["oq_obsolete"],     s["oq_new"],
+            ],
+            "Action": [
+                "Review full change table",
+                "Update before next validation cycle",  "Human review required",
+                "Mark retired in document register",    "Generate new FRS rows",
+                "Re-execute tests after update",        "Re-verify before sign-off",
+                "Retire from test suite",               "Generate new OQ tests",
+            ]
+        }
+        pd.DataFrame(summary_data).to_excel(writer, sheet_name="Summary", index=False)
+        ws_s = wb["Summary"]
+        ws_s.sheet_properties.tabColor = "059669"
+
+    return output.getvalue()
+
+
+def show_change_impact(user: str, role: str, model_id: str):
+    """Render the Change Impact Analysis main panel."""
+    st.title("🔍 Change Impact Analysis")
+    st.markdown(
+        "<p style='color:#94a3b8;margin-top:-12px;'>Identify which existing FRS requirements "
+        "and OQ test cases are affected by a system change, version upgrade, or configuration update.</p>",
+        unsafe_allow_html=True
+    )
+
+    ck = st.session_state.get("cia_key_n", 0)
+
+    # ── Step 1 — Change Specification ──────────────────────────────────────
+    st.markdown("### Step 1 — Upload Change Specification")
+    st.caption("Change Request, Release Notes, Configuration Change Notice, or mini-URS (PDF)")
+    chg_widget = st.file_uploader(
+        "Change Spec", type="pdf",
+        key=f"cia_chg_{ck}", label_visibility="collapsed"
+    )
+    if chg_widget:
+        ok, msg = validate_upload(chg_widget)
+        if not ok:
+            st.error(msg)
+            st.session_state["cia_change_spec_bytes"] = None
+            st.session_state["cia_change_spec_name"]  = None
+        else:
+            st.session_state["cia_change_spec_bytes"] = chg_widget.getvalue()
+            st.session_state["cia_change_spec_name"]  = chg_widget.name
+            st.success(f"✅ **Change Spec** — {chg_widget.name} loaded "
+                       f"({len(chg_widget.getvalue())//1024} KB)")
+    elif chg_widget is None:
+        st.session_state["cia_change_spec_bytes"] = None
+        st.session_state["cia_change_spec_name"]  = None
+
+    st.markdown("---")
+
+    # ── Step 2 — Existing Validated Documents ──────────────────────────────
+    st.markdown("### Step 2 — Upload Existing Validated Documents")
+    st.caption(
+        "The Traceability Matrix is the **prerequisite** — it carries your URS requirement IDs "
+        "and their links to FRS and OQ. The URS document itself is not required."
+    )
+
+    col_frs, col_oq = st.columns(2)
+    col_trc, col_note = st.columns(2)
+
+    with col_frs:
+        st.caption("📄 Approved FRS (PDF)")
+        frs_widget = st.file_uploader(
+            "FRS", type=["pdf"],
+            key=f"cia_frs_{ck}", label_visibility="collapsed"
+        )
+        if frs_widget:
+            ok, msg = validate_upload(frs_widget)
+            if not ok:
+                st.error(msg)
+                st.session_state["cia_frs_bytes"] = None
+                st.session_state["cia_frs_name"]  = None
+            else:
+                st.session_state["cia_frs_bytes"] = frs_widget.getvalue()
+                st.session_state["cia_frs_name"]  = frs_widget.name
+                st.success(f"✅ FRS loaded — {frs_widget.name}")
+        elif frs_widget is None:
+            st.session_state["cia_frs_bytes"] = None
+            st.session_state["cia_frs_name"]  = None
+
+    with col_oq:
+        st.caption("📊 OQ Test Cases (.xlsx or .csv from test engine)")
+        oq_widget = st.file_uploader(
+            "OQ", type=["xlsx", "xls", "csv"],
+            key=f"cia_oq_{ck}", label_visibility="collapsed"
+        )
+        if oq_widget:
+            oq_bytes = oq_widget.getvalue()
+            oq_df_check = _load_tabular(oq_bytes, oq_widget.name)
+            _, ok, msg = _validate_cia_slot(oq_bytes, oq_widget.name, "OQ", "OQ Test Cases")
+            if not ok:
+                st.error(msg)
+                st.session_state["cia_oq_bytes"] = None
+                st.session_state["cia_oq_name"]  = None
+            else:
+                st.markdown(msg)
+                st.session_state["cia_oq_bytes"] = oq_bytes
+                st.session_state["cia_oq_name"]  = oq_widget.name
+        elif oq_widget is None:
+            st.session_state["cia_oq_bytes"] = None
+            st.session_state["cia_oq_name"]  = None
+
+    with col_trc:
+        st.caption("📊 Traceability Matrix (.xlsx or .csv)")
+        trc_widget = st.file_uploader(
+            "Trace", type=["xlsx", "xls", "csv"],
+            key=f"cia_trc_{ck}", label_visibility="collapsed"
+        )
+        if trc_widget:
+            trc_bytes = trc_widget.getvalue()
+            _, ok, msg = _validate_cia_slot(trc_bytes, trc_widget.name,
+                                            "Traceability", "Traceability Matrix")
+            if not ok:
+                st.error(msg)
+                st.session_state["cia_trace_bytes"] = None
+                st.session_state["cia_trace_name"]  = None
+            else:
+                st.markdown(msg)
+                st.session_state["cia_trace_bytes"] = trc_bytes
+                st.session_state["cia_trace_name"]  = trc_widget.name
+        elif trc_widget is None:
+            st.session_state["cia_trace_bytes"] = None
+            st.session_state["cia_trace_name"]  = None
+
+    with col_note:
+        st.caption("ℹ️ Prerequisites")
+        st.markdown(
+            "<p style='color:#64748b;font-size:0.82rem;'>"
+            "<b style='color:#e2e8f0;'>Traceability Matrix is required</b> — it contains your "
+            "URS requirement IDs (URS-NNN) already linked to FRS and OQ rows. "
+            "A separate URS upload is not needed.<br><br>"
+            "FRS: approved baseline PDF from your document management system.<br><br>"
+            "OQ and Traceability: export directly from your test management tool "
+            "(Veeva Vault, TestRail, Jira, HP ALM, etc.).</p>",
+            unsafe_allow_html=True
+        )
+
+    # ── Cross-slot consistency check ────────────────────────────────────────
+    oq_bytes  = st.session_state.get("cia_oq_bytes")
+    trc_bytes = st.session_state.get("cia_trace_bytes")
+    if oq_bytes and trc_bytes:
+        oq_df_v  = _load_tabular(oq_bytes,  st.session_state.get("cia_oq_name", ""))
+        trc_df_v = _load_tabular(trc_bytes, st.session_state.get("cia_trace_name", ""))
+        if not oq_df_v.empty and not trc_df_v.empty:
+            oq_ids_set  = set(oq_df_v.iloc[:, 0].astype(str).str.strip())
+            # Find OQ-like column in trace
+            trc_oq_col  = next((c for c in trc_df_v.columns
+                                if "test_id" in c.lower() or c.lower().startswith("oq")), None)
+            if trc_oq_col:
+                trc_oq_ids = set(trc_df_v[trc_oq_col].astype(str).str.strip())
+                shared     = oq_ids_set & trc_oq_ids
+                if len(shared) == 0 and len(oq_ids_set) > 0:
+                    st.warning(
+                        "⚠️ **Version mismatch** — no OQ IDs in the traceability matrix match "
+                        "the uploaded OQ file. These files may be from different validation cycles. "
+                        "Verify both files are from the same approved baseline."
+                    )
+
+    st.markdown("---")
+
+    # ── Run button ──────────────────────────────────────────────────────────
+    all_ready = all([
+        st.session_state.get("cia_change_spec_bytes"),
+        st.session_state.get("cia_frs_bytes"),
+        st.session_state.get("cia_oq_bytes"),
+        st.session_state.get("cia_trace_bytes"),
+    ])
+
+    _es, run_col, _es2 = st.columns([3, 4, 3])
+    with run_col:
+        run_cia = st.button(
+            "🔍 Run Change Impact Analysis",
+            key="run_cia_btn",
+            disabled=not all_ready,
+            use_container_width=True,
+            type="primary"
+        )
+
+    if not all_ready:
+        missing = [
+            label for label, key in [
+                ("Change Specification", "cia_change_spec_bytes"),
+                ("FRS",                  "cia_frs_bytes"),
+                ("OQ Test Cases",        "cia_oq_bytes"),
+                ("Traceability Matrix",  "cia_trace_bytes"),
+            ] if not st.session_state.get(key)
+        ]
+        st.info(f"📋 Still needed: {', '.join(missing)}")
+
+    if run_cia:
+        oq_df_run  = _load_tabular(
+            st.session_state["cia_oq_bytes"],
+            st.session_state["cia_oq_name"]
+        )
+        trc_df_run = _load_tabular(
+            st.session_state["cia_trace_bytes"],
+            st.session_state["cia_trace_name"]
+        )
+        progress_bar = st.progress(0)
+        status_text  = st.empty()
+
+        with st.status("🔍 Change Impact Analysis Pipeline", expanded=True) as cia_status:
+            try:
+                st.write("📄 Step 1: Extracting change specification...")
+                st.write("🗺️ Step 2: Mapping changes to existing FRS requirements...")
+                st.write("🧪 Step 3: Propagating impact through traceability matrix to OQ tests...")
+                st.write("📊 Step 4: Compiling impact report...")
+
+                result = run_cia_analysis(
+                    change_spec_bytes = st.session_state["cia_change_spec_bytes"],
+                    frs_bytes         = st.session_state["cia_frs_bytes"],
+                    oq_df             = oq_df_run,
+                    trace_df          = trc_df_run,
+                    model_id          = model_id,
+                    status_widget     = status_text,
+                    progress_widget   = progress_bar,
+                )
+                cia_status.update(
+                    label=f"✅ Complete — {result['summary']['total_changes']} changes, "
+                          f"{result['summary']['frs_must_update'] + result['summary']['oq_must_update']} "
+                          f"items require immediate action",
+                    state="complete", expanded=False
+                )
+                log_audit(user, "CIA_COMPLETE", "CHANGE_IMPACT",
+                          new_value=f"{result['summary']['total_changes']} changes detected",
+                          reason=f"Model: {st.session_state.selected_model}")
+                st.session_state["cia_result"] = result
+
+            except Exception as e:
+                cia_status.update(label="❌ Analysis failed", state="error")
+                st.error(f"❌ {e}")
+                log_audit(user, "CIA_ERROR", "CHANGE_IMPACT", reason=str(e)[:300])
+
+        progress_bar.empty()
+        status_text.empty()
+
+    # ── Display results ──────────────────────────────────────────────────────
+    cia_res = st.session_state.get("cia_result")
+    if cia_res:
+        s = cia_res["summary"]
+
+        # Hero metrics
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("📋 Changes Detected",    s["total_changes"])
+        m2.metric("🔴 FRS Must Update",     s["frs_must_update"])
+        m3.metric("🔴 OQ Must Update",      s["oq_must_update"])
+        m4.metric("🔵 New Items Required",  s["frs_new"] + s["oq_new"])
+
+        # Colour-coded hero cards
+        _c1, _c2, _c3 = st.columns(3)
+        for col, icon, label, frs_v, oq_v, color, bg in [
+            (_c1, "🔴", "Must Update",   s["frs_must_update"],  s["oq_must_update"],  "#dc2626", "#1a0505"),
+            (_c2, "🟡", "Needs Review",  s["frs_needs_review"], s["oq_needs_review"], "#d97706", "#1a1000"),
+            (_c3, "🔵", "New Required",  s["frs_new"],          s["oq_new"],          "#2563eb", "#0f1a2e"),
+        ]:
+            col.markdown(f"""
+<div style="background:{bg};border:2px solid {color};border-radius:10px;
+            padding:14px 18px;text-align:center;font-family:'Inter',sans-serif;">
+  <p style="margin:0;color:#94a3b8;font-size:0.7rem;letter-spacing:2px;
+            text-transform:uppercase;">{label}</p>
+  <p style="margin:4px 0 2px;font-size:1.6rem;font-weight:800;color:{color};">
+    FRS: {frs_v} &nbsp;|&nbsp; OQ: {oq_v}</p>
+  <span style="font-size:1.5rem;">{icon}</span>
+</div>""", unsafe_allow_html=True)
+
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        # Previews
+        with st.expander("📋 Changes Extracted from Spec", expanded=True):
+            st.dataframe(cia_res["chg_df"], use_container_width=True)
+
+        STATUS_DISPLAY = {
+            "Must_Update":  "🔴",
+            "Needs_Review": "🟡",
+            "Obsolete":     "⚫",
+            "New_Required": "🔵",
+        }
+
+        with st.expander("📐 FRS Impact", expanded=True):
+            frs_imp = cia_res["frs_impact_df"].copy()
+            if not frs_imp.empty and "Impact_Status" in frs_imp.columns:
+                frs_imp["Status"] = frs_imp["Impact_Status"].map(
+                    lambda x: f"{STATUS_DISPLAY.get(x, '')} {x}"
+                )
+            st.dataframe(frs_imp, use_container_width=True)
+
+        with st.expander("🧪 OQ Impact", expanded=True):
+            oq_imp = cia_res["oq_impact_df"].copy()
+            if not oq_imp.empty and "Impact_Status" in oq_imp.columns:
+                oq_imp["Status"] = oq_imp["Impact_Status"].map(
+                    lambda x: f"{STATUS_DISPLAY.get(x, '')} {x}"
+                )
+            st.dataframe(oq_imp, use_container_width=True)
+
+        # Download
+        st.markdown("---")
+        xlsx_bytes = build_cia_excel(
+            cia_res, user,
+            st.session_state.get("cia_change_spec_name", "change_spec"),
+            st.session_state.selected_model
+        )
+        dl1, _sp, clear_c = st.columns([5, 2, 2])
+        with dl1:
+            st.download_button(
+                label="📥 Download Change Impact Report (.xlsx)",
+                data=xlsx_bytes,
+                file_name=f"CIA_{st.session_state.get('cia_change_spec_name','report').replace('.pdf','')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key="cia_download_btn",
+                use_container_width=True,
+            )
+        with clear_c:
+            if st.button("🔄 New Analysis", key="cia_clear_btn", use_container_width=True):
+                for k in ["cia_change_spec_bytes","cia_change_spec_name","cia_frs_bytes",
+                          "cia_frs_name","cia_oq_bytes","cia_oq_name","cia_trace_bytes",
+                          "cia_trace_name","cia_result"]:
+                    st.session_state[k] = None
+                st.session_state["cia_key_n"] = st.session_state.get("cia_key_n", 0) + 1
+                st.rerun()
+
+
 # =============================================================================
 # 11. LOGIN
 # =============================================================================
@@ -3837,6 +4565,21 @@ def show_app():
     # ── Sidebar ──
     with st.sidebar:
         st.markdown(f'<p class="sb-title">CSV Generator v{VERSION}</p>', unsafe_allow_html=True)
+        st.divider()
+        st.markdown('<p class="sb-sub">🔧 Analysis Mode</p>', unsafe_allow_html=True)
+        app_mode = st.radio(
+            "Mode",
+            ["New Validation", "Change Impact Analysis",
+             "Gap Audit (coming soon)", "Periodic Review (coming soon)", "Delta Generation (coming soon)"],
+            index=["New Validation", "Change Impact Analysis",
+                   "Gap Audit (coming soon)", "Periodic Review (coming soon)",
+                   "Delta Generation (coming soon)"].index(
+                       st.session_state.get("app_mode", "New Validation")
+                   ),
+            label_visibility="collapsed",
+            key="app_mode_radio",
+        )
+        st.session_state["app_mode"] = app_mode
         st.divider()
         st.markdown('<p class="sb-sub">🤖 AI Model</p>', unsafe_allow_html=True)
 
@@ -4068,7 +4811,21 @@ def show_app():
     # IP capture on every authenticated load
     _capture_client_ip()
 
-    # ── Main area ──
+    # ── Mode routing ──────────────────────────────────────────────────────────
+    _mode = st.session_state.get("app_mode", "New Validation")
+
+    if _mode == "Change Impact Analysis":
+        show_change_impact(user, role, MODELS[st.session_state.selected_model])
+        return
+
+    if _mode in ("Gap Audit (coming soon)", "Periodic Review (coming soon)",
+                 "Delta Generation (coming soon)"):
+        st.title(f"{_mode.replace(' (coming soon)', '')}")
+        st.info("🚧 This analysis mode is coming soon. Select **New Validation** or "
+                "**Change Impact Analysis** in the sidebar to continue.")
+        return
+
+    # ── Main area — New Validation ────────────────────────────────────────────
     st.title("Auto-Generate Validation Package")
 
     # Dynamic key allows the file-uploader widget to be fully reset after a
