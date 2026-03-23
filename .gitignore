@@ -1,1 +1,6 @@
 .envvalidation_app.db 
+.env 
+"*.txt" 
+"*.xlsx" 
+samples/ 
+extra/ 
