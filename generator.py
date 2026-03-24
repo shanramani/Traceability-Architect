@@ -4042,9 +4042,9 @@ def build_cia_excel(result: dict, user: str, file_name: str, model_name: str) ->
                 "Mark retired in document register",   "Generate new FRS rows",
                 "Re-execute tests after update",       "Re-verify before sign-off",
                 "Retire from test suite",              "Generate new OQ tests",
-                "", "", "",                            # Trace Coverage section (3 rows)
-                "", "", "", "",                        # Confidence Guide section (4 rows)
-                "", "", "", "",                        # Risk Category section (4 rows: header + 3 values)
+                "", "", "",                # Trace Coverage section (3 rows)
+                "", "", "", "",            # Confidence Guide section (4 rows)
+                "", "", "", "", "",        # Risk Category section (5 rows: header + 4 values)
             ]
         }
         df_summary = pd.DataFrame(summary_data)
