@@ -3820,46 +3820,65 @@ def run_cia_analysis(
                             ]["OQ_ID"].astype(str).str.strip()
                         )
 
-                    # Step 6 — Build propagated rows only for OQ not already Must_Update
+                    # Step 6 — Build propagated rows, inheriting status from FRS
+                    # Rule: Obsolete FRS → OQ becomes Obsolete (test no longer needed)
+                    #        Must_Update FRS → OQ becomes Needs_Review (steps may be wrong)
+                    #        Already Must_Update OQ → never downgraded
                     new_rows = []
                     for _, pr in propagated.iterrows():
                         oid      = pr["OQ_ID"]
                         frs_id   = pr["FRS_ID"]
                         frs_stat = pr["FRS_Status"]
 
+                        # Derive the OQ status from the FRS status
+                        propagated_status = (
+                            "Obsolete"     if frs_stat == "Obsolete"    else
+                            "Needs_Review"                               # Must_Update → Needs_Review
+                        )
+
                         if oid in already_flagged_must:
-                            # Already correctly flagged as Must_Update — do not downgrade
+                            # Already Must_Update — never downgrade, skip
                             continue
 
                         if oid in already_flagged_any:
-                            # AI flagged it at a lower level — upgrade to Needs_Review
-                            # by updating the existing row in place
-                            mask = (
-                                oq_impact_df["OQ_ID"].astype(str).str.strip() == oid
-                            )
-                            oq_impact_df.loc[mask, "Impact_Status"]    = "Needs_Review"
+                            # AI already flagged at some level — upgrade/set in place
+                            mask = oq_impact_df["OQ_ID"].astype(str).str.strip() == oid
+                            existing_status = oq_impact_df.loc[mask, "Impact_Status"].values
+                            # Only upgrade, never downgrade
+                            if len(existing_status) > 0 and existing_status[0] != "Obsolete":
+                                oq_impact_df.loc[mask, "Impact_Status"]    = propagated_status
                             oq_impact_df.loc[mask, "Confidence_Level"] = "High"
                             oq_impact_df.loc[mask, "Change_Driver"]    = (
                                 oq_impact_df.loc[mask, "Change_Driver"].astype(str)
                                 + " + Trace-propagated"
                             )
                             oq_impact_df.loc[mask, "Rationale"] = (
-                                f"System-flagged impact: Linked FRS [{frs_id}] "
-                                f"has changed ({frs_stat}); review test steps for continued validity."
+                                f"System-flagged: Linked FRS [{frs_id}] is {frs_stat}. "
+                                + (
+                                    "This test case is no longer required for execution."
+                                    if frs_stat == "Obsolete" else
+                                    "Review test steps for continued validity against updated FRS."
+                                )
                             )
                         else:
                             # Brand new row — AI did not flag this OQ at all
                             new_rows.append({
                                 "OQ_ID":            oid,
                                 "Change_Driver":    "Trace-propagated",
-                                "Impact_Status":    "Needs_Review",
+                                "Impact_Status":    propagated_status,
                                 "Confidence_Level": "High",
                                 "Risk_Category":    "GxP_Critical",
                                 "Rationale":        (
-                                    f"System-flagged impact: Linked FRS [{frs_id}] "
-                                    f"has changed ({frs_stat}); review test steps for continued validity."
+                                    f"System-flagged: Linked FRS [{frs_id}] is {frs_stat}. "
+                                    + (
+                                        "This test case is no longer required for execution."
+                                        if frs_stat == "Obsolete" else
+                                        "Review test steps and pass/fail criteria for continued validity."
+                                    )
                                 ),
                                 "Action_Required":  (
+                                    "Retire this test case from the active test suite."
+                                    if frs_stat == "Obsolete" else
                                     "Verify test steps and pass/fail criteria remain valid "
                                     "given the updated FRS requirement. Re-execute if affected."
                                 ),
@@ -3894,6 +3913,36 @@ def run_cia_analysis(
             trace_coverage_pct = round(linked_count / len(all_oq_ids) * 100, 1) if all_oq_ids else 0
             trace_coverage_ok  = trace_coverage_pct >= 90  # 90%+ = coverage intact
 
+    # ── CIA Gap Detection — New_Required items with no test coverage ─────────
+    # Any FRS or OQ row marked New_Required has no existing test coverage.
+    # Flag these as Missing_Test gaps so the validator knows new tests are needed.
+    cia_gap_rows = []
+    if not frs_impact_df.empty and "Impact_Status" in frs_impact_df.columns:
+        new_frs = frs_impact_df[
+            frs_impact_df["Impact_Status"].astype(str) == "New_Required"
+        ]
+        for _, row in new_frs.iterrows():
+            drv = str(row.get("Change_Driver", ""))
+            cia_gap_rows.append({
+                "Req_ID":         row.get("FRS_ID", "NEW"),
+                "Gap_Type":       "Missing_Test",
+                "Description":    (
+                    f"New requirement from {drv} has no existing OQ test coverage. "
+                    "This item did not exist in the previous validated baseline."
+                ),
+                "Recommendation": (
+                    "Generate new OQ test cases covering positive, negative, and boundary "
+                    "conditions before the next validation cycle sign-off."
+                ),
+                "Severity":       "High",
+                "Change_Driver":  drv,
+            })
+
+    cia_gap_df = pd.DataFrame(cia_gap_rows) if cia_gap_rows else pd.DataFrame(
+        columns=["Req_ID", "Gap_Type", "Description", "Recommendation",
+                 "Severity", "Change_Driver"]
+    )
+
     progress_widget.progress(1.0)
     status_widget.text("✅ Change impact analysis complete.")
 
@@ -3922,6 +3971,7 @@ def run_cia_analysis(
         "chg_df":        chg_df,
         "frs_impact_df": frs_impact_df,
         "oq_impact_df":  oq_impact_df,
+        "cia_gap_df":    cia_gap_df,
         "summary":       summary,
     }
 
@@ -3944,10 +3994,17 @@ def build_cia_excel(result: dict, user: str, file_name: str, model_name: str) ->
         result["frs_impact_df"].to_excel(writer, sheet_name="FRS_Impact", index=False)
         # Sheet 3 — OQ Impact
         result["oq_impact_df"].to_excel(writer, sheet_name="OQ_Impact", index=False)
+        # Sheet 4 — Gaps (New_Required items with no test coverage)
+        cia_gap_df = result.get("cia_gap_df", pd.DataFrame())
+        if not cia_gap_df.empty:
+            cia_gap_df.to_excel(writer, sheet_name="Gaps", index=False)
+        else:
+            pd.DataFrame({"Note": ["No gaps detected — all changes have existing test coverage."]
+                         }).to_excel(writer, sheet_name="Gaps", index=False)
 
         wb = writer.book
 
-        for sheet_name in ["Changes", "FRS_Impact", "OQ_Impact"]:
+        for sheet_name in ["Changes", "FRS_Impact", "OQ_Impact", "Gaps"]:
             if sheet_name not in wb.sheetnames:
                 continue
             ws  = wb[sheet_name]
@@ -3980,7 +4037,8 @@ def build_cia_excel(result: dict, user: str, file_name: str, model_name: str) ->
             ws.freeze_panes    = "A2"
             ws.sheet_properties.tabColor = (
                 "DC2626" if sheet_name == "FRS_Impact" else
-                "D97706" if sheet_name == "OQ_Impact" else "1E3A5F"
+                "D97706" if sheet_name == "OQ_Impact"  else
+                "EA580C" if sheet_name == "Gaps"        else "1E3A5F"
             )
             for col in range(1, ws.max_column + 1):
                 cl = get_column_letter(col)
@@ -4377,6 +4435,16 @@ def show_change_impact(user: str, role: str, model_id: str):
                     lambda x: f"{STATUS_DISPLAY.get(x, '')} {x}"
                 )
             st.dataframe(oq_imp, use_container_width=True)
+
+        cia_gap_df = cia_res.get("cia_gap_df", pd.DataFrame())
+        with st.expander(
+            f"⚠️ Gaps — Missing Test Coverage ({len(cia_gap_df)} item(s))",
+            expanded=len(cia_gap_df) > 0
+        ):
+            if not cia_gap_df.empty:
+                st.dataframe(cia_gap_df, use_container_width=True)
+            else:
+                st.success("✅ No gaps detected — all changes have existing test coverage.")
 
         # Download
         st.markdown("---")
