@@ -3548,36 +3548,55 @@ def detect_tabular_doc_type(df: pd.DataFrame) -> str:
     """
     if df is None or df.empty:
         return "Unknown"
-    cols     = [str(c).strip().lower() for c in df.columns]
+    cols      = [str(c).strip().lower() for c in df.columns]
     first_col = df.iloc[:, 0].astype(str).str.strip()
 
     # Count ID pattern matches in first column
-    frs_ids   = first_col.str.match(r'^FRS-\d+', case=False).sum()
-    oq_ids    = first_col.str.match(r'^OQ-\d+',  case=False).sum()
-    urs_ids   = first_col.str.match(r'^URS-\d+', case=False).sum()
+    # OQ pattern is broad — matches OQ-001, OQ-LAB-01, OQ-SYS-002 etc.
+    frs_ids = first_col.str.match(r'^FRS-',  case=False).sum()
+    oq_ids  = first_col.str.match(r'^OQ-',   case=False).sum()
+    urs_ids = first_col.str.match(r'^URS-',  case=False).sum()
 
-    has_test_step    = any(c in cols for c in ['test_step', 'expected_result', 'pass_fail_criteria'])
-    has_req_desc     = any('requirement_description' in c or 'req_desc' in c for c in cols)
-    has_coverage     = any('coverage_status' in c or 'coverage' in c for c in cols)
-    has_frs_ref      = any('frs_ref' in c or 'frs_id' in c for c in cols)
-    has_urs_ref      = any('urs_req_id' in c or 'urs_ref' in c or 'urs_id' in c for c in cols)
-    has_test_id_col  = any('test_id' in c for c in cols)
+    # Also scan ALL columns for OQ-style IDs (traceability has OQ_ID as a non-first column)
+    all_vals_oq = sum(
+        df[col].astype(str).str.match(r'^OQ-', case=False).sum()
+        for col in df.columns
+    )
 
-    # Traceability: has URS ref + FRS ref + Test_ID in same sheet
-    if (has_urs_ref or urs_ids > 0) and (has_frs_ref or frs_ids > 0) and has_test_id_col:
+    has_test_step   = any(c in cols for c in ['test_step', 'expected_result', 'pass_fail_criteria'])
+    has_req_desc    = any('requirement_description' in c or 'req_desc' in c for c in cols)
+    has_coverage    = any('coverage_status' in c or 'coverage' in c for c in cols)
+    has_frs_ref     = any('frs_ref' in c or 'frs_id' in c for c in cols)
+    has_urs_ref     = any('urs_req_id' in c or 'urs_ref' in c or 'urs_id' in c for c in cols)
+
+    # Test/OQ column detection — handles Test_ID, OQ_ID, and any column starting with "oq"
+    has_oq_col      = any('test_id' in c or c == 'oq_id' or c.startswith('oq') for c in cols)
+
+    # Traceability — unique signature: has URS ref + FRS ref + OQ/Test column together
+    # OR has coverage_status alongside FRS reference
+    # OR has all three ID types (URS, FRS, OQ) present across any columns
+    has_all_three_id_types = (
+        df.apply(lambda col: col.astype(str).str.match(r'^URS-', case=False).any()).any() and
+        df.apply(lambda col: col.astype(str).str.match(r'^FRS-', case=False).any()).any() and
+        df.apply(lambda col: col.astype(str).str.match(r'^OQ-',  case=False).any()).any()
+    )
+
+    if has_all_three_id_types:
+        return "Traceability"
+    if (has_urs_ref or urs_ids > 0) and (has_frs_ref or frs_ids > 0) and has_oq_col:
         return "Traceability"
     if has_coverage and has_frs_ref:
         return "Traceability"
 
-    # OQ
-    if has_test_step or oq_ids > 3:
+    # OQ — test steps present, or first column is OQ-NNN IDs
+    if has_test_step or oq_ids > 3 or all_vals_oq > 3:
         return "OQ"
 
     # FRS
     if (has_req_desc or frs_ids > 3) and not has_test_step:
         return "FRS"
 
-    # URS
+    # URS — first column is URS-NNN IDs but NOT a traceability doc
     if urs_ids > 3:
         return "URS"
 
