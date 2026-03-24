@@ -3730,38 +3730,133 @@ def run_cia_analysis(
     frs_impact_df = _csv_to_df(parts[0]) if len(parts) > 0 else pd.DataFrame()
     oq_impact_df  = _csv_to_df(parts[1]) if len(parts) > 1 else pd.DataFrame()
 
-    # Cross-validate: propagate Must_Update through trace matrix
+    # ── Trace-Propagated Impact — pandas merge approach ──────────────────────
+    # Guarantees 100% compliance: even if the AI missed a linked OQ test,
+    # Python will catch it by walking the trace matrix.
+    #
+    # Rules:
+    #   FRS status Must_Update → linked OQ gets Needs_Review (unless already Must_Update)
+    #   FRS status Obsolete    → linked OQ gets Needs_Review (unless already Must_Update)
+    #   Already Must_Update OQ rows are never downgraded.
+    # ─────────────────────────────────────────────────────────────────────────
     if not trace_df.empty and not frs_impact_df.empty:
         status_widget.text("🔗 Propagating impact through traceability matrix...")
         progress_widget.progress(0.75)
-        # Find all OQ IDs linked to Must_Update FRS rows via trace
-        must_update_frs = set(
-            frs_impact_df[frs_impact_df.get("Impact_Status", pd.Series()) == "Must_Update"]
-            .get("FRS_ID", pd.Series()).astype(str)
-        )
-        # Look for trace columns — flexible naming
-        frs_col = next((c for c in trace_df.columns if "frs" in c.lower()), None)
-        oq_col  = next((c for c in trace_df.columns if "test_id" in c.lower() or
-                        c.lower().startswith("oq")), None)
+
+        # Step 1 — Detect column names flexibly (handles varied export formats)
+        frs_col = next((c for c in trace_df.columns
+                        if "frs" in c.lower() and "ref" not in c.lower().replace("frs_ref","x")), None)
+        frs_col = frs_col or next((c for c in trace_df.columns if "frs" in c.lower()), None)
+        oq_col  = next((c for c in trace_df.columns
+                        if "test_id" in c.lower() or c.lower().startswith("oq")), None)
+
         if frs_col and oq_col:
-            linked_oq = set(
-                trace_df[trace_df[frs_col].astype(str).isin(must_update_frs)]
-                [oq_col].astype(str)
+            # Step 2 — Build a clean bridge: trace rows where FRS col is populated
+            trace_bridge = (
+                trace_df[[frs_col, oq_col]]
+                .copy()
+                .rename(columns={frs_col: "FRS_ID", oq_col: "OQ_ID"})
+                .assign(
+                    FRS_ID=lambda d: d["FRS_ID"].astype(str).str.strip(),
+                    OQ_ID =lambda d: d["OQ_ID"].astype(str).str.strip(),
+                )
+                .query("FRS_ID != '' and OQ_ID != '' and FRS_ID != 'nan' and OQ_ID != 'nan'")
+                .drop_duplicates()
             )
-            if not oq_impact_df.empty and "OQ_ID" in oq_impact_df.columns:
-                already_flagged = set(oq_impact_df["OQ_ID"].astype(str))
-                newly_flagged   = linked_oq - already_flagged - {"NEW"}
-                if newly_flagged:
-                    extra_rows = pd.DataFrame([{
-                        "OQ_ID":            oid,
-                        "Change_Driver":    "Trace-propagated",
-                        "Impact_Status":    "Must_Update",
-                        "Confidence_Level": "High",   # trace links are deterministic
-                        "Risk_Category":    "GxP_Critical",  # conservative — linked to Must_Update FRS
-                        "Rationale":        "Linked FRS row marked Must_Update via traceability matrix.",
-                        "Action_Required":  "Verify this test still passes given the changed FRS requirement.",
-                    } for oid in sorted(newly_flagged)])
-                    oq_impact_df = pd.concat([oq_impact_df, extra_rows], ignore_index=True)
+
+            # Step 3 — Find FRS rows that trigger propagation
+            trigger_statuses = {"Must_Update", "Obsolete"}
+            if "Impact_Status" in frs_impact_df.columns and "FRS_ID" in frs_impact_df.columns:
+                triggered_frs = (
+                    frs_impact_df[
+                        frs_impact_df["Impact_Status"].astype(str).isin(trigger_statuses)
+                    ][["FRS_ID", "Impact_Status"]]
+                    .assign(FRS_ID=lambda d: d["FRS_ID"].astype(str).str.strip())
+                    .drop_duplicates("FRS_ID")
+                )
+            else:
+                triggered_frs = pd.DataFrame(columns=["FRS_ID", "Impact_Status"])
+
+            if not triggered_frs.empty:
+                # Step 4 — Merge: triggered FRS → trace bridge → OQ IDs
+                # Result: every OQ linked to a triggered FRS with the FRS status attached
+                propagated = (
+                    triggered_frs
+                    .merge(trace_bridge, on="FRS_ID", how="inner")
+                    .rename(columns={"Impact_Status": "FRS_Status"})
+                    [["OQ_ID", "FRS_ID", "FRS_Status"]]
+                    .query("OQ_ID != 'NEW'")
+                    .drop_duplicates("OQ_ID")   # one row per OQ (take first FRS if multiple)
+                )
+
+                if not propagated.empty:
+                    # Step 5 — Determine which OQ IDs are already flagged by the AI
+                    already_flagged_must = set()
+                    already_flagged_any  = set()
+                    if not oq_impact_df.empty and "OQ_ID" in oq_impact_df.columns:
+                        already_flagged_any  = set(oq_impact_df["OQ_ID"].astype(str).str.strip())
+                        already_flagged_must = set(
+                            oq_impact_df[
+                                oq_impact_df["Impact_Status"].astype(str) == "Must_Update"
+                            ]["OQ_ID"].astype(str).str.strip()
+                        )
+
+                    # Step 6 — Build propagated rows only for OQ not already Must_Update
+                    new_rows = []
+                    for _, pr in propagated.iterrows():
+                        oid      = pr["OQ_ID"]
+                        frs_id   = pr["FRS_ID"]
+                        frs_stat = pr["FRS_Status"]
+
+                        if oid in already_flagged_must:
+                            # Already correctly flagged as Must_Update — do not downgrade
+                            continue
+
+                        if oid in already_flagged_any:
+                            # AI flagged it at a lower level — upgrade to Needs_Review
+                            # by updating the existing row in place
+                            mask = (
+                                oq_impact_df["OQ_ID"].astype(str).str.strip() == oid
+                            )
+                            oq_impact_df.loc[mask, "Impact_Status"]    = "Needs_Review"
+                            oq_impact_df.loc[mask, "Confidence_Level"] = "High"
+                            oq_impact_df.loc[mask, "Change_Driver"]    = (
+                                oq_impact_df.loc[mask, "Change_Driver"].astype(str)
+                                + " + Trace-propagated"
+                            )
+                            oq_impact_df.loc[mask, "Rationale"] = (
+                                f"System-flagged impact: Linked FRS [{frs_id}] "
+                                f"has changed ({frs_stat}); review test steps for continued validity."
+                            )
+                        else:
+                            # Brand new row — AI did not flag this OQ at all
+                            new_rows.append({
+                                "OQ_ID":            oid,
+                                "Change_Driver":    "Trace-propagated",
+                                "Impact_Status":    "Needs_Review",
+                                "Confidence_Level": "High",
+                                "Risk_Category":    "GxP_Critical",
+                                "Rationale":        (
+                                    f"System-flagged impact: Linked FRS [{frs_id}] "
+                                    f"has changed ({frs_stat}); review test steps for continued validity."
+                                ),
+                                "Action_Required":  (
+                                    "Verify test steps and pass/fail criteria remain valid "
+                                    "given the updated FRS requirement. Re-execute if affected."
+                                ),
+                            })
+
+                    if new_rows:
+                        oq_impact_df = pd.concat(
+                            [oq_impact_df, pd.DataFrame(new_rows)],
+                            ignore_index=True
+                        )
+
+                    status_widget.text(
+                        f"🔗 Trace propagation complete — "
+                        f"{len(new_rows)} new OQ rows added, "
+                        f"{len(propagated) - len(new_rows)} existing rows upgraded."
+                    )
 
     # ── Trace Coverage Verification ───────────────────────────────────────────
     # Compute what % of OQ tests in the uploaded OQ file appear in the trace matrix.
