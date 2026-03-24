@@ -3548,36 +3548,55 @@ def detect_tabular_doc_type(df: pd.DataFrame) -> str:
     """
     if df is None or df.empty:
         return "Unknown"
-    cols     = [str(c).strip().lower() for c in df.columns]
+    cols      = [str(c).strip().lower() for c in df.columns]
     first_col = df.iloc[:, 0].astype(str).str.strip()
 
     # Count ID pattern matches in first column
-    frs_ids   = first_col.str.match(r'^FRS-\d+', case=False).sum()
-    oq_ids    = first_col.str.match(r'^OQ-\d+',  case=False).sum()
-    urs_ids   = first_col.str.match(r'^URS-\d+', case=False).sum()
+    # OQ pattern is broad — matches OQ-001, OQ-LAB-01, OQ-SYS-002 etc.
+    frs_ids = first_col.str.match(r'^FRS-',  case=False).sum()
+    oq_ids  = first_col.str.match(r'^OQ-',   case=False).sum()
+    urs_ids = first_col.str.match(r'^URS-',  case=False).sum()
 
-    has_test_step    = any(c in cols for c in ['test_step', 'expected_result', 'pass_fail_criteria'])
-    has_req_desc     = any('requirement_description' in c or 'req_desc' in c for c in cols)
-    has_coverage     = any('coverage_status' in c or 'coverage' in c for c in cols)
-    has_frs_ref      = any('frs_ref' in c or 'frs_id' in c for c in cols)
-    has_urs_ref      = any('urs_req_id' in c or 'urs_ref' in c or 'urs_id' in c for c in cols)
-    has_test_id_col  = any('test_id' in c for c in cols)
+    # Also scan ALL columns for OQ-style IDs (traceability has OQ_ID as a non-first column)
+    all_vals_oq = sum(
+        df[col].astype(str).str.match(r'^OQ-', case=False).sum()
+        for col in df.columns
+    )
 
-    # Traceability: has URS ref + FRS ref + Test_ID in same sheet
-    if (has_urs_ref or urs_ids > 0) and (has_frs_ref or frs_ids > 0) and has_test_id_col:
+    has_test_step   = any(c in cols for c in ['test_step', 'expected_result', 'pass_fail_criteria'])
+    has_req_desc    = any('requirement_description' in c or 'req_desc' in c for c in cols)
+    has_coverage    = any('coverage_status' in c or 'coverage' in c for c in cols)
+    has_frs_ref     = any('frs_ref' in c or 'frs_id' in c for c in cols)
+    has_urs_ref     = any('urs_req_id' in c or 'urs_ref' in c or 'urs_id' in c for c in cols)
+
+    # Test/OQ column detection — handles Test_ID, OQ_ID, and any column starting with "oq"
+    has_oq_col      = any('test_id' in c or c == 'oq_id' or c.startswith('oq') for c in cols)
+
+    # Traceability — unique signature: has URS ref + FRS ref + OQ/Test column together
+    # OR has coverage_status alongside FRS reference
+    # OR has all three ID types (URS, FRS, OQ) present across any columns
+    has_all_three_id_types = (
+        df.apply(lambda col: col.astype(str).str.match(r'^URS-', case=False).any()).any() and
+        df.apply(lambda col: col.astype(str).str.match(r'^FRS-', case=False).any()).any() and
+        df.apply(lambda col: col.astype(str).str.match(r'^OQ-',  case=False).any()).any()
+    )
+
+    if has_all_three_id_types:
+        return "Traceability"
+    if (has_urs_ref or urs_ids > 0) and (has_frs_ref or frs_ids > 0) and has_oq_col:
         return "Traceability"
     if has_coverage and has_frs_ref:
         return "Traceability"
 
-    # OQ
-    if has_test_step or oq_ids > 3:
+    # OQ — test steps present, or first column is OQ-NNN IDs
+    if has_test_step or oq_ids > 3 or all_vals_oq > 3:
         return "OQ"
 
     # FRS
     if (has_req_desc or frs_ids > 3) and not has_test_step:
         return "FRS"
 
-    # URS
+    # URS — first column is URS-NNN IDs but NOT a traceability doc
     if urs_ids > 3:
         return "URS"
 
@@ -3730,36 +3749,150 @@ def run_cia_analysis(
     frs_impact_df = _csv_to_df(parts[0]) if len(parts) > 0 else pd.DataFrame()
     oq_impact_df  = _csv_to_df(parts[1]) if len(parts) > 1 else pd.DataFrame()
 
-    # Cross-validate: propagate Must_Update through trace matrix
+    # ── Trace-Propagated Impact — pandas merge approach ──────────────────────
+    # Guarantees 100% compliance: even if the AI missed a linked OQ test,
+    # Python will catch it by walking the trace matrix.
+    #
+    # Rules:
+    #   FRS status Must_Update → linked OQ gets Needs_Review (unless already Must_Update)
+    #   FRS status Obsolete    → linked OQ gets Needs_Review (unless already Must_Update)
+    #   Already Must_Update OQ rows are never downgraded.
+    # ─────────────────────────────────────────────────────────────────────────
     if not trace_df.empty and not frs_impact_df.empty:
         status_widget.text("🔗 Propagating impact through traceability matrix...")
         progress_widget.progress(0.75)
-        # Find all OQ IDs linked to Must_Update FRS rows via trace
-        must_update_frs = set(
-            frs_impact_df[frs_impact_df.get("Impact_Status", pd.Series()) == "Must_Update"]
-            .get("FRS_ID", pd.Series()).astype(str)
-        )
-        # Look for trace columns — flexible naming
-        frs_col = next((c for c in trace_df.columns if "frs" in c.lower()), None)
-        oq_col  = next((c for c in trace_df.columns if "test_id" in c.lower() or
-                        c.lower().startswith("oq")), None)
+
+        # Step 1 — Detect column names flexibly (handles varied export formats)
+        frs_col = next((c for c in trace_df.columns
+                        if "frs" in c.lower() and "ref" not in c.lower().replace("frs_ref","x")), None)
+        frs_col = frs_col or next((c for c in trace_df.columns if "frs" in c.lower()), None)
+        oq_col  = next((c for c in trace_df.columns
+                        if "test_id" in c.lower() or c.lower().startswith("oq")), None)
+
         if frs_col and oq_col:
-            linked_oq = set(
-                trace_df[trace_df[frs_col].astype(str).isin(must_update_frs)]
-                [oq_col].astype(str)
+            # Step 2 — Build a clean bridge: trace rows where FRS col is populated
+            trace_bridge = (
+                trace_df[[frs_col, oq_col]]
+                .copy()
+                .rename(columns={frs_col: "FRS_ID", oq_col: "OQ_ID"})
+                .assign(
+                    FRS_ID=lambda d: d["FRS_ID"].astype(str).str.strip(),
+                    OQ_ID =lambda d: d["OQ_ID"].astype(str).str.strip(),
+                )
+                .query("FRS_ID != '' and OQ_ID != '' and FRS_ID != 'nan' and OQ_ID != 'nan'")
+                .drop_duplicates()
             )
-            if not oq_impact_df.empty and "OQ_ID" in oq_impact_df.columns:
-                already_flagged = set(oq_impact_df["OQ_ID"].astype(str))
-                newly_flagged   = linked_oq - already_flagged - {"NEW"}
-                if newly_flagged:
-                    extra_rows = pd.DataFrame([{
-                        "OQ_ID":          oid,
-                        "Change_Driver":  "Trace-propagated",
-                        "Impact_Status":  "Must_Update",
-                        "Rationale":      "Linked FRS row marked Must_Update via traceability matrix.",
-                        "Action_Required": "Verify this test still passes given the changed FRS requirement.",
-                    } for oid in sorted(newly_flagged)])
-                    oq_impact_df = pd.concat([oq_impact_df, extra_rows], ignore_index=True)
+
+            # Step 3 — Find FRS rows that trigger propagation
+            trigger_statuses = {"Must_Update", "Obsolete"}
+            if "Impact_Status" in frs_impact_df.columns and "FRS_ID" in frs_impact_df.columns:
+                triggered_frs = (
+                    frs_impact_df[
+                        frs_impact_df["Impact_Status"].astype(str).isin(trigger_statuses)
+                    ][["FRS_ID", "Impact_Status"]]
+                    .assign(FRS_ID=lambda d: d["FRS_ID"].astype(str).str.strip())
+                    .drop_duplicates("FRS_ID")
+                )
+            else:
+                triggered_frs = pd.DataFrame(columns=["FRS_ID", "Impact_Status"])
+
+            if not triggered_frs.empty:
+                # Step 4 — Merge: triggered FRS → trace bridge → OQ IDs
+                # Result: every OQ linked to a triggered FRS with the FRS status attached
+                propagated = (
+                    triggered_frs
+                    .merge(trace_bridge, on="FRS_ID", how="inner")
+                    .rename(columns={"Impact_Status": "FRS_Status"})
+                    [["OQ_ID", "FRS_ID", "FRS_Status"]]
+                    .query("OQ_ID != 'NEW'")
+                    .drop_duplicates("OQ_ID")   # one row per OQ (take first FRS if multiple)
+                )
+
+                if not propagated.empty:
+                    # Step 5 — Determine which OQ IDs are already flagged by the AI
+                    already_flagged_must = set()
+                    already_flagged_any  = set()
+                    if not oq_impact_df.empty and "OQ_ID" in oq_impact_df.columns:
+                        already_flagged_any  = set(oq_impact_df["OQ_ID"].astype(str).str.strip())
+                        already_flagged_must = set(
+                            oq_impact_df[
+                                oq_impact_df["Impact_Status"].astype(str) == "Must_Update"
+                            ]["OQ_ID"].astype(str).str.strip()
+                        )
+
+                    # Step 6 — Build propagated rows only for OQ not already Must_Update
+                    new_rows = []
+                    for _, pr in propagated.iterrows():
+                        oid      = pr["OQ_ID"]
+                        frs_id   = pr["FRS_ID"]
+                        frs_stat = pr["FRS_Status"]
+
+                        if oid in already_flagged_must:
+                            # Already correctly flagged as Must_Update — do not downgrade
+                            continue
+
+                        if oid in already_flagged_any:
+                            # AI flagged it at a lower level — upgrade to Needs_Review
+                            # by updating the existing row in place
+                            mask = (
+                                oq_impact_df["OQ_ID"].astype(str).str.strip() == oid
+                            )
+                            oq_impact_df.loc[mask, "Impact_Status"]    = "Needs_Review"
+                            oq_impact_df.loc[mask, "Confidence_Level"] = "High"
+                            oq_impact_df.loc[mask, "Change_Driver"]    = (
+                                oq_impact_df.loc[mask, "Change_Driver"].astype(str)
+                                + " + Trace-propagated"
+                            )
+                            oq_impact_df.loc[mask, "Rationale"] = (
+                                f"System-flagged impact: Linked FRS [{frs_id}] "
+                                f"has changed ({frs_stat}); review test steps for continued validity."
+                            )
+                        else:
+                            # Brand new row — AI did not flag this OQ at all
+                            new_rows.append({
+                                "OQ_ID":            oid,
+                                "Change_Driver":    "Trace-propagated",
+                                "Impact_Status":    "Needs_Review",
+                                "Confidence_Level": "High",
+                                "Risk_Category":    "GxP_Critical",
+                                "Rationale":        (
+                                    f"System-flagged impact: Linked FRS [{frs_id}] "
+                                    f"has changed ({frs_stat}); review test steps for continued validity."
+                                ),
+                                "Action_Required":  (
+                                    "Verify test steps and pass/fail criteria remain valid "
+                                    "given the updated FRS requirement. Re-execute if affected."
+                                ),
+                            })
+
+                    if new_rows:
+                        oq_impact_df = pd.concat(
+                            [oq_impact_df, pd.DataFrame(new_rows)],
+                            ignore_index=True
+                        )
+
+                    status_widget.text(
+                        f"🔗 Trace propagation complete — "
+                        f"{len(new_rows)} new OQ rows added, "
+                        f"{len(propagated) - len(new_rows)} existing rows upgraded."
+                    )
+
+    # ── Trace Coverage Verification ───────────────────────────────────────────
+    # Compute what % of OQ tests in the uploaded OQ file appear in the trace matrix.
+    # Orphan OQ tests (in OQ file but not in trace) indicate broken traceability.
+    trace_coverage_pct  = 0
+    orphan_oq_count     = 0
+    trace_coverage_ok   = False
+    if not oq_df.empty and not trace_df.empty:
+        oq_col_trace = next((c for c in trace_df.columns if "test_id" in c.lower() or
+                             c.lower().startswith("oq")), None)
+        if oq_col_trace:
+            all_oq_ids    = set(oq_df.iloc[:, 0].astype(str).str.strip())
+            traced_oq_ids = set(trace_df[oq_col_trace].astype(str).str.strip())
+            linked_count  = len(all_oq_ids & traced_oq_ids)
+            orphan_oq_count = len(all_oq_ids - traced_oq_ids)
+            trace_coverage_pct = round(linked_count / len(all_oq_ids) * 100, 1) if all_oq_ids else 0
+            trace_coverage_ok  = trace_coverage_pct >= 90  # 90%+ = coverage intact
 
     progress_widget.progress(1.0)
     status_widget.text("✅ Change impact analysis complete.")
@@ -3771,15 +3904,18 @@ def run_cia_analysis(
         return int((df[col].astype(str) == val).sum())
 
     summary = {
-        "total_changes":    len(chg_df),
-        "frs_must_update":  _count(frs_impact_df, "Impact_Status", "Must_Update"),
-        "frs_needs_review": _count(frs_impact_df, "Impact_Status", "Needs_Review"),
-        "frs_obsolete":     _count(frs_impact_df, "Impact_Status", "Obsolete"),
-        "frs_new":          _count(frs_impact_df, "Impact_Status", "New_Required"),
-        "oq_must_update":   _count(oq_impact_df,  "Impact_Status", "Must_Update"),
-        "oq_needs_review":  _count(oq_impact_df,  "Impact_Status", "Needs_Review"),
-        "oq_obsolete":      _count(oq_impact_df,  "Impact_Status", "Obsolete"),
-        "oq_new":           _count(oq_impact_df,  "Impact_Status", "New_Required"),
+        "total_changes":       len(chg_df),
+        "frs_must_update":     _count(frs_impact_df, "Impact_Status", "Must_Update"),
+        "frs_needs_review":    _count(frs_impact_df, "Impact_Status", "Needs_Review"),
+        "frs_obsolete":        _count(frs_impact_df, "Impact_Status", "Obsolete"),
+        "frs_new":             _count(frs_impact_df, "Impact_Status", "New_Required"),
+        "oq_must_update":      _count(oq_impact_df,  "Impact_Status", "Must_Update"),
+        "oq_needs_review":     _count(oq_impact_df,  "Impact_Status", "Needs_Review"),
+        "oq_obsolete":         _count(oq_impact_df,  "Impact_Status", "Obsolete"),
+        "oq_new":              _count(oq_impact_df,  "Impact_Status", "New_Required"),
+        "trace_coverage_pct":  trace_coverage_pct,
+        "orphan_oq_count":     orphan_oq_count,
+        "trace_coverage_ok":   trace_coverage_ok,
     }
 
     return {
@@ -3857,32 +3993,79 @@ def build_cia_excel(result: dict, user: str, file_name: str, model_name: str) ->
 
         # Summary sheet
         s = result["summary"]
+        trc_ok     = s.get("trace_coverage_ok", False)
+        trc_pct    = s.get("trace_coverage_pct", 0)
+        orphan_cnt = s.get("orphan_oq_count", 0)
+        trc_label  = (f"Yes — {trc_pct}% of OQ tests linked in trace matrix"
+                      if trc_ok else
+                      f"No — {trc_pct}% linked, {orphan_cnt} orphan OQ test(s) not in trace")
+
         summary_data = {
             "Metric": [
                 "Total Changes Detected",
-                "FRS — Must Update", "FRS — Needs Review",
-                "FRS — Obsolete",    "FRS — New Required",
-                "OQ — Must Update",  "OQ — Needs Review",
-                "OQ — Obsolete",     "OQ — New Required",
+                "FRS — Must Update",           "FRS — Needs Review",
+                "FRS — Obsolete",              "FRS — New Required",
+                "OQ — Must Update",            "OQ — Needs Review",
+                "OQ — Obsolete",               "OQ — New Required",
+                "─── Trace Coverage ───",
+                "Trace Coverage Verified",
+                "Orphan OQ Tests (not in trace)",
+                "─── Confidence Guide ───",
+                "High Confidence",             "Medium Confidence",
+                "Low Confidence",
+                "─── Risk Category Guide ───",
+                "GxP_Critical",                "Data_Integrity",
+                "Business",                    "Cosmetic",
             ],
-            "Count": [
+            "Count / Value": [
                 s["total_changes"],
-                s["frs_must_update"], s["frs_needs_review"],
-                s["frs_obsolete"],    s["frs_new"],
-                s["oq_must_update"],  s["oq_needs_review"],
-                s["oq_obsolete"],     s["oq_new"],
+                s["frs_must_update"],  s["frs_needs_review"],
+                s["frs_obsolete"],     s["frs_new"],
+                s["oq_must_update"],   s["oq_needs_review"],
+                s["oq_obsolete"],      s["oq_new"],
+                "",
+                trc_label,
+                orphan_cnt,
+                "",
+                "Direct unambiguous match — act immediately",
+                "Clear semantic link — engineering judgement required",
+                "Weak/inferred — human must verify before acting",
+                "",
+                "Patient safety, e-records, audit trail, e-signatures",
+                "Data accuracy, completeness, retention (ALCOA+)",
+                "Operational workflows, non-GxP functionality",
+                "UI labels, formatting, display only",
             ],
             "Action": [
                 "Review full change table",
-                "Update before next validation cycle",  "Human review required",
-                "Mark retired in document register",    "Generate new FRS rows",
-                "Re-execute tests after update",        "Re-verify before sign-off",
-                "Retire from test suite",               "Generate new OQ tests",
+                "Update before next validation cycle", "Human review required",
+                "Mark retired in document register",   "Generate new FRS rows",
+                "Re-execute tests after update",       "Re-verify before sign-off",
+                "Retire from test suite",              "Generate new OQ tests",
+                "", "", "", "", "", "", "", "", "", "", "",
             ]
         }
-        pd.DataFrame(summary_data).to_excel(writer, sheet_name="Summary", index=False)
+        df_summary = pd.DataFrame(summary_data)
+        df_summary.to_excel(writer, sheet_name="Summary", index=False)
         ws_s = wb["Summary"]
         ws_s.sheet_properties.tabColor = "059669"
+
+        # Style the summary sheet — highlight Trace Coverage Verified row
+        for row_i in range(2, ws_s.max_row + 1):
+            cell_val = str(ws_s.cell(row=row_i, column=1).value or "")
+            if cell_val == "Trace Coverage Verified":
+                fill_hex = "D1FAE5" if trc_ok else "FEE2E2"
+                for col_i in range(1, 4):
+                    ws_s.cell(row=row_i, column=col_i).fill = PatternFill("solid", fgColor=fill_hex)
+                    ws_s.cell(row=row_i, column=col_i).font = Font(bold=True)
+            elif cell_val.startswith("───"):
+                for col_i in range(1, 4):
+                    ws_s.cell(row=row_i, column=col_i).fill = PatternFill("solid", fgColor="1E293B")
+                    ws_s.cell(row=row_i, column=col_i).font = Font(bold=True, color="FFFFFF")
+
+        for col_i in range(1, 4):
+            cl = get_column_letter(col_i)
+            ws_s.column_dimensions[cl].width = 45 if col_i == 2 else 30
 
     return output.getvalue()
 
@@ -4112,16 +4295,22 @@ def show_change_impact(user: str, role: str, model_id: str):
     cia_res = st.session_state.get("cia_result")
     if cia_res:
         s = cia_res["summary"]
+        trc_ok     = s.get("trace_coverage_ok", False)
+        trc_pct    = s.get("trace_coverage_pct", 0)
+        orphan_cnt = s.get("orphan_oq_count", 0)
 
-        # Hero metrics
-        m1, m2, m3, m4 = st.columns(4)
+        # Hero metrics — 5 tiles
+        m1, m2, m3, m4, m5 = st.columns(5)
         m1.metric("📋 Changes Detected",    s["total_changes"])
         m2.metric("🔴 FRS Must Update",     s["frs_must_update"])
         m3.metric("🔴 OQ Must Update",      s["oq_must_update"])
         m4.metric("🔵 New Items Required",  s["frs_new"] + s["oq_new"])
+        m5.metric("🔗 Trace Coverage",      f"{trc_pct}%",
+                  delta=f"{orphan_cnt} orphan OQ" if orphan_cnt > 0 else "intact",
+                  delta_color="inverse" if orphan_cnt > 0 else "off")
 
         # Colour-coded hero cards
-        _c1, _c2, _c3 = st.columns(3)
+        _c1, _c2, _c3, _c4 = st.columns(4)
         for col, icon, label, frs_v, oq_v, color, bg in [
             (_c1, "🔴", "Must Update",   s["frs_must_update"],  s["oq_must_update"],  "#dc2626", "#1a0505"),
             (_c2, "🟡", "Needs Review",  s["frs_needs_review"], s["oq_needs_review"], "#d97706", "#1a1000"),
@@ -4135,6 +4324,27 @@ def show_change_impact(user: str, role: str, model_id: str):
   <p style="margin:4px 0 2px;font-size:1.6rem;font-weight:800;color:{color};">
     FRS: {frs_v} &nbsp;|&nbsp; OQ: {oq_v}</p>
   <span style="font-size:1.5rem;">{icon}</span>
+</div>""", unsafe_allow_html=True)
+
+        # Trace Coverage Verified card
+        _trc_color = "#059669" if trc_ok else "#dc2626"
+        _trc_bg    = "#052019"  if trc_ok else "#1a0505"
+        _trc_icon  = "🟢" if trc_ok else "🔴"
+        _trc_detail = (
+            f"All but {orphan_cnt} OQ test(s) are linked in the traceability matrix. "
+            "Repair orphan links before signing off the impact report."
+            if orphan_cnt > 0 else
+            "All OQ tests appear in the traceability matrix. Validation structure is intact."
+        )
+        _c4.markdown(f"""
+<div style="background:{_trc_bg};border:2px solid {_trc_color};border-radius:10px;
+            padding:14px 18px;text-align:center;font-family:'Inter',sans-serif;">
+  <p style="margin:0;color:#94a3b8;font-size:0.7rem;letter-spacing:2px;
+            text-transform:uppercase;">Trace Coverage</p>
+  <p style="margin:4px 0 2px;font-size:1.6rem;font-weight:800;color:{_trc_color};">
+    {trc_pct}% {_trc_icon}</p>
+  <p style="margin:0;color:#94a3b8;font-size:0.72rem;">
+    {'✅ Verified' if trc_ok else f'⚠️ {orphan_cnt} orphan OQ test(s)'}</p>
 </div>""", unsafe_allow_html=True)
 
         st.markdown("<br>", unsafe_allow_html=True)
