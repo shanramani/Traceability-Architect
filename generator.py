@@ -4519,11 +4519,23 @@ _AT_TOP_N       = 20
 _AT_REQUIRED_COLS = {
     "timestamp":   "Timestamp / Date-Time of the event",
     "user_id":     "User ID / Username who performed the action",
-    "action_type": "Action / Event Type (e.g. Create, Modify, Delete)",
+    "action_type": "Action / Event Type (e.g. Create, Modify, Delete, Insert)",
     "record_id":   "Record ID / Object ID affected (optional)",
-    "record_type": "Record Type / Object Type (e.g. Batch Record)",
-    "role":        "User Role / Permission Level (optional)",
+    "record_type": "Record Type / Table Name (e.g. RESULTS, BATCH, SAMPLE_DATA)",
+    "role":        "User Role / Permission Level (e.g. Admin, DBA, Analyst)",
+    "comments":    "Comments / Rationale / Change Reason field (optional — Rule 1)",
+    "new_value":   "New Value / Changed Value (optional — Rule 4 drift detection)",
 }
+
+# Vague rationale terms that trigger Rule 1
+_AT_VAGUE_TERMS = {"fixed","update","updated","error","changed","change","test",
+                   "misc","other","n/a","na","correction","corrected","edit","edited",
+                   "modified","mod","ok","done","see above","as per","per request"}
+
+# Tables that are GxP-critical for Rule 1, 3, 4
+_AT_GXP_TABLES  = ["results","result","batch","batch_release","sample_data",
+                   "sample","test_result","audit_trail","electronic_signature",
+                   "quality_record","raw_data"]
 
 
 def _at_temporal_score(ts) -> float:
@@ -4611,14 +4623,22 @@ def _at_del_recreate_scores(df: pd.DataFrame) -> pd.Series:
 
 
 def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
-    """Score every event across 6 risk dimensions, return sorted DataFrame."""
+    """
+    Score every event across the original 6 dimensions PLUS
+    4 named AI Skill rules from the GxP Operational Anomaly Detection spec.
+    Returns sorted DataFrame with individual dimension scores, rule flags,
+    rationale strings, and composite Risk_Score.
+    """
     df = df.copy()
+
+    # ── Timestamp parsing ─────────────────────────────────────────────────────
     if "timestamp" in df.columns:
         df["timestamp_parsed"] = pd.to_datetime(
             df["timestamp"], errors="coerce", infer_datetime_format=True)
     else:
         df["timestamp_parsed"] = pd.NaT
 
+    # ── Original 6 dimensions ─────────────────────────────────────────────────
     df["score_temporal"]     = df["timestamp_parsed"].apply(_at_temporal_score)
     df["score_velocity"]     = _at_velocity_scores(df)
     df["score_gap"]          = _at_gap_scores(df)
@@ -4649,9 +4669,176 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
         return 0.0
     df["score_record"] = df.apply(_rec, axis=1)
 
+    # ── Rule 1 — Vague Rationale (Compliance Gap) ─────────────────────────────
+    # Target: UPDATE on RESULTS or BATCH table with <3-word or non-descriptive comment
+    # Risk: High
+    def _rule1(row):
+        act  = str(row.get("action_type","")).upper()
+        tbl  = str(row.get("record_type","")).upper()
+        cmt  = str(row.get("comments","")).strip().lower()
+        tbl_hit = any(t in tbl for t in ["RESULTS","RESULT","BATCH"])
+        if not tbl_hit:
+            return 0.0, ""
+        if "UPDATE" not in act and "MODIFY" not in act and "EDIT" not in act:
+            return 0.0, ""
+        # Check comment quality
+        if not cmt or cmt in ("", "nan", "none"):
+            return 8.0, (
+                "Rule 1 — Vague Rationale [HIGH]: UPDATE on GxP table with no comment. "
+                "21 CFR Part 211.68 and ALCOA+ require contemporaneous, attributable "
+                "documentation for every data modification."
+            )
+        words = [w for w in cmt.split() if len(w) > 1]
+        if len(words) < 3:
+            return 8.0, (
+                f"Rule 1 — Vague Rationale [HIGH]: UPDATE on GxP table with only "
+                f"{len(words)} word(s) in comment ('{cmt}'). Fewer than 3 words is "
+                "insufficient documentation per ALCOA+ Attributable and Legible principles."
+            )
+        if any(vague in cmt for vague in _AT_VAGUE_TERMS):
+            matched = [v for v in _AT_VAGUE_TERMS if v in cmt]
+            return 7.0, (
+                f"Rule 1 — Vague Rationale [HIGH]: Non-descriptive comment "
+                f"('{cmt}') contains prohibited vague term(s): {matched}. "
+                "Comment lacks scientific justification required for GxP data modification "
+                "per 21 CFR Part 211.68."
+            )
+        return 0.0, ""
+
+    r1_scores   = []
+    r1_rationale = []
+    for _, row in df.iterrows():
+        s, r = _rule1(row)
+        r1_scores.append(s)
+        r1_rationale.append(r)
+    df["score_rule1_vague_rationale"] = r1_scores
+    df["rule1_rationale"]             = r1_rationale
+
+    # ── Rule 2 — Contemporaneous Burst (ALCOA Gap) ────────────────────────────
+    # Target: >10 RESULT_INSERT actions within 15-minute window per user
+    # Risk: Medium
+    r2_scores    = pd.Series(0.0, index=df.index)
+    r2_rationale = pd.Series("", index=df.index)
+    if "timestamp_parsed" in df.columns and "user_id" in df.columns:
+        df_s   = df.sort_values("timestamp_parsed")
+        ts_arr = df_s["timestamp_parsed"].values
+        us_arr = df_s["user_id"].astype(str).values
+        ac_arr = df_s["action_type"].astype(str).str.upper().values
+        ix_arr = df_s.index.values
+        insert_kw = ["INSERT","RESULT_INSERT","CREATE","ADD"]
+        for i in range(len(df_s)):
+            if pd.isnull(ts_arr[i]):
+                continue
+            if not any(kw in ac_arr[i] for kw in insert_kw):
+                continue
+            count = 0
+            for j in range(max(0,i-200), min(len(df_s),i+200)):
+                if j==i or pd.isnull(ts_arr[j]):
+                    continue
+                if abs((ts_arr[j]-ts_arr[i]) / np.timedelta64(1,'m')) <= 15:
+                    if us_arr[j]==us_arr[i] and any(kw in ac_arr[j] for kw in insert_kw):
+                        count += 1
+            if count > 10:
+                r2_scores.at[ix_arr[i]]    = 6.0
+                r2_rationale.at[ix_arr[i]] = (
+                    f"Rule 2 — Contemporaneous Burst [MEDIUM]: {count+1} INSERT actions "
+                    f"by user '{us_arr[i]}' within 15 minutes. Exceeds the 10-action "
+                    "threshold indicating batch processing from memory or paper scraps "
+                    "rather than real-time entry. Violates ALCOA+ Contemporaneous principle."
+                )
+    df["score_rule2_burst"]    = r2_scores
+    df["rule2_rationale"]      = r2_rationale
+
+    # ── Rule 3 — Admin/GxP Conflict (SoD Gap) ────────────────────────────────
+    # Target: Admin or DBA performing INSERT or UPDATE on SAMPLE_DATA or BATCH_RELEASE
+    # Risk: Critical
+    def _rule3(row):
+        role = str(row.get("role","")).upper()
+        act  = str(row.get("action_type","")).upper()
+        tbl  = str(row.get("record_type","")).upper()
+        role_hit = any(r in role for r in ["ADMIN","DBA","ADMINISTRATOR","SYSADMIN"])
+        act_hit  = any(a in act  for a in ["INSERT","UPDATE","CREATE","MODIFY"])
+        tbl_hit  = any(t in tbl  for t in ["SAMPLE_DATA","SAMPLE","BATCH_RELEASE",
+                                            "BATCH","RESULTS","RESULT"])
+        if role_hit and act_hit and tbl_hit:
+            return 10.0, (
+                f"Rule 3 — Admin/GxP Conflict [CRITICAL]: Role '{row.get('role','')}' "
+                f"performed {row.get('action_type','')} on production GxP table "
+                f"'{row.get('record_type','')}'. Admins must maintain system configuration "
+                "only — modifying production data violates Segregation of Duties and "
+                "21 CFR Part 11 §11.10(d) access controls."
+            )
+        return 0.0, ""
+
+    r3_scores    = []
+    r3_rationale = []
+    for _, row in df.iterrows():
+        s, r = _rule3(row)
+        r3_scores.append(s)
+        r3_rationale.append(r)
+    df["score_rule3_admin_conflict"] = r3_scores
+    df["rule3_rationale"]            = r3_rationale
+
+    # ── Rule 4 — Change Control Drift (Validation Gap) ────────────────────────
+    # Target: new_value column present + deviation from expected patterns
+    # Risk: High
+    # Note: without an uploaded Change Request PDF, we detect numeric outliers
+    # and flag any new_value that differs from the modal value for that record type
+    def _rule4_scores(df: pd.DataFrame) -> tuple:
+        scores    = pd.Series(0.0, index=df.index)
+        rationale = pd.Series("", index=df.index)
+        if "new_value" not in df.columns or "record_type" not in df.columns:
+            return scores, rationale
+        # Group by record_type, find modal new_value; flag deviations
+        for rec_type, grp in df.groupby("record_type"):
+            if len(grp) < 3:
+                continue
+            vals = grp["new_value"].astype(str).str.strip()
+            # Try numeric deviation detection
+            try:
+                numeric_vals = pd.to_numeric(vals, errors="coerce").dropna()
+                if len(numeric_vals) >= 3:
+                    mean = numeric_vals.mean()
+                    std  = numeric_vals.std()
+                    if std > 0:
+                        for idx in grp.index:
+                            try:
+                                v = float(df.at[idx,"new_value"])
+                                z = abs(v - mean) / std
+                                if z > 3.0:   # >3 std dev from mean for this record type
+                                    scores.at[idx] = 8.0
+                                    rationale.at[idx] = (
+                                        f"Rule 4 — Change Control Drift [HIGH]: "
+                                        f"new_value '{v}' deviates {z:.1f} standard deviations "
+                                        f"from the expected range for '{rec_type}' records "
+                                        f"(mean={mean:.2f}, σ={std:.2f}). "
+                                        "May indicate manual override of a validated setpoint "
+                                        "without Change Control per 21 CFR Part 820.70(b)."
+                                    )
+                            except (ValueError, TypeError):
+                                pass
+            except Exception:
+                pass
+        return scores, rationale
+
+    r4_sc, r4_rat              = _rule4_scores(df)
+    df["score_rule4_drift"]    = r4_sc
+    df["rule4_rationale"]      = r4_rat
+
+    # ── Composite Risk Score ──────────────────────────────────────────────────
+    # Original 6 dimensions + 4 named rules, weighted
     weights = {
-        "score_temporal":0.12,"score_velocity":0.18,"score_privilege":0.18,
-        "score_record":0.20,"score_del_recreate":0.20,"score_gap":0.12,
+        "score_temporal":          0.07,
+        "score_velocity":          0.10,
+        "score_privilege":         0.12,
+        "score_record":            0.11,
+        "score_del_recreate":      0.10,
+        "score_gap":               0.08,
+        # Named AI skill rules get higher weight — they are explicit, named violations
+        "score_rule1_vague_rationale": 0.10,
+        "score_rule2_burst":           0.10,
+        "score_rule3_admin_conflict":  0.14,   # Critical rule = highest weight
+        "score_rule4_drift":           0.08,
     }
     df["Risk_Score"] = sum(df[c]*w for c,w in weights.items()).round(2)
 
@@ -4661,6 +4848,33 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
         if s >= 2: return "Medium"
         return "Low"
     df["Risk_Tier"] = df["Risk_Score"].apply(_tier)
+
+    # ── Triggered Rules summary column ───────────────────────────────────────
+    # Lists which named rules fired for each event — useful for the Excel output
+    def _triggered(row):
+        fired = []
+        if row.get("score_rule1_vague_rationale", 0) > 0:
+            fired.append("Rule 1 — Vague Rationale [HIGH]")
+        if row.get("score_rule2_burst", 0) > 0:
+            fired.append("Rule 2 — Contemporaneous Burst [MEDIUM]")
+        if row.get("score_rule3_admin_conflict", 0) > 0:
+            fired.append("Rule 3 — Admin/GxP Conflict [CRITICAL]")
+        if row.get("score_rule4_drift", 0) > 0:
+            fired.append("Rule 4 — Change Control Drift [HIGH]")
+        return "; ".join(fired) if fired else ""
+    df["Triggered_Rules"] = df.apply(_triggered, axis=1)
+
+    # ── Combined rationale (all fired rules concatenated) ────────────────────
+    def _combined_rat(row):
+        parts = [r for r in [
+            row.get("rule1_rationale",""),
+            row.get("rule2_rationale",""),
+            row.get("rule3_rationale",""),
+            row.get("rule4_rationale",""),
+        ] if r]
+        return " | ".join(parts)
+    df["Rule_Rationale"] = df.apply(_combined_rat, axis=1)
+
     return df.sort_values("Risk_Score", ascending=False).reset_index(drop=True)
 
 
@@ -4679,16 +4893,24 @@ Event #{rank}/{total} escalated from audit trail analysis:
   Record ID:   {row.get('record_id','Unknown')}
   Record Type: {row.get('record_type','Unknown')}
   Role:        {row.get('role','Unknown')}
+  Comments:    {row.get('comments','—')}
+  New Value:   {row.get('new_value','—')}
   Risk Score:  {row.get('Risk_Score',0):.1f}/10  ({row.get('Risk_Tier','Unknown')})
 
+Named AI Skill Rules triggered: {row.get('Triggered_Rules','None')}
+Rule rationale: {row.get('Rule_Rationale','')}
+
 Dimension scores: Temporal={row.get('score_temporal',0):.1f}  Velocity={row.get('score_velocity',0):.1f}  Privilege={row.get('score_privilege',0):.1f}  Record={row.get('score_record',0):.1f}  Del-Recreate={row.get('score_del_recreate',0):.1f}  Gap={row.get('score_gap',0):.1f}
+Named rules: Rule1={row.get('score_rule1_vague_rationale',0):.1f}  Rule2={row.get('score_rule2_burst',0):.1f}  Rule3={row.get('score_rule3_admin_conflict',0):.1f}  Rule4={row.get('score_rule4_drift',0):.1f}
 
 Write exactly 3 sentences:
-1. Which dimensions scored highest and why they matter for this event
-2. The specific compliance risk (cite 21 CFR Part 11 §11.10(e), §11.300, EU Annex 11 Clause 9, or ALCOA+)
+1. Which named rules or dimensions triggered and why they matter for this specific event
+2. The exact compliance risk — cite the rule name (e.g. Rule 1 — Vague Rationale) AND
+   the regulation (21 CFR Part 11 §11.10(e), §11.300, §11.10(d), 21 CFR Part 211.68,
+   EU Annex 11 Clause 9, or ALCOA+ principle as appropriate to the rule triggered)
 3. The precise action the reviewer must take
 
-Professional GxP language only. No bullets. No headers. Plain paragraph."""
+Professional GxP language. No bullets. No headers. Plain paragraph only."""
         try:
             resp = _comp(model=model_id, stream=False, temperature=0.2,
                          max_tokens=250,
@@ -4781,10 +5003,14 @@ def at_build_excel(top_df, scored_df, system_name, r_start, r_end, fname) -> byt
     # Sheet 2 — Top 20
     ws2 = wb.create_sheet("Top_20_Escalated")
     ws2.sheet_properties.tabColor = "DC2626"
-    disp = ["Rank","Risk_Score","Risk_Tier","timestamp","user_id","action_type",
-            "record_id","record_type","role",
+    disp = ["Rank","Risk_Score","Risk_Tier","Triggered_Rules",
+            "timestamp","user_id","action_type","record_id","record_type","role",
+            "comments","new_value",
+            "Rule_Rationale",
             "score_temporal","score_velocity","score_privilege",
             "score_record","score_del_recreate","score_gap",
+            "score_rule1_vague_rationale","score_rule2_burst",
+            "score_rule3_admin_conflict","score_rule4_drift",
             "AI_Justification","Reviewer_Disposition","Reviewer_Notes"]
     top_out = top_df.copy().reset_index(drop=True)
     top_out.insert(0,"Rank",range(1,len(top_out)+1))
@@ -4807,11 +5033,18 @@ def at_build_excel(top_df, scored_df, system_name, r_start, r_end, fname) -> byt
             c.alignment=Alignment(vertical="top",wrap_text=True)
             if rf and cn not in ("AI_Justification","Reviewer_Disposition","Reviewer_Notes"):
                 c.fill=rf
-    col_widths = {"Rank":6,"Risk_Score":10,"Risk_Tier":12,"timestamp":20,
-                  "user_id":18,"action_type":18,"record_id":18,"record_type":18,
-                  "role":16,"score_temporal":11,"score_velocity":11,
-                  "score_privilege":11,"score_record":11,"score_del_recreate":14,
-                  "score_gap":11,"AI_Justification":60,
+    col_widths = {"Rank":6,"Risk_Score":10,"Risk_Tier":12,
+                  "Triggered_Rules":45,
+                  "timestamp":20,"user_id":18,"action_type":18,
+                  "record_id":18,"record_type":18,"role":16,
+                  "comments":30,"new_value":18,
+                  "Rule_Rationale":60,
+                  "score_temporal":11,"score_velocity":11,
+                  "score_privilege":11,"score_record":11,
+                  "score_del_recreate":14,"score_gap":11,
+                  "score_rule1_vague_rationale":14,"score_rule2_burst":12,
+                  "score_rule3_admin_conflict":14,"score_rule4_drift":12,
+                  "AI_Justification":60,
                   "Reviewer_Disposition":40,"Reviewer_Notes":30}
     for ci,cn in enumerate(disp,1):
         ws2.column_dimensions[get_column_letter(ci)].width = col_widths.get(cn,15)
@@ -5235,6 +5468,9 @@ def show_audit_trail(user: str, role: str, model_id: str):
             tier  = str(row.get("Risk_Tier","Medium"))
             score = float(row.get("Risk_Score",0))
             bc    = tier_colors.get(tier,"#d97706")
+            triggered = str(row.get("Triggered_Rules",""))
+            rule_rat  = str(row.get("Rule_Rationale",""))
+
             dims  = [
                 ("Temporal",     row.get("score_temporal",0)),
                 ("Velocity",     row.get("score_velocity",0)),
@@ -5242,10 +5478,15 @@ def show_audit_trail(user: str, role: str, model_id: str):
                 ("Record Type",  row.get("score_record",0)),
                 ("Del-Recreate", row.get("score_del_recreate",0)),
                 ("Gap",          row.get("score_gap",0)),
+                ("Rule 1 Vague", row.get("score_rule1_vague_rationale",0)),
+                ("Rule 2 Burst", row.get("score_rule2_burst",0)),
+                ("Rule 3 Admin", row.get("score_rule3_admin_conflict",0)),
+                ("Rule 4 Drift", row.get("score_rule4_drift",0)),
             ]
             dim_html = "".join([
                 f'<div style="display:flex;align-items:center;gap:6px;margin-bottom:2px;">'
-                f'<span style="color:#475569;font-size:0.67rem;width:78px;">{dn}</span>'
+                f'<span style="color:{"#fbbf24" if "Rule" in dn else "#475569"};'
+                f'font-size:0.67rem;width:78px;">{dn}</span>'
                 f'<div style="flex:1;background:#1e293b;border-radius:2px;height:4px;">'
                 f'<div style="background:{"#dc2626" if dv>=7 else "#ea580c" if dv>=5 else "#d97706" if dv>=3 else "#334155"};'
                 f'height:4px;border-radius:2px;width:{min(dv/10*100,100):.0f}%;"></div></div>'
@@ -5253,6 +5494,26 @@ def show_audit_trail(user: str, role: str, model_id: str):
                 f'</div>'
                 for dn,dv in dims
             ])
+
+            # Triggered rules badges
+            badges_html = ""
+            if triggered:
+                rule_badge_colors = {
+                    "Rule 1": ("#7c3aed","#ede9fe"),
+                    "Rule 2": ("#0369a1","#dbeafe"),
+                    "Rule 3": ("#dc2626","#fee2e2"),
+                    "Rule 4": ("#d97706","#fef3c7"),
+                }
+                for rule_label in triggered.split("; "):
+                    key = rule_label[:6]
+                    fg, bg2 = rule_badge_colors.get(key, ("#64748b","#1e293b"))
+                    badges_html += (
+                        f'<span style="background:{bg2};color:{fg};border:1px solid {fg}44;'
+                        f'padding:2px 8px;border-radius:4px;font-size:0.68rem;'
+                        f'margin-right:4px;margin-bottom:4px;display:inline-block;">'
+                        f'{rule_label}</span>'
+                    )
+
             st.markdown(f"""
 <div style="background:#0f172a;border-left:3px solid {bc};border-radius:6px;
             padding:14px 18px;margin-bottom:8px;">
@@ -5264,6 +5525,7 @@ def show_audit_trail(user: str, role: str, model_id: str):
     <span style="color:#334155;font-size:0.72rem;">
       {str(row.get('timestamp',''))}</span>
   </div>
+  {f'<div style="margin-bottom:8px;">{badges_html}</div>' if badges_html else ''}
   <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;
               font-size:0.8rem;margin-bottom:10px;">
     <div><span style="color:#475569;">User: </span>
@@ -5276,10 +5538,14 @@ def show_audit_trail(user: str, role: str, model_id: str):
          <span style="color:#e2e8f0;">{row.get('record_id','—')}</span></div>
     <div><span style="color:#475569;">Record Type: </span>
          <span style="color:#e2e8f0;">{row.get('record_type','—')}</span></div>
+    <div><span style="color:#475569;">Comment: </span>
+         <span style="color:{'#fbbf24' if row.get('score_rule1_vague_rationale',0)>0 else '#e2e8f0'};">
+           {str(row.get('comments','—'))[:60]}</span></div>
   </div>
+  {f'<div style="background:#1a0f2e;border:1px solid #7c3aed44;border-radius:4px;padding:8px 12px;margin-bottom:10px;"><p style="color:#475569;font-size:0.67rem;text-transform:uppercase;letter-spacing:1px;margin:0 0 4px;">Rule Rationale</p><p style="color:#c4b5fd;font-size:0.79rem;line-height:1.4;margin:0;">{rule_rat[:300]}</p></div>' if rule_rat else ''}
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
     <div><p style="color:#475569;font-size:0.67rem;text-transform:uppercase;
-             letter-spacing:1px;margin:0 0 5px;">Risk Dimensions</p>
+             letter-spacing:1px;margin:0 0 5px;">Dimension Scores</p>
          {dim_html}</div>
     <div><p style="color:#475569;font-size:0.67rem;text-transform:uppercase;
              letter-spacing:1px;margin:0 0 5px;">AI Justification</p>
