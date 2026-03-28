@@ -4559,20 +4559,24 @@ def _at_velocity_scores(df: pd.DataFrame) -> pd.Series:
     scores = pd.Series(0.0, index=df.index)
     if not all(c in df.columns for c in ["timestamp_parsed","user_id","action_type"]):
         return scores
-    df_s   = df.sort_values("timestamp_parsed")
-    ts_arr = df_s["timestamp_parsed"].values
-    us_arr = df_s["user_id"].astype(str).values
-    ac_arr = df_s["action_type"].astype(str).str.lower().values
-    ix_arr = df_s.index.values
-    window = pd.Timedelta(minutes=_AT_VEL_WINDOW)
+    df_s   = df.sort_values("timestamp_parsed").copy()
+    df_s   = df_s[df_s["timestamp_parsed"].notna()].copy()
+    if df_s.empty:
+        return scores
+    ts_arr = df_s["timestamp_parsed"].tolist()   # list of pd.Timestamp
+    us_arr = df_s["user_id"].astype(str).tolist()
+    ac_arr = df_s["action_type"].astype(str).str.upper().tolist()
+    ix_arr = df_s.index.tolist()
     for i in range(len(df_s)):
-        if pd.isnull(ts_arr[i]):
-            continue
         count = 0
-        for j in range(max(0,i-200), min(len(df_s),i+200)):
-            if j == i or pd.isnull(ts_arr[j]):
+        for j in range(max(0, i - 200), min(len(df_s), i + 200)):
+            if j == i:
                 continue
-            if abs((ts_arr[j]-ts_arr[i]) / np.timedelta64(1,'m')) <= _AT_VEL_WINDOW:
+            try:
+                diff_mins = abs((ts_arr[j] - ts_arr[i]).total_seconds() / 60)
+            except Exception:
+                continue
+            if diff_mins <= _AT_VEL_WINDOW:
                 if us_arr[j] == us_arr[i] and ac_arr[j] == ac_arr[i]:
                     count += 1
         if count >= _AT_VEL_THRESH:
@@ -4720,22 +4724,25 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
     r2_scores    = pd.Series(0.0, index=df.index)
     r2_rationale = pd.Series("", index=df.index)
     if "timestamp_parsed" in df.columns and "user_id" in df.columns:
-        df_s   = df.sort_values("timestamp_parsed")
-        ts_arr = df_s["timestamp_parsed"].values
-        us_arr = df_s["user_id"].astype(str).values
-        ac_arr = df_s["action_type"].astype(str).str.upper().values
-        ix_arr = df_s.index.values
+        df_s   = df.sort_values("timestamp_parsed").copy()
+        df_s   = df_s[df_s["timestamp_parsed"].notna()].copy()
+        ts_arr = df_s["timestamp_parsed"].tolist()
+        us_arr = df_s["user_id"].astype(str).tolist()
+        ac_arr = df_s["action_type"].astype(str).str.upper().tolist()
+        ix_arr = df_s.index.tolist()
         insert_kw = ["INSERT","RESULT_INSERT","CREATE","ADD"]
         for i in range(len(df_s)):
-            if pd.isnull(ts_arr[i]):
-                continue
             if not any(kw in ac_arr[i] for kw in insert_kw):
                 continue
             count = 0
             for j in range(max(0,i-200), min(len(df_s),i+200)):
-                if j==i or pd.isnull(ts_arr[j]):
+                if j == i:
                     continue
-                if abs((ts_arr[j]-ts_arr[i]) / np.timedelta64(1,'m')) <= 15:
+                try:
+                    diff_mins = abs((ts_arr[j]-ts_arr[i]).total_seconds() / 60)
+                except Exception:
+                    continue
+                if diff_mins <= 15:
                     if us_arr[j]==us_arr[i] and any(kw in ac_arr[j] for kw in insert_kw):
                         count += 1
             if count > 10:
@@ -5277,6 +5284,137 @@ def show_audit_trail(user: str, role: str, model_id: str):
             "CSV or Excel export from any GxP system — Veeva Vault, SAP, "
             "MasterControl, LIMS, or any custom system. No integration required."
         )
+
+        # ── Column guidance card + sample download ────────────────────────────
+        with st.expander("📋 What columns do I need? (click to expand)", expanded=False):
+            st.markdown("""
+**Required columns (3) — the engine will not run without these:**
+
+| Column | What it contains | Example values |
+|---|---|---|
+| `timestamp` | Date-time of the event | `2024-03-15 02:14:33` |
+| `user_id` | Username who performed the action | `jsmith`, `admin_user` |
+| `action_type` | What action was taken | `UPDATE`, `DELETE`, `INSERT`, `LOGIN` |
+
+**Optional columns — unlock additional AI Skill detection rules:**
+
+| Column | What it contains | Unlocks |
+|---|---|---|
+| `record_type` | Table or record category touched | Rules 1, 3, 4 |
+| `role` | User permission level | Rule 3 — Admin/GxP Conflict |
+| `record_id` | ID of the record affected | Delete→Recreate detection |
+| `comments` | Change reason / rationale text | Rule 1 — Vague Rationale |
+| `new_value` | The value that was written | Rule 4 — Change Control Drift |
+
+**Column names don't need to match exactly.** The column mapper in Step 2 lets you
+match your system's export column names to the fields above — rename nothing in advance.
+
+**Your system probably exports these under different names, for example:**
+
+| Your system might call it | Maps to |
+|---|---|
+| `Event DateTime`, `Logged At`, `Date/Time` | `timestamp` |
+| `Performed By`, `Modified By`, `Actor` | `user_id` |
+| `Event Type`, `Operation`, `Transaction` | `action_type` |
+| `Table Name`, `Object`, `Module` | `record_type` |
+| `User Role`, `Permission`, `Access Level` | `role` |
+| `Record Number`, `Object ID`, `Key` | `record_id` |
+| `Reason for Change`, `Justification`, `Note` | `comments` |
+| `Changed To`, `New Entry`, `Value After` | `new_value` |
+""")
+
+        # ── Generate and offer sample CSV download ────────────────────────────
+        def _build_sample_csv() -> bytes:
+            """
+            30-row sample audit trail CSV covering all 8 columns and
+            deliberately including examples that trigger all 4 AI Skill rules
+            plus the 6 original detection dimensions.
+            Useful for onboarding and testing.
+            """
+            rows = [
+                # ── Clean / normal events (low risk) ──────────────────────────
+                ["2024-06-10 09:12:04","analyst_jones",  "LOGIN",         "USER_SESSION",   "Analyst",     "",           "Successful login from approved workstation",""],
+                ["2024-06-10 09:15:22","analyst_jones",  "INSERT",        "SAMPLE_DATA",    "Analyst",     "SMP-0441",   "New sample registered per SOP-112","SMP-0441"],
+                ["2024-06-10 09:22:11","analyst_jones",  "UPDATE",        "RESULTS",        "Analyst",     "RES-0991",   "Corrected transcription error identified during peer review per SOP-045 section 3.2","7.45"],
+                ["2024-06-10 10:05:44","analyst_brown",  "INSERT",        "BATCH",          "Analyst",     "BAT-2024-07","Batch initiated per manufacturing order MO-4421","PENDING"],
+                ["2024-06-10 10:18:30","supervisor_patel","UPDATE",       "BATCH",          "Supervisor",  "BAT-2024-07","QA review completed, all specifications met, batch released per SOP-089","RELEASED"],
+                ["2024-06-10 11:00:00","analyst_jones",  "SELECT",        "RESULTS",        "Analyst",     "RES-0991",   "",""],
+                ["2024-06-10 11:30:00","analyst_brown",  "INSERT",        "RESULTS",        "Analyst",     "RES-0992",   "pH measurement recorded per method SOP-031","6.82"],
+                ["2024-06-10 14:00:00","supervisor_patel","SELECT",       "AUDIT_TRAIL",    "Supervisor",  "",           "Periodic review activity per SOP-418",""],
+
+                # ── Rule 1: Vague Rationale — UPDATE on RESULTS/BATCH with bad comment ──
+                ["2024-06-11 10:44:17","analyst_jones",  "UPDATE",        "RESULTS",        "Analyst",     "RES-1002",   "fixed","8.12"],
+                ["2024-06-11 11:02:55","analyst_brown",  "UPDATE",        "BATCH",          "Analyst",     "BAT-2024-08","error","RELEASED"],
+                ["2024-06-12 09:15:33","analyst_jones",  "UPDATE",        "RESULTS",        "Analyst",     "RES-1008",   "update","7.99"],
+                ["2024-06-12 14:22:01","analyst_brown",  "UPDATE",        "RESULTS",        "Analyst",     "RES-1011",   "","6.55"],
+
+                # ── Rule 2: Contemporaneous Burst — >10 inserts within 15 min ──
+                ["2024-06-13 14:00:01","analyst_jones",  "RESULT_INSERT", "RESULTS",        "Analyst",     "RES-2001",   "","7.1"],
+                ["2024-06-13 14:01:15","analyst_jones",  "RESULT_INSERT", "RESULTS",        "Analyst",     "RES-2002",   "","7.2"],
+                ["2024-06-13 14:02:30","analyst_jones",  "RESULT_INSERT", "RESULTS",        "Analyst",     "RES-2003",   "","7.1"],
+                ["2024-06-13 14:03:44","analyst_jones",  "RESULT_INSERT", "RESULTS",        "Analyst",     "RES-2004",   "","6.9"],
+                ["2024-06-13 14:04:58","analyst_jones",  "RESULT_INSERT", "RESULTS",        "Analyst",     "RES-2005",   "","7.3"],
+                ["2024-06-13 14:06:02","analyst_jones",  "RESULT_INSERT", "RESULTS",        "Analyst",     "RES-2006",   "","7.0"],
+                ["2024-06-13 14:07:17","analyst_jones",  "RESULT_INSERT", "RESULTS",        "Analyst",     "RES-2007",   "","7.2"],
+                ["2024-06-13 14:08:33","analyst_jones",  "RESULT_INSERT", "RESULTS",        "Analyst",     "RES-2008",   "","6.8"],
+                ["2024-06-13 14:09:50","analyst_jones",  "RESULT_INSERT", "RESULTS",        "Analyst",     "RES-2009",   "","7.4"],
+                ["2024-06-13 14:11:04","analyst_jones",  "RESULT_INSERT", "RESULTS",        "Analyst",     "RES-2010",   "","7.1"],
+                ["2024-06-13 14:12:19","analyst_jones",  "RESULT_INSERT", "RESULTS",        "Analyst",     "RES-2011",   "","7.0"],
+
+                # ── Rule 3: Admin/GxP Conflict — Admin touching production data ──
+                ["2024-06-14 16:45:02","admin_sys",      "UPDATE",        "SAMPLE_DATA",    "Admin",       "SMP-0500",   "System maintenance","ACTIVE"],
+                ["2024-06-14 16:47:33","dba_oracle",     "INSERT",        "BATCH_RELEASE",  "DBA",         "BAT-2024-09","Direct DB insert","RELEASED"],
+
+                # ── Off-hours / weekend anomalies ─────────────────────────────
+                ["2024-06-15 02:14:33","analyst_jones",  "DELETE",        "BATCH",          "Analyst",     "BAT-2024-05","",""],
+                ["2024-06-16 03:22:11","admin_sys",      "UPDATE",        "AUDIT_TRAIL",    "Admin",       "",           "Configuration update","DISABLED"],
+
+                # ── Rule 4 + Delete/Recreate pattern ──────────────────────────
+                ["2024-06-17 11:05:00","analyst_brown",  "DELETE",        "RESULTS",        "Analyst",     "RES-1050",   "",""],
+                ["2024-06-17 11:08:22","analyst_brown",  "INSERT",        "RESULTS",        "Analyst",     "RES-1050",   "Re-entry after deletion","99.99"],
+                ["2024-06-18 09:30:00","analyst_jones",  "UPDATE",        "RESULTS",        "Analyst",     "RES-1060",   "Setpoint adjustment","147.3"],
+                ["2024-06-18 10:00:00","analyst_jones",  "UPDATE",        "RESULTS",        "Analyst",     "RES-1061",   "Routine update per SOP-031 batch review cycle complete","7.1"],
+            ]
+
+            header = ["timestamp","user_id","action_type","record_type",
+                      "role","record_id","comments","new_value"]
+            lines  = [",".join(header)]
+            for r in rows:
+                # Quote fields that might contain commas
+                lines.append(",".join(
+                    f'"{str(v)}"' if "," in str(v) else str(v)
+                    for v in r
+                ))
+            return "\n".join(lines).encode("utf-8")
+
+        sc1, sc2, sc3 = st.columns([4, 3, 3])
+        with sc1:
+            st.download_button(
+                label="📥 Download Sample CSV Template",
+                data=_build_sample_csv(),
+                file_name="sample_audit_trail_template.csv",
+                mime="text/csv",
+                key="at_sample_download",
+                help="30-row sample with all 8 columns. Includes deliberate "
+                     "anomalies to demonstrate all 4 AI Skill detection rules.",
+            )
+        with sc2:
+            st.markdown(
+                "<p style='color:#64748b;font-size:0.78rem;padding-top:8px;'>"
+                "30 rows · all 8 columns · anomalies included<br>"
+                "Open in Excel, replace with your data, re-upload.</p>",
+                unsafe_allow_html=True
+            )
+        with sc3:
+            st.markdown(
+                "<p style='color:#475569;font-size:0.78rem;padding-top:8px;'>"
+                "⚠️ Includes deliberate Rule 1–4 triggers<br>"
+                "for testing and client demos.</p>",
+                unsafe_allow_html=True
+            )
+
+        st.markdown("<br>", unsafe_allow_html=True)
+
         ck = st.session_state.get("at_key_n", 0)
         uploaded = st.file_uploader(
             "Audit Trail", type=["csv","xlsx","xls"],
