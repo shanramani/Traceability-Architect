@@ -4939,6 +4939,7 @@ Professional GxP language. No bullets. No headers. Plain paragraph only."""
 
 def at_build_excel(top_df, scored_df, system_name, r_start, r_end, fname) -> bytes:
     """Build 3-sheet evidence workbook for Section 9.1.6 of Periodic Review Report."""
+    from openpyxl import Workbook
     output = io.BytesIO()
     wb     = Workbook()
     navy   = "0A1628"
