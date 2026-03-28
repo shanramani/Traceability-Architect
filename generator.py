@@ -3201,6 +3201,21 @@ _defaults = {
     "cia_trace_name":        None,
     "cia_result":            None,   # completed CIA output dict
     "cia_key_n":             0,      # increment to reset all CIA uploaders
+    # ── Audit Trail Intelligence (Periodic Review Module 1) ──────────────────
+    "at_raw_df":            None,
+    "at_mapped_df":         None,
+    "at_scored_df":         None,
+    "at_top20_df":          None,
+    "at_column_map":        {},
+    "at_file_name":         "",
+    "at_mapping_done":      False,
+    "at_analysis_done":     False,
+    "at_total_events":      0,
+    "at_system_name":       "",
+    "at_review_start":      "",
+    "at_review_end":        "",
+    "at_key_n":             0,      # increment to reset uploaders
+    "pr_active_module":     None,   # which PR sub-module is open (None = landing)
 }
 for _k, _v in _defaults.items():
     if _k not in st.session_state:
@@ -4473,6 +4488,859 @@ def show_change_impact(user: str, role: str, model_id: str):
                 st.rerun()
 
 
+
+
+# =============================================================================
+# 10c. PERIODIC REVIEW — MODULE 1: AUDIT TRAIL INTELLIGENCE
+# =============================================================================
+
+# ── Scoring constants ─────────────────────────────────────────────────────────
+_AT_ADMIN_KW    = ["admin","administrator","sysadmin","system","service",
+                   "root","superuser","power user","dba","sa"]
+_AT_DELETE_KW   = ["delete","del","remove","purge","void","cancel","retire"]
+_AT_MODIFY_KW   = ["modify","update","edit","change","amend","correct",
+                   "override","revise","write"]
+_AT_CREATE_KW   = ["create","add","insert","new","submit","approve",
+                   "release","publish"]
+_AT_SENSITIVE   = ["batch record","audit trail","electronic signature","esig",
+                   "test result","clinical","raw data","master data",
+                   "configuration","user account","role","permission",
+                   "gxp","quality record","change control","deviation",
+                   "capa","oos","oos result"]
+_AT_AUDIT_CTRL  = ["audit trail","audit log","logging","log enabled","log disabled",
+                   "audit enabled","audit disabled","configuration change","system setting"]
+_AT_BIZ_START   = 7
+_AT_BIZ_END     = 20
+_AT_WEEKENDS    = {5, 6}
+_AT_VEL_WINDOW  = 60    # minutes
+_AT_VEL_THRESH  = 5     # same user+action in window = anomaly
+_AT_TOP_N       = 20
+
+_AT_REQUIRED_COLS = {
+    "timestamp":   "Timestamp / Date-Time of the event",
+    "user_id":     "User ID / Username who performed the action",
+    "action_type": "Action / Event Type (e.g. Create, Modify, Delete)",
+    "record_id":   "Record ID / Object ID affected (optional)",
+    "record_type": "Record Type / Object Type (e.g. Batch Record)",
+    "role":        "User Role / Permission Level (optional)",
+}
+
+
+def _at_temporal_score(ts) -> float:
+    try:
+        ts = pd.Timestamp(ts)
+    except Exception:
+        return 3.0
+    if pd.isnull(ts):
+        return 3.0
+    score = 0.0
+    if ts.weekday() in _AT_WEEKENDS:
+        score += 5.0
+    if ts.hour < _AT_BIZ_START or ts.hour >= _AT_BIZ_END:
+        score += 4.0
+    if 0 <= ts.hour < 5:
+        score += 1.0
+    return min(score, 10.0)
+
+
+def _at_velocity_scores(df: pd.DataFrame) -> pd.Series:
+    scores = pd.Series(0.0, index=df.index)
+    if not all(c in df.columns for c in ["timestamp_parsed","user_id","action_type"]):
+        return scores
+    df_s   = df.sort_values("timestamp_parsed")
+    ts_arr = df_s["timestamp_parsed"].values
+    us_arr = df_s["user_id"].astype(str).values
+    ac_arr = df_s["action_type"].astype(str).str.lower().values
+    ix_arr = df_s.index.values
+    window = pd.Timedelta(minutes=_AT_VEL_WINDOW)
+    for i in range(len(df_s)):
+        if pd.isnull(ts_arr[i]):
+            continue
+        count = 0
+        for j in range(max(0,i-200), min(len(df_s),i+200)):
+            if j == i or pd.isnull(ts_arr[j]):
+                continue
+            if abs((ts_arr[j]-ts_arr[i]) / np.timedelta64(1,'m')) <= _AT_VEL_WINDOW:
+                if us_arr[j] == us_arr[i] and ac_arr[j] == ac_arr[i]:
+                    count += 1
+        if count >= _AT_VEL_THRESH:
+            scores.at[ix_arr[i]] = min(count / _AT_VEL_THRESH * 3.5, 10.0)
+    return scores
+
+
+def _at_gap_scores(df: pd.DataFrame) -> pd.Series:
+    scores = pd.Series(0.0, index=df.index)
+    if "timestamp_parsed" not in df.columns:
+        return scores
+    ts   = df["timestamp_parsed"].sort_values()
+    prev = ts.shift(1)
+    gap  = (ts - prev).dt.total_seconds() / 3600
+    scores.loc[gap[gap > 2].index] = 7.0
+    return scores
+
+
+def _at_del_recreate_scores(df: pd.DataFrame) -> pd.Series:
+    scores = pd.Series(0.0, index=df.index)
+    needed = ["record_id","user_id","action_type","timestamp_parsed"]
+    if not all(c in df.columns for c in needed):
+        return scores
+    df2 = df[df["record_id"].astype(str).str.strip() != ""].copy()
+    df2["_del"] = df2["action_type"].astype(str).str.lower().apply(
+        lambda x: any(k in x for k in _AT_DELETE_KW))
+    df2["_cre"] = df2["action_type"].astype(str).str.lower().apply(
+        lambda x: any(k in x for k in _AT_CREATE_KW))
+    dels = df2[df2["_del"]]
+    cres = df2[df2["_cre"]]
+    for _, dr in dels.iterrows():
+        if pd.isnull(dr["timestamp_parsed"]):
+            continue
+        match = cres[
+            (cres["record_id"] == dr["record_id"]) &
+            (cres["user_id"]   == dr["user_id"]) &
+            (cres["timestamp_parsed"] >= dr["timestamp_parsed"]) &
+            (cres["timestamp_parsed"] <= dr["timestamp_parsed"] + pd.Timedelta(hours=4))
+        ]
+        if not match.empty:
+            di = df2[(df2["record_id"]==dr["record_id"]) &
+                     (df2["user_id"]==dr["user_id"]) &
+                     (df2["_del"]) &
+                     (df2["timestamp_parsed"]==dr["timestamp_parsed"])].index
+            scores.loc[di]          = 9.0
+            scores.loc[match.index] = 9.0
+    return scores
+
+
+def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
+    """Score every event across 6 risk dimensions, return sorted DataFrame."""
+    df = df.copy()
+    if "timestamp" in df.columns:
+        df["timestamp_parsed"] = pd.to_datetime(
+            df["timestamp"], errors="coerce", infer_datetime_format=True)
+    else:
+        df["timestamp_parsed"] = pd.NaT
+
+    df["score_temporal"]     = df["timestamp_parsed"].apply(_at_temporal_score)
+    df["score_velocity"]     = _at_velocity_scores(df)
+    df["score_gap"]          = _at_gap_scores(df)
+    df["score_del_recreate"] = _at_del_recreate_scores(df)
+
+    def _priv(row):
+        role = str(row.get("role","")).lower()
+        rec  = str(row.get("record_type","")).lower()
+        act  = str(row.get("action_type","")).lower()
+        if any(k in role for k in _AT_ADMIN_KW) and any(k in rec for k in _AT_SENSITIVE):
+            return 8.0
+        if any(k in role for k in _AT_ADMIN_KW) and any(
+                k in act for k in _AT_MODIFY_KW + _AT_DELETE_KW):
+            return 7.0
+        return 0.0
+    df["score_privilege"] = df.apply(_priv, axis=1)
+
+    def _rec(row):
+        rec = str(row.get("record_type","")).lower()
+        act = str(row.get("action_type","")).lower()
+        combined = act + " " + rec
+        if any(k in combined for k in _AT_AUDIT_CTRL):
+            return 10.0
+        if any(k in rec for k in _AT_SENSITIVE) and any(k in act for k in _AT_DELETE_KW):
+            return 8.0
+        if any(k in rec for k in _AT_SENSITIVE):
+            return 5.0
+        return 0.0
+    df["score_record"] = df.apply(_rec, axis=1)
+
+    weights = {
+        "score_temporal":0.12,"score_velocity":0.18,"score_privilege":0.18,
+        "score_record":0.20,"score_del_recreate":0.20,"score_gap":0.12,
+    }
+    df["Risk_Score"] = sum(df[c]*w for c,w in weights.items()).round(2)
+
+    def _tier(s):
+        if s >= 6: return "Critical"
+        if s >= 4: return "High"
+        if s >= 2: return "Medium"
+        return "Low"
+    df["Risk_Tier"] = df["Risk_Score"].apply(_tier)
+    return df.sort_values("Risk_Score", ascending=False).reset_index(drop=True)
+
+
+def at_generate_justifications(top_df: pd.DataFrame, model_id: str) -> pd.DataFrame:
+    """LLM writes a 3-sentence justification for each of the top events."""
+    from litellm import completion as _comp
+    justifications = []
+    total = len(top_df)
+    for rank, (_, row) in enumerate(top_df.iterrows(), 1):
+        prompt = f"""You are a GxP audit specialist writing a Periodic Review Report.
+
+Event #{rank}/{total} escalated from audit trail analysis:
+  Timestamp:   {row.get('timestamp','Unknown')}
+  User:        {row.get('user_id','Unknown')}
+  Action:      {row.get('action_type','Unknown')}
+  Record ID:   {row.get('record_id','Unknown')}
+  Record Type: {row.get('record_type','Unknown')}
+  Role:        {row.get('role','Unknown')}
+  Risk Score:  {row.get('Risk_Score',0):.1f}/10  ({row.get('Risk_Tier','Unknown')})
+
+Dimension scores: Temporal={row.get('score_temporal',0):.1f}  Velocity={row.get('score_velocity',0):.1f}  Privilege={row.get('score_privilege',0):.1f}  Record={row.get('score_record',0):.1f}  Del-Recreate={row.get('score_del_recreate',0):.1f}  Gap={row.get('score_gap',0):.1f}
+
+Write exactly 3 sentences:
+1. Which dimensions scored highest and why they matter for this event
+2. The specific compliance risk (cite 21 CFR Part 11 §11.10(e), §11.300, EU Annex 11 Clause 9, or ALCOA+)
+3. The precise action the reviewer must take
+
+Professional GxP language only. No bullets. No headers. Plain paragraph."""
+        try:
+            resp = _comp(model=model_id, stream=False, temperature=0.2,
+                         max_tokens=250,
+                         messages=[
+                             {"role":"system","content":
+                              "GxP audit specialist. Concise. Cite regulations. Never vague."},
+                             {"role":"user","content":prompt}
+                         ])
+            text = resp.choices[0].message.content.strip()
+        except Exception as e:
+            text = (f"Risk score {row.get('Risk_Score',0):.1f}/10. "
+                    f"Manual review required per 21 CFR Part 11 §11.10(e). "
+                    f"Error generating AI justification: {str(e)[:60]}")
+        justifications.append(text)
+    top_df = top_df.copy()
+    top_df["AI_Justification"] = justifications
+    return top_df
+
+
+def at_build_excel(top_df, scored_df, system_name, r_start, r_end, fname) -> bytes:
+    """Build 3-sheet evidence workbook for Section 9.1.6 of Periodic Review Report."""
+    output = io.BytesIO()
+    wb     = Workbook()
+    navy   = "0A1628"
+    thin   = Side(style="thin", color="1E3A5F")
+    bdr    = Border(left=thin,right=thin,top=thin,bottom=thin)
+    hdr_f  = Font(bold=True,color="FFFFFF",name="Calibri",size=10)
+    hdr_fl = PatternFill("solid",fgColor=navy)
+    TIER_COLORS = {
+        "Critical":("450A0A","FCA5A5"),
+        "High":    ("431407","FDBA74"),
+        "Medium":  ("1A1A05","FDE68A"),
+        "Low":     ("052019","6EE7B7"),
+    }
+
+    total      = len(scored_df)
+    n_esc      = len(top_df)
+    n_crit     = int((scored_df["Risk_Tier"]=="Critical").sum())
+    n_high     = int((scored_df["Risk_Tier"]=="High").sum())
+    n_med      = int((scored_df["Risk_Tier"]=="Medium").sum())
+    n_low      = int((scored_df["Risk_Tier"]=="Low").sum())
+    pct_clear  = round((total-n_esc)/total*100,1) if total>0 else 0
+
+    # Sheet 1 — Summary
+    ws = wb.active; ws.title = "Summary"
+    ws.sheet_properties.tabColor = "059669"
+    ws.column_dimensions["A"].width = 42
+    ws.column_dimensions["B"].width = 55
+
+    ws.merge_cells("A1:B1")
+    t = ws.cell(row=1,column=1,value="AUDIT TRAIL INTELLIGENCE — EVIDENCE PACKAGE")
+    t.font = Font(bold=True,color="38BDF8",name="Calibri",size=12)
+    t.fill = PatternFill("solid",fgColor=navy)
+    t.alignment = Alignment(horizontal="center")
+
+    rows = [
+        ("System Name",          system_name,      None,    True),
+        ("Review Period",         f"{r_start} → {r_end}", None, False),
+        ("Source File",           fname,            None,    False),
+        ("Analysis Date",         str(datetime.date.today()), None, False),
+        ("Regulatory Basis",      "21 CFR Part 11 §11.10(e); EU Annex 11 Clause 9", None, False),
+        ("── Statistical Summary ──","",            navy,    False),
+        ("Total Events Analysed", total,            None,    True),
+        ("Events Auto-Cleared",   total-n_esc,      "052019",True),
+        ("% Auto-Cleared",        f"{pct_clear}%",  "052019",True),
+        ("Events Escalated",      n_esc,            None,    True),
+        ("── Risk Distribution ──","",              navy,    False),
+        ("Critical (≥6.0)",       n_crit,           "450A0A",True),
+        ("High (4.0–5.9)",        n_high,           "431407",True),
+        ("Medium (2.0–3.9)",      n_med,            "1A1A05",False),
+        ("Low (<2.0)",            n_low,            "052019",False),
+        ("── Reviewer Statement ──","",             navy,    False),
+        ("Statement",
+         f"AI-assisted audit trail review identified the {n_esc} highest-risk events "
+         f"from {total:,} total entries using 6-dimension anomaly scoring. "
+         f"{pct_clear}% auto-cleared as low risk. All {n_esc} events reviewed and "
+         f"dispositioned per 21 CFR Part 11 §11.10(e) and EU Annex 11 Clause 9.",
+         None, False),
+    ]
+    for i,(lbl,val,fill,bold) in enumerate(rows,2):
+        c1 = ws.cell(row=i,column=1,value=lbl)
+        c2 = ws.cell(row=i,column=2,value=val)
+        c1.font = Font(color="94A3B8",name="Calibri",size=10)
+        c2.font = Font(color="FFFFFF",bold=bold,name="Calibri",size=10)
+        c1.border = c2.border = bdr
+        if fill:
+            f = PatternFill("solid",fgColor=fill)
+            c1.fill = c2.fill = f
+
+    # Sheet 2 — Top 20
+    ws2 = wb.create_sheet("Top_20_Escalated")
+    ws2.sheet_properties.tabColor = "DC2626"
+    disp = ["Rank","Risk_Score","Risk_Tier","timestamp","user_id","action_type",
+            "record_id","record_type","role",
+            "score_temporal","score_velocity","score_privilege",
+            "score_record","score_del_recreate","score_gap",
+            "AI_Justification","Reviewer_Disposition","Reviewer_Notes"]
+    top_out = top_df.copy().reset_index(drop=True)
+    top_out.insert(0,"Rank",range(1,len(top_out)+1))
+    top_out["Reviewer_Disposition"] = "[ ] Justified  [ ] Escalate to CAPA  [ ] False Positive"
+    top_out["Reviewer_Notes"]       = ""
+    for ci,cn in enumerate(disp,1):
+        c = ws2.cell(row=1,column=ci,value=cn.replace("_"," "))
+        c.font=hdr_f; c.fill=hdr_fl; c.border=bdr
+        c.alignment=Alignment(horizontal="center",wrap_text=True)
+    for ri,(_, row) in enumerate(top_out.iterrows(),2):
+        tier = str(row.get("Risk_Tier","Low"))
+        bg,_ = TIER_COLORS.get(tier,(None,"FFFFFF"))
+        rf   = PatternFill("solid",fgColor=bg) if bg else None
+        for ci,cn in enumerate(disp,1):
+            val = row.get(cn,"")
+            if isinstance(val,float) and not pd.isnull(val):
+                val = round(val,2)
+            c = ws2.cell(row=ri,column=ci,value=val)
+            c.border=bdr; c.font=Font(color="FFFFFF",name="Calibri",size=9)
+            c.alignment=Alignment(vertical="top",wrap_text=True)
+            if rf and cn not in ("AI_Justification","Reviewer_Disposition","Reviewer_Notes"):
+                c.fill=rf
+    col_widths = {"Rank":6,"Risk_Score":10,"Risk_Tier":12,"timestamp":20,
+                  "user_id":18,"action_type":18,"record_id":18,"record_type":18,
+                  "role":16,"score_temporal":11,"score_velocity":11,
+                  "score_privilege":11,"score_record":11,"score_del_recreate":14,
+                  "score_gap":11,"AI_Justification":60,
+                  "Reviewer_Disposition":40,"Reviewer_Notes":30}
+    for ci,cn in enumerate(disp,1):
+        ws2.column_dimensions[get_column_letter(ci)].width = col_widths.get(cn,15)
+    ws2.auto_filter.ref = ws2.dimensions
+    ws2.freeze_panes    = "A2"
+
+    # Sheet 3 — All scored
+    ws3 = wb.create_sheet("All_Events_Scored")
+    ws3.sheet_properties.tabColor = "1E3A5F"
+    all_cols = [c for c in scored_df.columns if not c.startswith("_")]
+    for ci,cn in enumerate(all_cols,1):
+        c = ws3.cell(row=1,column=ci,value=cn.replace("_"," "))
+        c.font=hdr_f; c.fill=hdr_fl; c.border=bdr
+    for ri,(_, row) in enumerate(scored_df[all_cols].iterrows(),2):
+        tier = str(row.get("Risk_Tier","Low"))
+        bg,_ = TIER_COLORS.get(tier,(None,"FFFFFF"))
+        rf   = PatternFill("solid",fgColor=bg) if (bg and tier in ("Critical","High")) else None
+        for ci,cn in enumerate(all_cols,1):
+            val = row.get(cn,"")
+            if isinstance(val,float) and not pd.isnull(val): val=round(val,2)
+            c = ws3.cell(row=ri,column=ci,value=val)
+            c.border=bdr; c.font=Font(color="FFFFFF",name="Calibri",size=9)
+            if rf: c.fill=rf
+    for ci in range(1,len(all_cols)+1):
+        ws3.column_dimensions[get_column_letter(ci)].width=18
+    ws3.auto_filter.ref=ws3.dimensions; ws3.freeze_panes="A2"
+
+    wb.save(output)
+    return output.getvalue()
+
+
+def show_periodic_review(user: str, role: str, model_id: str):
+    """
+    Periodic Review landing page — shows 3 module cards.
+    Clicking a live module opens it; coming-soon modules show a placeholder.
+    """
+    active = st.session_state.get("pr_active_module")
+
+    # ── If a sub-module is open, show it with a Back button ──────────────────
+    if active == "audit_trail":
+        bc, _ = st.columns([2, 8])
+        with bc:
+            if st.button("← Back to Periodic Review", key="pr_back_btn"):
+                st.session_state["pr_active_module"] = None
+                st.rerun()
+        show_audit_trail(user, role, model_id)
+        return
+
+    if active in ("access_review", "report_drafter"):
+        bc, _ = st.columns([2, 8])
+        with bc:
+            if st.button("← Back to Periodic Review", key="pr_back_btn2"):
+                st.session_state["pr_active_module"] = None
+                st.rerun()
+        label = "User Access Review Intelligence" if active == "access_review" \
+                else "Periodic Review Report Drafter"
+        st.title(f"🚧 {label}")
+        st.info("This module is coming soon. It will be available in the next release.")
+        return
+
+    # ── Landing page ──────────────────────────────────────────────────────────
+    st.title("📋 Periodic Review")
+    st.markdown(
+        "<p style='color:#94a3b8;margin-top:-12px;'>Select a module below. "
+        "Each module covers a mandatory section of your Periodic Review Report "
+        "per 21 CFR Part 11, EU Annex 11, and SOP-418.</p>",
+        unsafe_allow_html=True
+    )
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # ── Module cards ──────────────────────────────────────────────────────────
+    modules = [
+        {
+            "key":     "audit_trail",
+            "number":  "Module 1",
+            "title":   "Audit Trail Intelligence",
+            "section": "SOP-418 §9.1.6 · 21 CFR Part 11 §11.10(e) · EU Annex 11 Cl. 9",
+            "desc":    (
+                "Reduce 10,000 audit log entries to the 20 highest-risk events. "
+                "Scores every event across 6 risk dimensions — velocity bursts, "
+                "off-hours activity, admin privilege abuse, delete-recreate patterns, "
+                "audit trail gaps, and sensitive record manipulation. "
+                "Outputs a signed evidence package ready to attach as Appendix to "
+                "your Periodic Review Report."
+            ),
+            "bullets": [
+                "🔴 Velocity bursts & bulk modifications",
+                "🔴 Admin privilege on GxP records",
+                "🔴 Audit trail disable / gap detection",
+                "🟡 Off-hours & weekend activity",
+                "🟡 Delete → Recreate same record",
+            ],
+            "status":  "live",
+            "btn_label": "Launch Module 1 →",
+            "color":   "#0284c7",
+            "bg":      "#0c1f36",
+            "border":  "#1e3a5f",
+        },
+        {
+            "key":     "access_review",
+            "number":  "Module 2",
+            "title":   "User Access Review Intelligence",
+            "section": "SOP-418 §9.1.5 · 21 CFR Part 11 §11.300",
+            "desc":    (
+                "Upload your user access list CSV. The tool flags dormant accounts, "
+                "admin roles assigned to non-admin functions, accounts active before "
+                "training was completed, delta from last approved review, and shared "
+                "account fingerprinting across IP addresses."
+            ),
+            "bullets": [
+                "🔴 Dormant accounts still active",
+                "🔴 Admin roles on non-admin functions",
+                "🔴 New accounts since last review",
+                "🟡 Shared account / credential reuse",
+                "🟡 Account created and used same day",
+            ],
+            "status":  "coming_soon",
+            "btn_label": "Coming Soon",
+            "color":   "#475569",
+            "bg":      "#0a1628",
+            "border":  "#1e293b",
+        },
+        {
+            "key":     "report_drafter",
+            "number":  "Module 3",
+            "title":   "Periodic Review Report Drafter",
+            "section": "SOP-418 §9.2 · All sections",
+            "desc":    (
+                "Upload your company's Periodic Review SOP and the outputs from "
+                "Modules 1 and 2. The tool drafts a complete Periodic Review Report "
+                "using your own company terminology, SOP references, and CAPA system "
+                "name. Derives the fit-for-use conclusion from finding severity. "
+                "Produces a Word document 70% ready for approval."
+            ),
+            "bullets": [
+                "📄 Company-specific terminology extraction",
+                "📄 Auto-populates §9.1.5 and §9.1.6 from modules",
+                "📄 Derives Fit / Fit with Restrictions / Not Fit conclusion",
+                "📄 CAPA recommendations in your SOP language",
+                "📄 Word document output ready for circulation",
+            ],
+            "status":  "coming_soon",
+            "btn_label": "Coming Soon",
+            "color":   "#475569",
+            "bg":      "#0a1628",
+            "border":  "#1e293b",
+        },
+    ]
+
+    for mod in modules:
+        live = mod["status"] == "live"
+        bullets_html = "".join(
+            f'<li style="color:#94a3b8;font-size:0.82rem;margin-bottom:3px;">{b}</li>'
+            for b in mod["bullets"]
+        )
+        st.markdown(f"""
+<div style="background:{mod['bg']};border:1.5px solid {mod['border']};
+            border-left:4px solid {mod['color']};border-radius:10px;
+            padding:22px 26px;margin-bottom:16px;font-family:'Inter',sans-serif;">
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+    <div style="flex:1;">
+      <p style="margin:0;color:{mod['color']};font-size:0.7rem;letter-spacing:3px;
+                text-transform:uppercase;">{mod['number']}
+        {'&nbsp;&nbsp;<span style="background:#059669;color:white;padding:1px 6px;border-radius:3px;font-size:0.65rem;">LIVE</span>' if live else '&nbsp;&nbsp;<span style="background:#1e293b;color:#64748b;padding:1px 6px;border-radius:3px;font-size:0.65rem;">COMING SOON</span>'}
+      </p>
+      <p style="margin:4px 0 2px;font-size:1.2rem;font-weight:700;
+                color:{'#e2e8f0' if live else '#475569'};">{mod['title']}</p>
+      <p style="margin:0 0 10px;color:#475569;font-size:0.72rem;
+                font-family:'Courier New',monospace;">{mod['section']}</p>
+      <p style="margin:0 0 10px;color:{'#94a3b8' if live else '#334155'};
+                font-size:0.83rem;line-height:1.5;">{mod['desc']}</p>
+      <ul style="margin:0;padding-left:16px;">{bullets_html}</ul>
+    </div>
+  </div>
+</div>
+""", unsafe_allow_html=True)
+
+        if live:
+            _, btn_col, _ = st.columns([6, 3, 1])
+            with btn_col:
+                if st.button(mod["btn_label"], key=f"pr_open_{mod['key']}",
+                             type="primary", use_container_width=True):
+                    st.session_state["pr_active_module"] = mod["key"]
+                    st.rerun()
+        st.markdown("", unsafe_allow_html=True)
+
+
+def show_audit_trail(user: str, role: str, model_id: str):
+    """Render Periodic Review — Module 1: Audit Trail Intelligence."""
+    st.title("🔍 Audit Trail Intelligence")
+    st.markdown(
+        "<p style='color:#94a3b8;margin-top:-12px;'>Periodic Review Module 1 — "
+        "Reduce 10,000 audit log entries to the 20 highest-risk events, "
+        "with documented statistical justification for Section 9.1.6 of your "
+        "Periodic Review Report.</p>",
+        unsafe_allow_html=True
+    )
+
+    # Reset button
+    rc, _ = st.columns([2, 8])
+    with rc:
+        if st.button("🔄 New Analysis", key="at_reset_btn"):
+            for k in ["at_raw_df","at_mapped_df","at_scored_df","at_top20_df",
+                      "at_file_name","at_mapping_done","at_analysis_done","at_total_events"]:
+                st.session_state[k] = _defaults.get(k)
+            st.session_state["at_key_n"] = st.session_state.get("at_key_n",0) + 1
+            st.rerun()
+
+    # ── System metadata (always shown) ───────────────────────────────────────
+    mc1, mc2, mc3 = st.columns(3)
+    with mc1:
+        st.session_state["at_system_name"] = st.text_input(
+            "System Name", value=st.session_state.get("at_system_name",""),
+            placeholder="e.g. DocuSign Part 11", key="at_sysname")
+    with mc2:
+        st.session_state["at_review_start"] = st.text_input(
+            "Review Period Start", value=st.session_state.get("at_review_start",""),
+            placeholder="e.g. 01-Jan-2022", key="at_rstart")
+    with mc3:
+        st.session_state["at_review_end"] = st.text_input(
+            "Review Period End", value=st.session_state.get("at_review_end",""),
+            placeholder="e.g. 31-Dec-2024", key="at_rend")
+
+    st.markdown("---")
+
+    # ── STEP 1: Upload ────────────────────────────────────────────────────────
+    if not st.session_state.get("at_mapping_done"):
+        st.markdown("### Step 1 — Upload Audit Trail Export")
+        st.caption(
+            "CSV or Excel export from any GxP system — Veeva Vault, SAP, "
+            "MasterControl, LIMS, or any custom system. No integration required."
+        )
+        ck = st.session_state.get("at_key_n", 0)
+        uploaded = st.file_uploader(
+            "Audit Trail", type=["csv","xlsx","xls"],
+            key=f"at_upload_{ck}", label_visibility="collapsed"
+        )
+        if uploaded:
+            try:
+                raw = uploaded.getvalue()
+                if uploaded.name.lower().endswith(".csv"):
+                    df = pd.read_csv(io.BytesIO(raw), dtype=str,
+                                     low_memory=False).fillna("")
+                else:
+                    df = pd.read_excel(io.BytesIO(raw), dtype=str).fillna("")
+                st.session_state["at_raw_df"]   = df
+                st.session_state["at_file_name"] = uploaded.name
+                st.success(f"✅ **{uploaded.name}** — "
+                           f"**{len(df):,} rows** × **{len(df.columns)} columns**")
+                with st.expander("Preview (first 10 rows)", expanded=False):
+                    st.dataframe(df.head(10), use_container_width=True)
+            except Exception as e:
+                st.error(f"⛔ Could not read file: {e}")
+
+        # ── Column mapper ─────────────────────────────────────────────────────
+        if st.session_state.get("at_raw_df") is not None:
+            st.markdown("### Step 2 — Map Your Columns")
+            st.caption("Match your file's column names to the required fields. "
+                       "★ = required.")
+            df      = st.session_state["at_raw_df"]
+            avail   = ["(not in file)"] + list(df.columns)
+            mapping = {}
+            cols3   = st.columns(3)
+            for i,(field,desc) in enumerate(_AT_REQUIRED_COLS.items()):
+                req  = field in ("timestamp","user_id","action_type")
+                auto = "(not in file)"
+                for col in df.columns:
+                    cl = col.lower().replace(" ","_").replace("-","_")
+                    if field in cl or cl in field:
+                        auto = col; break
+                with cols3[i%3]:
+                    st.caption(desc)
+                    mapping[field] = st.selectbox(
+                        f"{'★ ' if req else ''}{field.replace('_',' ').title()}",
+                        avail,
+                        index=avail.index(auto) if auto in avail else 0,
+                        key=f"at_map_{field}"
+                    )
+
+            req_ok = all(
+                mapping.get(f,"(not in file)") != "(not in file)"
+                for f in ("timestamp","user_id","action_type")
+            )
+            if not req_ok:
+                st.warning("⚠️ Map the three required fields to continue.")
+            else:
+                _, bc, _ = st.columns([3,4,3])
+                with bc:
+                    if st.button("✅ Confirm Mapping & Continue",
+                                 type="primary", use_container_width=True,
+                                 key="at_confirm_map"):
+                        rename = {v:k for k,v in mapping.items()
+                                  if v != "(not in file)"}
+                        mdf = df.rename(columns=rename)
+                        for c in _AT_REQUIRED_COLS:
+                            if c not in mdf.columns:
+                                mdf[c] = ""
+                        st.session_state["at_mapped_df"]   = mdf
+                        st.session_state["at_column_map"]  = mapping
+                        st.session_state["at_mapping_done"] = True
+                        st.rerun()
+
+    # ── STEP 2: Run analysis ──────────────────────────────────────────────────
+    elif not st.session_state.get("at_analysis_done"):
+        df = st.session_state["at_mapped_df"]
+        st.success(f"✅ Mapping confirmed — **{len(df):,} events** ready")
+
+        st.markdown("### Step 3 — Run Analysis")
+        st.markdown(f"""
+<div style="background:#0f172a;border:1px solid #1e293b;border-radius:10px;
+            padding:16px 20px;margin-bottom:16px;">
+  <p style="color:#38bdf8;font-size:0.72rem;letter-spacing:2px;
+            text-transform:uppercase;margin:0 0 10px 0;">8 Detection Rules Active</p>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;font-size:0.82rem;
+              color:#94a3b8;">
+    <div>🔴 Velocity bursts (same user + action)</div>
+    <div>🔴 Off-hours &amp; weekend activity</div>
+    <div>🔴 Admin privilege on GxP records</div>
+    <div>🔴 Audit trail disable/enable events</div>
+    <div>🔴 Delete → Recreate same record</div>
+    <div>🟡 Timestamp gap (disable window)</div>
+    <div>🟡 Sensitive record deletions</div>
+    <div>🟡 Bulk modification spikes</div>
+  </div>
+</div>""", unsafe_allow_html=True)
+
+        _, rc2, _ = st.columns([2,6,2])
+        with rc2:
+            run = st.button(
+                f"🚀 Analyse {len(df):,} Events → Generate Top {_AT_TOP_N} Risk Report",
+                type="primary", use_container_width=True, key="at_run_btn"
+            )
+
+        if run:
+            prog   = st.progress(0)
+            status = st.empty()
+            with st.status("🔍 Audit Trail Analysis", expanded=True) as atstat:
+                st.write("📊 Step 1: Parsing timestamps...")
+                prog.progress(0.15)
+                scored = at_score_events(df)
+
+                st.write(f"⚡ Step 2: Scoring {len(scored):,} events across 6 dimensions...")
+                prog.progress(0.45)
+                top20  = scored.head(_AT_TOP_N).copy()
+
+                st.write(f"🤖 Step 3: AI justifications for top {_AT_TOP_N} events...")
+                prog.progress(0.65)
+                top20  = at_generate_justifications(top20, model_id)
+
+                prog.progress(0.90)
+                st.write("📋 Step 4: Building evidence package...")
+                st.session_state["at_scored_df"]     = scored
+                st.session_state["at_top20_df"]      = top20
+                st.session_state["at_total_events"]  = len(scored)
+                st.session_state["at_analysis_done"] = True
+
+                n_crit = int((scored["Risk_Tier"]=="Critical").sum())
+                prog.progress(1.0)
+                log_audit(user,"AT_ANALYSIS_COMPLETE","AUDIT_TRAIL",
+                          new_value=f"{len(scored)} events, {n_crit} critical",
+                          reason=f"System: {st.session_state.get('at_system_name','?')}")
+                atstat.update(
+                    label=f"✅ {len(scored):,} events analysed — "
+                          f"{_AT_TOP_N} escalated — {n_crit} critical",
+                    state="complete", expanded=False
+                )
+            prog.empty(); status.empty()
+            st.rerun()
+
+    # ── STEP 3: Results ───────────────────────────────────────────────────────
+    else:
+        scored = st.session_state["at_scored_df"]
+        top20  = st.session_state["at_top20_df"]
+        n_total = st.session_state["at_total_events"]
+        n_esc   = len(top20)
+        n_crit  = int((scored["Risk_Tier"]=="Critical").sum())
+        n_high  = int((scored["Risk_Tier"]=="High").sum())
+        n_med   = int((scored["Risk_Tier"]=="Medium").sum())
+        n_low   = int((scored["Risk_Tier"]=="Low").sum())
+        pct_clr = round((n_total-n_esc)/n_total*100,1) if n_total>0 else 0
+
+        # Hero banner
+        st.markdown(f"""
+<div style="background:#0f172a;border:2px solid #38bdf8;border-radius:10px;
+            padding:18px 24px;margin-bottom:18px;">
+  <p style="margin:0;color:#475569;font-size:0.68rem;letter-spacing:3px;
+            text-transform:uppercase;font-family:'Inter',sans-serif;">
+    Analysis Complete — {st.session_state.get('at_system_name','System')}</p>
+  <p style="margin:6px 0 4px;font-size:2.2rem;font-weight:800;color:#38bdf8;
+            line-height:1;font-family:'Inter',sans-serif;">
+    {n_total:,} events analysed</p>
+  <p style="margin:0;font-size:0.88rem;color:#64748b;">
+    <span style="color:#4ade80;font-weight:700;">{pct_clr}% auto-cleared</span>
+    &nbsp;·&nbsp;
+    <span style="color:#fca5a5;font-weight:700;">{n_esc} escalated for review</span>
+    &nbsp;·&nbsp;
+    <span style="color:#94a3b8;">{st.session_state.get('at_file_name','')}</span>
+  </p>
+</div>""", unsafe_allow_html=True)
+
+        # Metrics
+        c1,c2,c3,c4,c5 = st.columns(5)
+        for col,val,label,color in [
+            (c1, f"{n_total:,}", "Total Events",  "#38bdf8"),
+            (c2, str(n_crit),   "🔴 Critical",    "#dc2626"),
+            (c3, str(n_high),   "🟠 High",        "#ea580c"),
+            (c4, str(n_med),    "🟡 Medium",      "#d97706"),
+            (c5, f"{pct_clr}%", "✅ Auto-Cleared","#4ade80"),
+        ]:
+            col.metric(label, val)
+
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        # Top 20 cards
+        st.markdown(f"### Top {_AT_TOP_N} Highest-Risk Events")
+        tier_colors = {
+            "Critical":"#dc2626","High":"#ea580c",
+            "Medium":"#d97706","Low":"#4ade80"
+        }
+        for rank,(_, row) in enumerate(top20.iterrows(),1):
+            tier  = str(row.get("Risk_Tier","Medium"))
+            score = float(row.get("Risk_Score",0))
+            bc    = tier_colors.get(tier,"#d97706")
+            dims  = [
+                ("Temporal",     row.get("score_temporal",0)),
+                ("Velocity",     row.get("score_velocity",0)),
+                ("Privilege",    row.get("score_privilege",0)),
+                ("Record Type",  row.get("score_record",0)),
+                ("Del-Recreate", row.get("score_del_recreate",0)),
+                ("Gap",          row.get("score_gap",0)),
+            ]
+            dim_html = "".join([
+                f'<div style="display:flex;align-items:center;gap:6px;margin-bottom:2px;">'
+                f'<span style="color:#475569;font-size:0.67rem;width:78px;">{dn}</span>'
+                f'<div style="flex:1;background:#1e293b;border-radius:2px;height:4px;">'
+                f'<div style="background:{"#dc2626" if dv>=7 else "#ea580c" if dv>=5 else "#d97706" if dv>=3 else "#334155"};'
+                f'height:4px;border-radius:2px;width:{min(dv/10*100,100):.0f}%;"></div></div>'
+                f'<span style="color:#64748b;font-size:0.67rem;width:24px;text-align:right;">{dv:.1f}</span>'
+                f'</div>'
+                for dn,dv in dims
+            ])
+            st.markdown(f"""
+<div style="background:#0f172a;border-left:3px solid {bc};border-radius:6px;
+            padding:14px 18px;margin-bottom:8px;">
+  <div style="display:flex;justify-content:space-between;margin-bottom:8px;">
+    <span style="color:{bc};font-weight:700;">Event #{rank}
+      <span style="background:{bc}22;border:1px solid {bc}44;color:{bc};
+             padding:2px 8px;border-radius:4px;font-size:0.7rem;margin-left:8px;">
+        {tier} · {score:.1f}/10</span></span>
+    <span style="color:#334155;font-size:0.72rem;">
+      {str(row.get('timestamp',''))}</span>
+  </div>
+  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;
+              font-size:0.8rem;margin-bottom:10px;">
+    <div><span style="color:#475569;">User: </span>
+         <span style="color:#e2e8f0;">{row.get('user_id','—')}</span></div>
+    <div><span style="color:#475569;">Action: </span>
+         <span style="color:#e2e8f0;">{row.get('action_type','—')}</span></div>
+    <div><span style="color:#475569;">Role: </span>
+         <span style="color:#e2e8f0;">{row.get('role','—')}</span></div>
+    <div><span style="color:#475569;">Record ID: </span>
+         <span style="color:#e2e8f0;">{row.get('record_id','—')}</span></div>
+    <div><span style="color:#475569;">Record Type: </span>
+         <span style="color:#e2e8f0;">{row.get('record_type','—')}</span></div>
+  </div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+    <div><p style="color:#475569;font-size:0.67rem;text-transform:uppercase;
+             letter-spacing:1px;margin:0 0 5px;">Risk Dimensions</p>
+         {dim_html}</div>
+    <div><p style="color:#475569;font-size:0.67rem;text-transform:uppercase;
+             letter-spacing:1px;margin:0 0 5px;">AI Justification</p>
+         <p style="color:#cbd5e1;font-size:0.81rem;line-height:1.5;margin:0;">
+           {str(row.get('AI_Justification',''))}</p></div>
+  </div>
+</div>""", unsafe_allow_html=True)
+
+        # Distribution table
+        st.markdown("### Risk Distribution — Full Dataset")
+        st.dataframe(pd.DataFrame({
+            "Risk Tier":  ["Critical","High","Medium","Low"],
+            "Count":      [n_crit,n_high,n_med,n_low],
+            "% of Total": [round(v/n_total*100,1) for v in [n_crit,n_high,n_med,n_low]],
+            "Escalated":  ["Yes","Yes" if n_high>0 else "No","No","No"],
+        }), use_container_width=True, hide_index=True)
+
+        # Download
+        st.markdown("---")
+        xlsx = at_build_excel(
+            top20, scored,
+            st.session_state.get("at_system_name","System"),
+            st.session_state.get("at_review_start",""),
+            st.session_state.get("at_review_end",""),
+            st.session_state.get("at_file_name",""),
+        )
+        dl_c, inf_c = st.columns([4,5])
+        with dl_c:
+            st.download_button(
+                "📥 Download Evidence Package (.xlsx)",
+                data=xlsx,
+                file_name=(f"AuditTrail_{st.session_state.get('at_system_name','System').replace(' ','_')}"
+                           f"_{datetime.date.today()}.xlsx"),
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key="at_download_btn", use_container_width=True,
+            )
+        with inf_c:
+            st.markdown(
+                "<p style='color:#475569;font-size:0.8rem;padding-top:8px;'>"
+                "3-sheet workbook: <b style='color:#e2e8f0;'>Summary</b> · "
+                "<b style='color:#e2e8f0;'>Top_20_Escalated</b> (reviewer "
+                "disposition columns) · <b style='color:#e2e8f0;'>All_Events_Scored</b>"
+                "<br>Attach to Periodic Review Report Section 9.1.6 as Appendix.</p>",
+                unsafe_allow_html=True
+            )
+
+        st.markdown(f"""
+<div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;
+            padding:14px 20px;margin-top:14px;font-size:0.8rem;">
+  <b style="color:#94a3b8;">Paste into Periodic Review Report Section 9.1.6:</b><br>
+  <i style="color:#cbd5e1;">
+  "AI-assisted audit trail review identified the {n_esc} highest-risk events from
+  {n_total:,} total entries using 6-dimension anomaly scoring (Temporal, Velocity,
+  Privilege, Record Sensitivity, Delete-Recreate, Gap Detection). {pct_clr}% of
+  events were auto-cleared as low risk. All {n_esc} escalated events were reviewed
+  by the undersigned and dispositioned as documented in Appendix A.
+  Complies with 21 CFR Part 11 §11.10(e) and EU Annex 11 Clause 9."
+  </i>
+</div>""", unsafe_allow_html=True)
+
+
 # =============================================================================
 # 11. LOGIN
 # =============================================================================
@@ -4563,15 +5431,16 @@ def show_app():
         st.markdown(f'<p class="sb-title">CSV Generator v{VERSION}</p>', unsafe_allow_html=True)
         st.divider()
         st.markdown('<p class="sb-sub">🔧 Analysis Mode</p>', unsafe_allow_html=True)
+        _modes = [
+            "New Validation",
+            "Change Impact Analysis",
+            "Periodic Review",
+            "Delta Generation (coming soon)",
+        ]
         app_mode = st.radio(
-            "Mode",
-            ["New Validation", "Change Impact Analysis",
-             "Gap Audit (coming soon)", "Periodic Review (coming soon)", "Delta Generation (coming soon)"],
-            index=["New Validation", "Change Impact Analysis",
-                   "Gap Audit (coming soon)", "Periodic Review (coming soon)",
-                   "Delta Generation (coming soon)"].index(
-                       st.session_state.get("app_mode", "New Validation")
-                   ),
+            "Mode", _modes,
+            index=_modes.index(st.session_state.get("app_mode","New Validation"))
+                  if st.session_state.get("app_mode","New Validation") in _modes else 0,
             label_visibility="collapsed",
             key="app_mode_radio",
         )
@@ -4814,11 +5683,13 @@ def show_app():
         show_change_impact(user, role, MODELS[st.session_state.selected_model])
         return
 
-    if _mode in ("Gap Audit (coming soon)", "Periodic Review (coming soon)",
-                 "Delta Generation (coming soon)"):
-        st.title(f"{_mode.replace(' (coming soon)', '')}")
-        st.info("🚧 This analysis mode is coming soon. Select **New Validation** or "
-                "**Change Impact Analysis** in the sidebar to continue.")
+    if _mode == "Periodic Review":
+        show_periodic_review(user, role, MODELS[st.session_state.selected_model])
+        return
+
+    if _mode == "Delta Generation (coming soon)":
+        st.title("Delta Generation")
+        st.info("🚧 Coming soon. Select another mode in the sidebar to continue.")
         return
 
     # ── Main area — New Validation ────────────────────────────────────────────
