@@ -4520,6 +4520,40 @@ _AT_VEL_WINDOW  = 60    # minutes
 _AT_VEL_THRESH  = 5     # same user+action in window = anomaly
 _AT_TOP_N       = 20
 
+# US Federal Holidays — static, year-agnostic (month, day) pairs
+# Plus fixed-rule holidays (e.g. 4th Thursday of November handled separately)
+_AT_US_FIXED_HOLIDAYS = {
+    (1,  1):  "New Year's Day",
+    (6,  19): "Juneteenth",
+    (7,  4):  "Independence Day",
+    (11, 11): "Veterans Day",
+    (12, 25): "Christmas Day",
+}
+# Floating holidays approximated as common observed dates across recent years
+# (MLK = 3rd Mon Jan, Presidents = 3rd Mon Feb, Memorial = last Mon May,
+#  Labor = 1st Mon Sep, Columbus = 2nd Mon Oct, Thanksgiving = 4th Thu Nov)
+# We detect these by checking if the date falls on the typical weekday+week
+def _is_us_federal_holiday(ts: pd.Timestamp) -> tuple:
+    """Returns (bool, holiday_name). Covers all 11 US Federal Holidays."""
+    if pd.isnull(ts):
+        return False, ""
+    m, d, wd = ts.month, ts.day, ts.weekday()   # wd: Mon=0 … Sun=6
+    week_of_month = (d - 1) // 7 + 1            # 1-indexed week within month
+
+    # Fixed holidays (observed Mon if Sun, Fri if Sat — approximate)
+    for (hm, hd), name in _AT_US_FIXED_HOLIDAYS.items():
+        if m == hm and abs(d - hd) <= 1:
+            return True, name
+
+    # Floating holidays
+    if m == 1  and wd == 0 and week_of_month == 3: return True, "MLK Day"
+    if m == 2  and wd == 0 and week_of_month == 3: return True, "Presidents Day"
+    if m == 5  and wd == 0 and week_of_month >= 4: return True, "Memorial Day"
+    if m == 9  and wd == 0 and week_of_month == 1: return True, "Labor Day"
+    if m == 10 and wd == 0 and week_of_month == 2: return True, "Columbus Day"
+    if m == 11 and wd == 3 and week_of_month == 4: return True, "Thanksgiving"
+    return False, ""
+
 _AT_REQUIRED_COLS = {
     "timestamp":   "Timestamp / Date-Time of the event",
     "user_id":     "User ID / Username who performed the action",
@@ -4550,12 +4584,19 @@ def _at_temporal_score(ts) -> float:
     if pd.isnull(ts):
         return 3.0
     score = 0.0
+    # Weekend
     if ts.weekday() in _AT_WEEKENDS:
         score += 5.0
+    # Outside business hours
     if ts.hour < _AT_BIZ_START or ts.hour >= _AT_BIZ_END:
         score += 4.0
+    # Deep night 00:00–05:00
     if 0 <= ts.hour < 5:
         score += 1.0
+    # US Federal Holiday — shadow activity window
+    is_holiday, _ = _is_us_federal_holiday(ts)
+    if is_holiday:
+        score += 4.0   # same weight as off-hours; holiday + off-hours = 8+ alone
     return min(score, 10.0)
 
 
@@ -4836,20 +4877,105 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
     df["score_rule4_drift"]    = r4_sc
     df["rule4_rationale"]      = r4_rat
 
+    # ── Rule 5 — Failed Login → Data Manipulation (Credential Abuse) ─────────
+    # Target: 3+ failed login events followed by a successful login, then a
+    #         DELETE or MODIFY on a GxP record within 30 minutes.
+    # Risk: Critical. Pattern indicates brute-force or credential stuffing
+    #       preceding unauthorised data manipulation.
+    # Requires: action_type column with LOGIN_FAILED / AUTHENTICATION_FAILED
+    #           and a subsequent successful login + data action in the same file.
+    r5_scores    = pd.Series(0.0, index=df.index)
+    r5_rationale = pd.Series("", index=df.index)
+    if "timestamp_parsed" in df.columns and "user_id" in df.columns:
+        df_s   = df.sort_values("timestamp_parsed").copy()
+        df_s   = df_s[df_s["timestamp_parsed"].notna()].copy()
+        ts_lst = df_s["timestamp_parsed"].tolist()
+        us_lst = df_s["user_id"].astype(str).tolist()
+        ac_lst = df_s["action_type"].astype(str).str.upper().tolist()
+        ix_lst = df_s.index.tolist()
+
+        failed_kw  = ["LOGIN_FAILED","AUTH_FAILED","AUTHENTICATION_FAILED",
+                      "FAILED_LOGIN","LOGIN_FAILURE","LOGON_FAILURE","FAILED_LOGON"]
+        success_kw = ["LOGIN","LOGON","AUTHENTICATION_SUCCESS","LOGIN_SUCCESS"]
+        manip_kw   = ["DELETE","UPDATE","MODIFY","MODIFY_RESULT","RESULT_UPDATE",
+                      "AMEND","OVERRIDE","REVISE","INSERT","RESULT_INSERT"]
+        manip_tbl  = ["results","result","batch","batch_release","sample_data",
+                      "sample","test_result","raw_data","quality_record"]
+
+        for i in range(len(df_s)):
+            # Must be a successful login
+            if not any(kw in ac_lst[i] for kw in success_kw):
+                continue
+            usr = us_lst[i]
+            t_login = ts_lst[i]
+
+            # Count failed logins by same user in the 2 hours before this login
+            failed_count = 0
+            for j in range(max(0, i-300), i):
+                if us_lst[j] != usr:
+                    continue
+                if not any(kw in ac_lst[j] for kw in failed_kw):
+                    continue
+                try:
+                    mins_before = (t_login - ts_lst[j]).total_seconds() / 60
+                    if 0 < mins_before <= 120:
+                        failed_count += 1
+                except Exception:
+                    continue
+
+            if failed_count < 3:
+                continue
+
+            # Now look for a GxP data manipulation within 30 min after the login
+            for k in range(i+1, min(len(df_s), i+500)):
+                if us_lst[k] != usr:
+                    continue
+                try:
+                    mins_after = (ts_lst[k] - t_login).total_seconds() / 60
+                except Exception:
+                    continue
+                if mins_after > 30:
+                    break
+                act_k = ac_lst[k]
+                rec_k = str(df_s.iloc[k].get("record_type","")).lower() \
+                        if hasattr(df_s.iloc[k], "get") else ""
+                rec_k = df_s["record_type"].iloc[k].lower() \
+                        if "record_type" in df_s.columns else ""
+                if any(kw in act_k for kw in manip_kw):
+                    # Flag both the login event and the manipulation event
+                    rationale_text = (
+                        f"Rule 5 — Failed Login → Data Manipulation [CRITICAL]: "
+                        f"User '{usr}' had {failed_count} failed login attempt(s) "
+                        f"in the 120 minutes preceding successful login at {t_login}. "
+                        f"Within 30 minutes of login, action '{df_s['action_type'].iloc[k]}' "
+                        f"was performed on '{df_s['record_type'].iloc[k] if 'record_type' in df_s.columns else 'GxP record'}'. "
+                        f"This sequence indicates potential brute-force access followed by "
+                        f"unauthorised data manipulation, violating 21 CFR Part 11 §11.300 "
+                        f"and ALCOA+ Original data integrity requirements."
+                    )
+                    r5_scores.at[ix_lst[i]] = 10.0
+                    r5_scores.at[ix_lst[k]] = 10.0
+                    r5_rationale.at[ix_lst[i]] = rationale_text
+                    r5_rationale.at[ix_lst[k]] = rationale_text
+                    break   # one manipulation is enough to flag
+
+    df["score_rule5_failed_login"] = r5_scores
+    df["rule5_rationale"]          = r5_rationale
+
     # ── Composite Risk Score ──────────────────────────────────────────────────
     # Original 6 dimensions + 4 named rules, weighted
     weights = {
-        "score_temporal":          0.07,
-        "score_velocity":          0.10,
-        "score_privilege":         0.12,
-        "score_record":            0.11,
-        "score_del_recreate":      0.10,
-        "score_gap":               0.08,
-        # Named AI skill rules get higher weight — they are explicit, named violations
-        "score_rule1_vague_rationale": 0.10,
-        "score_rule2_burst":           0.10,
-        "score_rule3_admin_conflict":  0.14,   # Critical rule = highest weight
-        "score_rule4_drift":           0.08,
+        "score_temporal":              0.07,
+        "score_velocity":              0.09,
+        "score_privilege":             0.11,
+        "score_record":                0.10,
+        "score_del_recreate":          0.09,
+        "score_gap":                   0.07,
+        "score_rule1_vague_rationale": 0.09,
+        "score_rule2_burst":           0.09,
+        "score_rule3_admin_conflict":  0.13,
+        "score_rule4_drift":           0.07,
+        "score_rule5_failed_login":    0.09,  # Critical rule — brute-force pattern
     }
     df["Risk_Score"] = sum(df[c]*w for c,w in weights.items()).round(2)
 
@@ -4875,6 +5001,15 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
             fired.append("Rule 3 — Admin/GxP Conflict [CRITICAL]")
         if row.get("score_rule4_drift", 0) > 0:
             fired.append("Rule 4 — Change Control Drift [HIGH]")
+        if row.get("score_rule5_failed_login", 0) > 0:
+            fired.append("Rule 5 — Failed Login→Data Manipulation [CRITICAL]")
+        try:
+            is_hol, hol_name = _is_us_federal_holiday(
+                pd.Timestamp(str(row.get("timestamp",""))))
+            if is_hol:
+                fired.append(f"Holiday — {hol_name}")
+        except Exception:
+            pass
         return "; ".join(fired) if fired else ""
     df["Triggered_Rules"] = df.apply(_triggered, axis=1)
 
@@ -4885,9 +5020,66 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
             row.get("rule2_rationale",""),
             row.get("rule3_rationale",""),
             row.get("rule4_rationale",""),
+            row.get("rule5_rationale",""),
         ] if r]
         return " | ".join(parts)
     df["Rule_Rationale"] = df.apply(_combined_rat, axis=1)
+
+    # ── Action Required — deterministic per highest-scoring dimension ─────────
+    _ACTION_MAP = {
+        "score_rule5_failed_login":
+            "Initiate a data integrity investigation immediately. Obtain all failed login "
+            "records for this user. Cross-reference data changes against source documents. "
+            "If manipulation is confirmed without authorisation, raise a Critical "
+            "non-conformance per Non-Conformance and CAPA System SOP.",
+        "score_rule3_admin_conflict":
+            "Obtain documented business justification for this admin action on production "
+            "data. If no Emergency Access Request or Change Control exists, initiate a "
+            "non-conformance and assess impact on GxP record integrity.",
+        "score_del_recreate":
+            "Retrieve both the deleted and recreated record versions. Compare all field "
+            "values for discrepancies. Obtain retrospective justification. If unexplained, "
+            "initiate a data integrity investigation.",
+        "score_rule1_vague_rationale":
+            "Obtain a retrospective amendment with adequate scientific justification from "
+            "the analyst. Assess whether the undocumented change affects product quality "
+            "or batch disposition decision.",
+        "score_rule4_drift":
+            "Cross-reference this value against the approved Change Request or validated "
+            "specification. If not authorised, assess impact on validated state and "
+            "initiate Change Control per SOP-004.",
+        "score_rule2_burst":
+            "Verify contemporaneous source data exists (instrument printouts, lab "
+            "worksheets) confirming entries were not transcribed from memory or paper "
+            "records after the fact.",
+        "score_gap":
+            "Investigate whether the audit trail was intentionally disabled during the gap. "
+            "If unexplained, treat as a Critical audit trail integrity finding per "
+            "21 CFR Part 11 §11.10(e).",
+        "score_privilege":
+            "Verify the admin role was used appropriately per the System Administration "
+            "Procedure. If not configuration-related, treat as a Segregation of Duties "
+            "violation per 21 CFR Part 11 §11.10(d).",
+        "score_record":
+            "Review against source document for the affected GxP record. Obtain "
+            "justification from the performing user. Escalate to CAPA if no "
+            "documented authorisation exists.",
+        "score_temporal":
+            "Obtain documented business justification for this off-hours or holiday "
+            "activity. Verify no approved overtime or maintenance window was in place.",
+        "score_velocity":
+            "Verify contemporaneous source data confirms real-time entry. If entries "
+            "were transcribed from paper or memory, assess ALCOA+ Contemporaneous "
+            "compliance and consider data reliability for batch disposition.",
+    }
+
+    def _action_req(row):
+        best_k = max(_ACTION_MAP, key=lambda k: float(row.get(k, 0)))
+        if float(row.get(best_k, 0)) > 0:
+            return _ACTION_MAP[best_k]
+        return ("Review event against source documentation. Obtain written justification "
+                "from the performing user. Escalate to CAPA if no justification exists.")
+    df["Action_Required"] = df.apply(_action_req, axis=1)
 
     return df.sort_values("Risk_Score", ascending=False).reset_index(drop=True)
 
@@ -4910,16 +5102,17 @@ def _at_deterministic_justification(row: dict) -> str:
 
     # Identify highest scoring dimension for sentence 1
     dim_scores = {
-        "Temporal anomaly":           float(row.get("score_temporal", 0)),
-        "Velocity burst":             float(row.get("score_velocity", 0)),
-        "Privilege conflict":         float(row.get("score_privilege", 0)),
-        "Record sensitivity":         float(row.get("score_record", 0)),
-        "Delete-recreate pattern":    float(row.get("score_del_recreate", 0)),
-        "Timestamp gap":              float(row.get("score_gap", 0)),
-        "Rule 1 — Vague Rationale":   float(row.get("score_rule1_vague_rationale", 0)),
+        "Temporal anomaly":               float(row.get("score_temporal", 0)),
+        "Velocity burst":                 float(row.get("score_velocity", 0)),
+        "Privilege conflict":             float(row.get("score_privilege", 0)),
+        "Record sensitivity":             float(row.get("score_record", 0)),
+        "Delete-recreate pattern":        float(row.get("score_del_recreate", 0)),
+        "Timestamp gap":                  float(row.get("score_gap", 0)),
+        "Rule 1 — Vague Rationale":       float(row.get("score_rule1_vague_rationale", 0)),
         "Rule 2 — Contemporaneous Burst": float(row.get("score_rule2_burst", 0)),
-        "Rule 3 — Admin/GxP Conflict":float(row.get("score_rule3_admin_conflict", 0)),
-        "Rule 4 — Change Control Drift": float(row.get("score_rule4_drift", 0)),
+        "Rule 3 — Admin/GxP Conflict":   float(row.get("score_rule3_admin_conflict", 0)),
+        "Rule 4 — Change Control Drift":  float(row.get("score_rule4_drift", 0)),
+        "Rule 5 — Failed Login→Data Manipulation": float(row.get("score_rule5_failed_login", 0)),
     }
     top_dims = sorted(dim_scores.items(), key=lambda x: x[1], reverse=True)
     top_dim  = top_dims[0][0] if top_dims[0][1] > 0 else "composite risk scoring"
@@ -4930,6 +5123,7 @@ def _at_deterministic_justification(row: dict) -> str:
         "Rule 2 — Contemporaneous Burst":  "ALCOA+ Contemporaneous principle",
         "Rule 3 — Admin/GxP Conflict":     "21 CFR Part 11 §11.10(d) access controls and Segregation of Duties",
         "Rule 4 — Change Control Drift":   "21 CFR Part 820.70(b) validated state requirements",
+        "Rule 5 — Failed Login→Data Manipulation": "21 CFR Part 11 §11.300 and ALCOA+ Original data integrity",
         "Temporal anomaly":                "21 CFR Part 11 §11.10(e) audit trail review requirements",
         "Velocity burst":                  "ALCOA+ Contemporaneous principle",
         "Privilege conflict":              "21 CFR Part 11 §11.10(d) access controls",
@@ -5097,26 +5291,36 @@ def at_build_excel(top_df, scored_df, system_name, r_start, r_end, fname) -> byt
     t.fill = PatternFill("solid",fgColor=navy)
     t.alignment = Alignment(horizontal="center")
 
+    t_crit = float(st.session_state.get("at_thresh_critical", 7.0))
+    t_high = float(st.session_state.get("at_thresh_high",     5.0))
+    t_med  = float(st.session_state.get("at_thresh_medium",   3.0))
+
     rows = [
         ("System Name",          system_name,      None,    True),
         ("Review Period",         f"{r_start} → {r_end}", None, False),
         ("Source File",           fname,            None,    False),
         ("Analysis Date",         str(datetime.date.today()), None, False),
         ("Regulatory Basis",      "21 CFR Part 11 §11.10(e); EU Annex 11 Clause 9", None, False),
+        ("── Risk Thresholds (Locked) ──","",       navy,    False),
+        ("Critical threshold",    f"Score ≥ {t_crit}",  "450A0A", True),
+        ("High threshold",        f"Score ≥ {t_high}",  "431407", True),
+        ("Medium threshold",      f"Score ≥ {t_med}",   "1A1A05", False),
+        ("Low threshold",         f"Score < {t_med}",   "052019", False),
         ("── Statistical Summary ──","",            navy,    False),
         ("Total Events Analysed", total,            None,    True),
         ("Events Auto-Cleared",   total-n_esc,      "052019",True),
         ("% Auto-Cleared",        f"{pct_clear}%",  "052019",True),
         ("Events Escalated",      n_esc,            None,    True),
         ("── Risk Distribution ──","",              navy,    False),
-        ("Critical (≥6.0)",       n_crit,           "450A0A",True),
-        ("High (4.0–5.9)",        n_high,           "431407",True),
-        ("Medium (2.0–3.9)",      n_med,            "1A1A05",False),
-        ("Low (<2.0)",            n_low,            "052019",False),
+        (f"Critical (≥{t_crit})", n_crit,           "450A0A",True),
+        (f"High (≥{t_high})",     n_high,           "431407",True),
+        (f"Medium (≥{t_med})",    n_med,            "1A1A05",False),
+        (f"Low (<{t_med})",       n_low,            "052019",False),
         ("── Reviewer Statement ──","",             navy,    False),
         ("Statement",
          f"AI-assisted audit trail review identified the {n_esc} highest-risk events "
-         f"from {total:,} total entries using 6-dimension anomaly scoring. "
+         f"from {total:,} total entries using anomaly scoring (thresholds: Critical≥{t_crit}, "
+         f"High≥{t_high}, Medium≥{t_med}). "
          f"{pct_clear}% auto-cleared as low risk. All {n_esc} events reviewed and "
          f"dispositioned per 21 CFR Part 11 §11.10(e) and EU Annex 11 Clause 9.",
          None, False),
@@ -5138,10 +5342,12 @@ def at_build_excel(top_df, scored_df, system_name, r_start, r_end, fname) -> byt
             "timestamp","user_id","action_type","record_id","record_type","role",
             "comments","new_value",
             "Rule_Rationale",
+            "Action_Required",
             "score_temporal","score_velocity","score_privilege",
             "score_record","score_del_recreate","score_gap",
             "score_rule1_vague_rationale","score_rule2_burst",
             "score_rule3_admin_conflict","score_rule4_drift",
+            "score_rule5_failed_login",
             "AI_Justification","Reviewer_Disposition","Reviewer_Notes"]
     top_out = top_df.copy().reset_index(drop=True)
     top_out.insert(0,"Rank",range(1,len(top_out)+1))
@@ -5162,7 +5368,9 @@ def at_build_excel(top_df, scored_df, system_name, r_start, r_end, fname) -> byt
             c = ws2.cell(row=ri,column=ci,value=val)
             c.border=bdr; c.font=Font(color="FFFFFF",name="Calibri",size=9)
             c.alignment=Alignment(vertical="top",wrap_text=True)
-            if rf and cn not in ("AI_Justification","Reviewer_Disposition","Reviewer_Notes"):
+            if rf and cn not in ("AI_Justification","Rule_Rationale",
+                                  "Action_Required","Reviewer_Disposition",
+                                  "Reviewer_Notes"):
                 c.fill=rf
     col_widths = {"Rank":6,"Risk_Score":10,"Risk_Tier":12,
                   "Triggered_Rules":45,
@@ -5170,11 +5378,13 @@ def at_build_excel(top_df, scored_df, system_name, r_start, r_end, fname) -> byt
                   "record_id":18,"record_type":18,"role":16,
                   "comments":30,"new_value":18,
                   "Rule_Rationale":60,
+                  "Action_Required":60,
                   "score_temporal":11,"score_velocity":11,
                   "score_privilege":11,"score_record":11,
                   "score_del_recreate":14,"score_gap":11,
                   "score_rule1_vague_rationale":14,"score_rule2_burst":12,
                   "score_rule3_admin_conflict":14,"score_rule4_drift":12,
+                  "score_rule5_failed_login":14,
                   "AI_Justification":60,
                   "Reviewer_Disposition":40,"Reviewer_Notes":30}
     for ci,cn in enumerate(disp,1):
@@ -5531,6 +5741,12 @@ match your system's export column names to the fields above — rename nothing i
                 ["2024-06-17 11:08:22","analyst_brown",  "INSERT",        "RESULTS",        "Analyst",     "RES-1050",   "Re-entry after deletion","99.99"],
                 ["2024-06-18 09:30:00","analyst_jones",  "UPDATE",        "RESULTS",        "Analyst",     "RES-1060",   "Setpoint adjustment","147.3"],
                 ["2024-06-18 10:00:00","analyst_jones",  "UPDATE",        "RESULTS",        "Analyst",     "RES-1061",   "Routine update per SOP-031 batch review cycle complete","7.1"],
+                # ── Rule 5: Failed Login → Data Manipulation ───────────────────
+                ["2024-06-19 22:01:11","analyst_smith",  "LOGIN_FAILED",  "USER_SESSION",   "Analyst",     "",           "Invalid credentials",""],
+                ["2024-06-19 22:03:44","analyst_smith",  "LOGIN_FAILED",  "USER_SESSION",   "Analyst",     "",           "Invalid credentials",""],
+                ["2024-06-19 22:06:02","analyst_smith",  "LOGIN_FAILED",  "USER_SESSION",   "Analyst",     "",           "Invalid credentials",""],
+                ["2024-06-19 22:08:15","analyst_smith",  "LOGIN",         "USER_SESSION",   "Analyst",     "",           "Successful login",""],
+                ["2024-06-19 22:12:33","analyst_smith",  "DELETE",        "RESULTS",        "Analyst",     "RES-2099",   "",""],
             ]
 
             header = ["timestamp","user_id","action_type","record_type",
@@ -5777,6 +5993,7 @@ match your system's export column names to the fields above — rename nothing i
                 ("Rule 2 Burst", row.get("score_rule2_burst",0)),
                 ("Rule 3 Admin", row.get("score_rule3_admin_conflict",0)),
                 ("Rule 4 Drift", row.get("score_rule4_drift",0)),
+                ("Rule 5 Login", row.get("score_rule5_failed_login",0)),
             ]
             dim_html = "".join([
                 f'<div style="display:flex;align-items:center;gap:6px;margin-bottom:2px;">'
@@ -5798,6 +6015,8 @@ match your system's export column names to the fields above — rename nothing i
                     "Rule 2": ("#0369a1","#dbeafe"),
                     "Rule 3": ("#dc2626","#fee2e2"),
                     "Rule 4": ("#d97706","#fef3c7"),
+                    "Rule 5": ("#b91c1c","#fee2e2"),
+                    "Holida": ("#b45309","#fef3c7"),
                 }
                 for rule_label in triggered.split("; "):
                     key = rule_label[:6]
@@ -5808,6 +6027,8 @@ match your system's export column names to the fields above — rename nothing i
                         f'margin-right:4px;margin-bottom:4px;display:inline-block;">'
                         f'{rule_label}</span>'
                     )
+
+            action_req = str(row.get("Action_Required",""))
 
             st.markdown(f"""
 <div style="background:#0f172a;border-left:3px solid {bc};border-radius:6px;
@@ -5837,7 +6058,8 @@ match your system's export column names to the fields above — rename nothing i
          <span style="color:{'#fbbf24' if row.get('score_rule1_vague_rationale',0)>0 else '#e2e8f0'};">
            {str(row.get('comments','—'))[:60]}</span></div>
   </div>
-  {f'<div style="background:#1a0f2e;border:1px solid #7c3aed44;border-radius:4px;padding:8px 12px;margin-bottom:10px;"><p style="color:#475569;font-size:0.67rem;text-transform:uppercase;letter-spacing:1px;margin:0 0 4px;">Rule Rationale</p><p style="color:#c4b5fd;font-size:0.79rem;line-height:1.4;margin:0;">{rule_rat[:300]}</p></div>' if rule_rat else ''}
+  {f'<div style="background:#1a0f2e;border:1px solid #7c3aed44;border-radius:4px;padding:8px 12px;margin-bottom:8px;"><p style="color:#475569;font-size:0.67rem;text-transform:uppercase;letter-spacing:1px;margin:0 0 4px;">Rule Rationale</p><p style="color:#c4b5fd;font-size:0.79rem;line-height:1.4;margin:0;">{rule_rat[:300]}</p></div>' if rule_rat else ''}
+  {f'<div style="background:#0f1f12;border:1px solid #16a34a44;border-radius:4px;padding:8px 12px;margin-bottom:8px;"><p style="color:#475569;font-size:0.67rem;text-transform:uppercase;letter-spacing:1px;margin:0 0 4px;">Recommended Action</p><p style="color:#86efac;font-size:0.79rem;line-height:1.4;margin:0;">{action_req}</p></div>' if action_req else ''}
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
     <div><p style="color:#475569;font-size:0.67rem;text-transform:uppercase;
              letter-spacing:1px;margin:0 0 5px;">Dimension Scores</p>
