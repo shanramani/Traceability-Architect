@@ -4528,38 +4528,85 @@ _AT_VEL_WINDOW  = 60    # minutes
 _AT_VEL_THRESH  = 5     # same user+action in window = anomaly
 _AT_TOP_N       = 20
 
-# US Federal Holidays — static, year-agnostic (month, day) pairs
-# Plus fixed-rule holidays (e.g. 4th Thursday of November handled separately)
-_AT_US_FIXED_HOLIDAYS = {
-    (1,  1):  "New Year's Day",
-    (6,  19): "Juneteenth",
-    (7,  4):  "Independence Day",
-    (11, 11): "Veterans Day",
-    (12, 25): "Christmas Day",
-}
-# Floating holidays approximated as common observed dates across recent years
-# (MLK = 3rd Mon Jan, Presidents = 3rd Mon Feb, Memorial = last Mon May,
-#  Labor = 1st Mon Sep, Columbus = 2nd Mon Oct, Thanksgiving = 4th Thu Nov)
-# We detect these by checking if the date falls on the typical weekday+week
+# US Federal Holidays — fully dynamic observed-date calculation.
+# Fixed holidays shift to Friday if they fall on Saturday, Monday if Sunday.
+# Floating holidays are computed from weekday + week-of-month rules — these
+# are inherently year-agnostic and require no date tables.
+import datetime as _dt_mod
+
+_AT_US_FIXED_HOLIDAYS = [
+    (1,  1,  "New Year's Day"),
+    (6,  19, "Juneteenth"),
+    (7,  4,  "Independence Day"),
+    (11, 11, "Veterans Day"),
+    (12, 25, "Christmas Day"),
+]
+
+def _us_observed_date(year: int, month: int, day: int) -> _dt_mod.date:
+    """
+    Return the federally observed date for a fixed holiday.
+    US OPM rule: Saturday → preceding Friday; Sunday → following Monday.
+    """
+    actual = _dt_mod.date(year, month, day)
+    wd = actual.weekday()           # Mon=0 … Sun=6
+    if wd == 5:                     # Saturday → Friday
+        return actual - _dt_mod.timedelta(days=1)
+    if wd == 6:                     # Sunday → Monday
+        return actual + _dt_mod.timedelta(days=1)
+    return actual
+
+
 def _is_us_federal_holiday(ts: pd.Timestamp) -> tuple:
-    """Returns (bool, holiday_name). Covers all 11 US Federal Holidays."""
+    """
+    Returns (bool, holiday_name). Covers all 11 US Federal Holidays.
+
+    Fixed holidays (New Year's, Juneteenth, Independence Day, Veterans Day,
+    Christmas) are resolved to their exact observed date for the given year
+    using proper OPM Saturday→Friday / Sunday→Monday shifting.
+
+    Floating holidays (MLK, Presidents, Memorial, Labor, Columbus,
+    Thanksgiving) are detected from weekday + week-of-month arithmetic —
+    fully dynamic for any year, no lookup tables required.
+
+    Edge case: when 1 Jan falls on Saturday, the observed holiday is
+    31 Dec of the prior year — handled explicitly.
+    """
     if pd.isnull(ts):
         return False, ""
-    m, d, wd = ts.month, ts.day, ts.weekday()   # wd: Mon=0 … Sun=6
-    week_of_month = (d - 1) // 7 + 1            # 1-indexed week within month
+    ts          = pd.Timestamp(ts)
+    check_date  = ts.date()
+    year        = check_date.year
 
-    # Fixed holidays (observed Mon if Sun, Fri if Sat — approximate)
-    for (hm, hd), name in _AT_US_FIXED_HOLIDAYS.items():
-        if m == hm and abs(d - hd) <= 1:
+    # ── Fixed holidays with correct observed-date shifting ────────────────
+    for month, day, name in _AT_US_FIXED_HOLIDAYS:
+        try:
+            observed = _us_observed_date(year, month, day)
+        except ValueError:
+            continue
+        if check_date == observed:
             return True, name
 
-    # Floating holidays
-    if m == 1  and wd == 0 and week_of_month == 3: return True, "MLK Day"
-    if m == 2  and wd == 0 and week_of_month == 3: return True, "Presidents Day"
-    if m == 5  and wd == 0 and week_of_month >= 4: return True, "Memorial Day"
-    if m == 9  and wd == 0 and week_of_month == 1: return True, "Labor Day"
-    if m == 10 and wd == 0 and week_of_month == 2: return True, "Columbus Day"
-    if m == 11 and wd == 3 and week_of_month == 4: return True, "Thanksgiving"
+    # Edge case: New Year's Day on Saturday → observed Dec 31 prior year
+    try:
+        ny_observed = _us_observed_date(year + 1, 1, 1)
+        if ny_observed == _dt_mod.date(year, 12, 31) and check_date == ny_observed:
+            return True, "New Year's Day (observed)"
+    except ValueError:
+        pass
+
+    # ── Floating holidays (weekday + week-of-month arithmetic) ────────────
+    m  = ts.month
+    d  = ts.day
+    wd = ts.weekday()                   # Mon=0 … Sun=6
+    wk = (d - 1) // 7 + 1              # 1-indexed week within month
+
+    if m == 1  and wd == 0 and wk == 3:       return True, "MLK Day"
+    if m == 2  and wd == 0 and wk == 3:       return True, "Presidents Day"
+    if m == 5  and wd == 0 and wk >= 4:       return True, "Memorial Day"
+    if m == 9  and wd == 0 and wk == 1:       return True, "Labor Day"
+    if m == 10 and wd == 0 and wk == 2:       return True, "Columbus Day"
+    if m == 11 and wd == 3 and wk == 4:       return True, "Thanksgiving"
+
     return False, ""
 
 _AT_REQUIRED_COLS = {
@@ -6734,9 +6781,11 @@ def show_periodic_review(user: str, role: str, model_id: str):
             "title":   "Audit Trail Review",
             "section": "21 CFR Part 11 §11.10(e) · EU Annex 11 Cl. 9",
             "desc":    (
-                "Reduce thousands of audit log entries to the 20 highest-risk events. "
-                "Scores every event across 6 risk dimensions and outputs a signed "
-                "evidence package ready to attach to your Periodic Review Report."
+                "16-rule detection engine — vague rationale · velocity bursts · "
+                "admin on GxP · value drift · credential abuse · delete-recreate · "
+                "audit trail tampering · privileged access · off-hours · federal holidays · "
+                "timestamp gaps · reversals · service accounts · dormant accounts · "
+                "suspicious sequences · first-time behaviour"
             ),
             "status":  "live",
             "btn_label": "Launch →",
@@ -6778,23 +6827,57 @@ def show_periodic_review(user: str, role: str, model_id: str):
 
     col1, col2, col3 = st.columns(3)
     _card_cols = [col1, col2, col3]
+
+    # Apple-style card CSS injected once
+    st.markdown("""
+<style>
+.pr-card-wrap { height: 100%; display: flex; flex-direction: column; }
+.pr-card {
+    background: #ffffff;
+    border: 1px solid #d2d2d7;
+    border-radius: 14px;
+    padding: 24px 22px 20px 22px;
+    font-family: 'Inter', -apple-system, sans-serif;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+    transition: box-shadow 0.18s ease;
+}
+.pr-card:hover { box-shadow: 0 4px 16px rgba(0,0,0,0.10); }
+.pr-card-accent { height: 3px; border-radius: 2px; margin-bottom: 18px; }
+.pr-card-badge {
+    display: inline-block; font-size: 0.62rem; font-weight: 600;
+    letter-spacing: 1.5px; text-transform: uppercase;
+    padding: 2px 8px; border-radius: 20px; margin-bottom: 10px;
+}
+.pr-card-badge-live   { background: #e8f9f0; color: #1a7f4b; border: 1px solid #a3e4c1; }
+.pr-card-badge-soon   { background: #f5f5f7; color: #a1a1a6; border: 1px solid #d2d2d7; }
+.pr-card-title  { font-size: 1.05rem; font-weight: 700; color: #1d1d1f; margin: 0 0 4px 0; }
+.pr-card-ref    { font-size: 0.69rem; color: #a1a1a6; font-family: 'Courier New', monospace;
+                  margin: 0 0 12px 0; }
+.pr-card-desc   { font-size: 0.81rem; color: #3d3d3f; line-height: 1.55;
+                  margin: 0; flex: 1; }
+</style>
+""", unsafe_allow_html=True)
+
     for idx, mod in enumerate(modules):
         live = mod["status"] == "live"
+        accent_color = mod["color"] if live else "#d2d2d7"
+        badge_cls    = "pr-card-badge-live" if live else "pr-card-badge-soon"
+        badge_text   = "Live" if live else "Coming Soon"
+        title_color  = "#1d1d1f" if live else "#a1a1a6"
+
         with _card_cols[idx]:
             st.markdown(f"""
-<div style="background:{mod['bg']};border:1.5px solid {mod['border']};
-            border-top:4px solid {mod['color']};border-radius:10px;
-            padding:20px 22px;font-family:'Inter',sans-serif;height:100%;">
-  <p style="margin:0 0 2px;color:{mod['color']};font-size:0.68rem;letter-spacing:2px;
-            text-transform:uppercase;">
-    {'<span style="background:#059669;color:white;padding:1px 6px;border-radius:3px;font-size:0.65rem;margin-right:6px;">LIVE</span>' if live else '<span style="background:#1e293b;color:#64748b;padding:1px 6px;border-radius:3px;font-size:0.65rem;margin-right:6px;">COMING SOON</span>'}
-  </p>
-  <p style="margin:8px 0 4px;font-size:1.05rem;font-weight:700;
-            color:{'#e2e8f0' if live else '#475569'};">{mod['title']}</p>
-  <p style="margin:0 0 10px;color:#475569;font-size:0.70rem;
-            font-family:'Courier New',monospace;">{mod['section']}</p>
-  <p style="margin:0;color:{'#94a3b8' if live else '#334155'};
-            font-size:0.81rem;line-height:1.5;">{mod['desc']}</p>
+<div class="pr-card-wrap">
+  <div class="pr-card">
+    <div class="pr-card-accent" style="background:{accent_color};"></div>
+    <span class="pr-card-badge {badge_cls}">{badge_text}</span>
+    <p class="pr-card-title" style="color:{title_color};">{mod['title']}</p>
+    <p class="pr-card-ref">{mod['section']}</p>
+    <p class="pr-card-desc">{mod['desc']}</p>
+  </div>
 </div>
 """, unsafe_allow_html=True)
             st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
@@ -8544,8 +8627,9 @@ match your system's export column names to the fields above — rename nothing i
 
         ck = st.session_state.get("at_key_n", 0)
         uploaded = st.file_uploader(
-            "Audit Trail", type=["csv","xlsx","xls"],
-            key=f"at_upload_{ck}", label_visibility="collapsed"
+            "Drag and drop your Audit Log file here (CSV or Excel)",
+            type=["csv","xlsx","xls"],
+            key=f"at_upload_{ck}"
         )
         if uploaded:
             try:
@@ -8618,22 +8702,14 @@ match your system's export column names to the fields above — rename nothing i
         st.success(f"✅ Mapping confirmed — **{len(df):,} events** ready")
 
         st.markdown("### Step 3 — Run Analysis")
-        st.markdown(f"""
-<div style="background:#0f172a;border:1px solid #1e293b;border-radius:10px;
-            padding:16px 20px;margin-bottom:16px;">
-  <p style="color:#38bdf8;font-size:0.72rem;letter-spacing:2px;
-            text-transform:uppercase;margin:0 0 10px 0;">8 Detection Rules Active</p>
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;font-size:0.82rem;
-              color:#94a3b8;">
-    <div>🔴 Velocity bursts (same user + action)</div>
-    <div>🔴 Off-hours &amp; weekend activity</div>
-    <div>🔴 Admin privilege on GxP records</div>
-    <div>🔴 Audit trail disable/enable events</div>
-    <div>🔴 Delete → Recreate same record</div>
-    <div>🟡 Timestamp gap (disable window)</div>
-    <div>🟡 Sensitive record deletions</div>
-    <div>🟡 Bulk modification spikes</div>
-  </div>
+        st.markdown("""
+<div style="display:inline-flex;align-items:center;gap:8px;
+            background:#f0fdf4;border:1px solid #86efac;border-radius:8px;
+            padding:8px 16px;margin-bottom:16px;">
+  <span style="color:#16a34a;font-size:0.88rem;">●</span>
+  <span style="color:#15803d;font-size:0.82rem;font-weight:600;">
+    16-Rule Detection Engine Ready
+  </span>
 </div>""", unsafe_allow_html=True)
 
         _, rc2, _ = st.columns([2,6,2])
@@ -8732,7 +8808,7 @@ match your system's export column names to the fields above — rename nothing i
         n_low   = int((scored["Risk_Tier"]=="Low").sum())
         pct_clr = round((n_total-n_esc)/n_total*100,1) if n_total>0 else 0
 
-        # Hero banner
+        # ── Hero banner ───────────────────────────────────────────────────────
         st.markdown(f"""
 <div style="background:#0f172a;border:2px solid #38bdf8;border-radius:10px;
             padding:18px 24px;margin-bottom:18px;">
@@ -8751,7 +8827,7 @@ match your system's export column names to the fields above — rename nothing i
   </p>
 </div>""", unsafe_allow_html=True)
 
-        # Metrics
+        # ── Metrics ───────────────────────────────────────────────────────────
         c1,c2,c3,c4,c5 = st.columns(5)
         for col,val,label,color in [
             (c1, f"{n_total:,}", "Total Events",  "#38bdf8"),
@@ -8764,117 +8840,7 @@ match your system's export column names to the fields above — rename nothing i
 
         st.markdown("<br>", unsafe_allow_html=True)
 
-        # Top 20 cards
-        st.markdown(f"### Top {_AT_TOP_N} Highest-Risk Events")
-        tier_colors = {
-            "Critical":"#dc2626","High":"#ea580c",
-            "Medium":"#d97706","Low":"#4ade80"
-        }
-        for rank,(_, row) in enumerate(top20.iterrows(),1):
-            tier  = str(row.get("Risk_Tier","Medium"))
-            score = float(row.get("Risk_Score",0))
-            bc    = tier_colors.get(tier,"#d97706")
-            triggered = str(row.get("Triggered_Rules",""))
-            rule_rat  = str(row.get("Rule_Rationale",""))
-
-            dims  = [
-                ("Temporal",     row.get("score_temporal",0)),
-                ("Velocity",     row.get("score_velocity",0)),
-                ("Privilege",    row.get("score_privilege",0)),
-                ("Record Type",  row.get("score_record",0)),
-                ("Del-Recreate", row.get("score_del_recreate",0)),
-                ("Gap",          row.get("score_gap",0)),
-                ("Rule 1 Vague", row.get("score_rule1_vague_rationale",0)),
-                ("Rule 2 Burst", row.get("score_rule2_burst",0)),
-                ("Rule 3 Admin", row.get("score_rule3_admin_conflict",0)),
-                ("Rule 4 Drift", row.get("score_rule4_drift",0)),
-                ("Rule 5 Login", row.get("score_rule5_failed_login",0)),
-            ]
-            dim_html = "".join([
-                f'<div style="display:flex;align-items:center;gap:6px;margin-bottom:2px;">'
-                f'<span style="color:{"#fbbf24" if "Rule" in dn else "#475569"};'
-                f'font-size:0.67rem;width:78px;">{dn}</span>'
-                f'<div style="flex:1;background:#1e293b;border-radius:2px;height:4px;">'
-                f'<div style="background:{"#dc2626" if dv>=7 else "#ea580c" if dv>=5 else "#d97706" if dv>=3 else "#334155"};'
-                f'height:4px;border-radius:2px;width:{min(dv/10*100,100):.0f}%;"></div></div>'
-                f'<span style="color:#64748b;font-size:0.67rem;width:24px;text-align:right;">{dv:.1f}</span>'
-                f'</div>'
-                for dn,dv in dims
-            ])
-
-            # Triggered rules badges
-            badges_html = ""
-            if triggered:
-                rule_badge_colors = {
-                    "Rule 1": ("#7c3aed","#ede9fe"),
-                    "Rule 2": ("#0369a1","#dbeafe"),
-                    "Rule 3": ("#dc2626","#fee2e2"),
-                    "Rule 4": ("#d97706","#fef3c7"),
-                    "Rule 5": ("#b91c1c","#fee2e2"),
-                    "Holida": ("#b45309","#fef3c7"),
-                }
-                for rule_label in triggered.split("; "):
-                    key = rule_label[:6]
-                    fg, bg2 = rule_badge_colors.get(key, ("#64748b","#1e293b"))
-                    badges_html += (
-                        f'<span style="background:{bg2};color:{fg};border:1px solid {fg}44;'
-                        f'padding:2px 8px;border-radius:4px;font-size:0.68rem;'
-                        f'margin-right:4px;margin-bottom:4px;display:inline-block;">'
-                        f'{rule_label}</span>'
-                    )
-
-            action_req = str(row.get("Action_Required",""))
-            chain_id   = str(row.get("Event_Chain_ID",""))
-            chain_badge = (
-                f'&nbsp;<span style="background:#1e1b4b;color:#a5b4fc;'
-                f'border:1px solid #6366f144;padding:2px 8px;border-radius:4px;'
-                f'font-size:0.68rem;font-family:\'IBM Plex Mono\',monospace;">'
-                f'⛓ {chain_id}</span>'
-                if chain_id else ""
-            )
-
-            st.markdown(f"""
-<div style="background:#0f172a;border-left:3px solid {bc};border-radius:6px;
-            padding:14px 18px;margin-bottom:8px;">
-  <div style="display:flex;justify-content:space-between;margin-bottom:8px;">
-    <span style="color:{bc};font-weight:700;">Event #{rank}
-      <span style="background:{bc}22;border:1px solid {bc}44;color:{bc};
-             padding:2px 8px;border-radius:4px;font-size:0.7rem;margin-left:8px;">
-        {tier} · {score:.1f}/10</span>{chain_badge}</span>
-    <span style="color:#334155;font-size:0.72rem;">
-      {str(row.get('timestamp',''))}</span>
-  </div>
-  {f'<div style="margin-bottom:8px;">{badges_html}</div>' if badges_html else ''}
-  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;
-              font-size:0.8rem;margin-bottom:10px;">
-    <div><span style="color:#475569;">User: </span>
-         <span style="color:#e2e8f0;">{row.get('user_id','—')}</span></div>
-    <div><span style="color:#475569;">Action: </span>
-         <span style="color:#e2e8f0;">{row.get('action_type','—')}</span></div>
-    <div><span style="color:#475569;">Role: </span>
-         <span style="color:#e2e8f0;">{row.get('role','—')}</span></div>
-    <div><span style="color:#475569;">Record ID: </span>
-         <span style="color:#e2e8f0;">{row.get('record_id','—')}</span></div>
-    <div><span style="color:#475569;">Record Type: </span>
-         <span style="color:#e2e8f0;">{row.get('record_type','—')}</span></div>
-    <div><span style="color:#475569;">Comment: </span>
-         <span style="color:{'#fbbf24' if row.get('score_rule1_vague_rationale',0)>0 else '#e2e8f0'};">
-           {str(row.get('comments','—'))[:60]}</span></div>
-  </div>
-  {f'<div style="background:#1a0f2e;border:1px solid #7c3aed44;border-radius:4px;padding:8px 12px;margin-bottom:8px;"><p style="color:#475569;font-size:0.67rem;text-transform:uppercase;letter-spacing:1px;margin:0 0 4px;">Rule Rationale</p><p style="color:#c4b5fd;font-size:0.79rem;line-height:1.4;margin:0;">{rule_rat[:300]}</p></div>' if rule_rat else ''}
-  {f'<div style="background:#0f1f12;border:1px solid #16a34a44;border-radius:4px;padding:8px 12px;margin-bottom:8px;"><p style="color:#475569;font-size:0.67rem;text-transform:uppercase;letter-spacing:1px;margin:0 0 4px;">Recommended Action</p><p style="color:#86efac;font-size:0.79rem;line-height:1.4;margin:0;">{action_req}</p></div>' if action_req else ''}
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
-    <div><p style="color:#475569;font-size:0.67rem;text-transform:uppercase;
-             letter-spacing:1px;margin:0 0 5px;">Dimension Scores</p>
-         {dim_html}</div>
-    <div><p style="color:#475569;font-size:0.67rem;text-transform:uppercase;
-             letter-spacing:1px;margin:0 0 5px;">AI Justification</p>
-         <p style="color:#cbd5e1;font-size:0.81rem;line-height:1.5;margin:0;">
-           {str(row.get('AI_Justification',''))}</p></div>
-  </div>
-</div>""", unsafe_allow_html=True)
-
-        # Distribution table
+        # ── Risk Distribution ─────────────────────────────────────────────────
         st.markdown("### Risk Distribution — Full Dataset")
         st.dataframe(pd.DataFrame({
             "Risk Tier":  ["Critical","High","Medium","Low"],
@@ -8883,11 +8849,11 @@ match your system's export column names to the fields above — rename nothing i
             "Escalated":  ["Yes","Yes" if n_high>0 else "No","No","No"],
         }), use_container_width=True, hide_index=True)
 
-        # Download
+        # ── Download ──────────────────────────────────────────────────────────
         st.markdown("---")
-        sys_name    = st.session_state.get("at_system_name","").strip()
-        r_start     = st.session_state.get("at_review_start","").strip()
-        r_end       = st.session_state.get("at_review_end","").strip()
+        sys_name = st.session_state.get("at_system_name","").strip()
+        r_start  = st.session_state.get("at_review_start","").strip()
+        r_end    = st.session_state.get("at_review_end","").strip()
 
         if not sys_name:
             st.warning("⚠️ Please enter a **System Name** above before downloading. "
@@ -8934,15 +8900,14 @@ match your system's export column names to the fields above — rename nothing i
   <b style="color:#94a3b8;">Paste into Periodic Review Report Section 9.1.6:</b><br>
   <i style="color:#cbd5e1;">
   "AI-assisted audit trail review identified the {n_esc} highest-risk events from
-  {n_total:,} total entries using 6-dimension anomaly scoring (Temporal, Velocity,
-  Privilege, Record Sensitivity, Delete-Recreate, Gap Detection). {pct_clr}% of
+  {n_total:,} total entries using a 16-rule anomaly detection engine. {pct_clr}% of
   events were auto-cleared as low risk. All {n_esc} escalated events were reviewed
   by the undersigned and dispositioned as documented in Appendix A.
   Complies with 21 CFR Part 11 §11.10(e) and EU Annex 11 Clause 9."
   </i>
 </div>""", unsafe_allow_html=True)
 
-        # ── New Analysis button — only shown after results are displayed ────────
+        # ── New Analysis button ───────────────────────────────────────────────
         st.markdown("<br>", unsafe_allow_html=True)
         _, na_col, _ = st.columns([3, 4, 3])
         with na_col:
@@ -8953,6 +8918,131 @@ match your system's export column names to the fields above — rename nothing i
                     st.session_state[k] = _defaults.get(k)
                 st.session_state["at_key_n"] = st.session_state.get("at_key_n",0) + 1
                 st.rerun()
+
+        # ── Top 20 Events — collapsed by default ──────────────────────────────
+        st.markdown("---")
+        st.markdown(f"### Top {_AT_TOP_N} Highest-Risk Events")
+        st.caption("Click any event to expand the full detail. "
+                   "All events are collapsed by default to keep the page clean.")
+
+        tier_colors = {
+            "Critical":"#dc2626","High":"#ea580c",
+            "Medium":"#d97706","Low":"#4ade80"
+        }
+        tier_icons = {
+            "Critical":"🔴","High":"🟠","Medium":"🟡","Low":"🟢"
+        }
+
+        for rank,(_, row) in enumerate(top20.iterrows(),1):
+            tier    = str(row.get("Risk_Tier","Medium"))
+            score   = float(row.get("Risk_Score",0))
+            bc      = tier_colors.get(tier,"#d97706")
+            icon    = tier_icons.get(tier,"🟡")
+            user_id = str(row.get("user_id","—"))
+            action  = str(row.get("action_type","—"))
+            triggered  = str(row.get("Triggered_Rules",""))
+            rule_rat   = str(row.get("Rule_Rationale",""))
+            action_req = str(row.get("Action_Required",""))
+            chain_id   = str(row.get("Event_Chain_ID",""))
+
+            expander_label = (
+                f"{icon} Event #{rank} · {tier} · {score:.1f}/10"
+                f"  |  {user_id}  ·  {action}"
+            )
+
+            with st.expander(expander_label, expanded=False):
+                dims = [
+                    ("Temporal",     row.get("score_temporal",0)),
+                    ("Velocity",     row.get("score_velocity",0)),
+                    ("Privilege",    row.get("score_privilege",0)),
+                    ("Record Type",  row.get("score_record",0)),
+                    ("Del-Recreate", row.get("score_del_recreate",0)),
+                    ("Gap",          row.get("score_gap",0)),
+                    ("Rule 1 Vague", row.get("score_rule1_vague_rationale",0)),
+                    ("Rule 2 Burst", row.get("score_rule2_burst",0)),
+                    ("Rule 3 Admin", row.get("score_rule3_admin_conflict",0)),
+                    ("Rule 4 Drift", row.get("score_rule4_drift",0)),
+                    ("Rule 5 Login", row.get("score_rule5_failed_login",0)),
+                ]
+                dim_html = "".join([
+                    f'<div style="display:flex;align-items:center;gap:6px;margin-bottom:2px;">'
+                    f'<span style="color:{"#fbbf24" if "Rule" in dn else "#475569"};'
+                    f'font-size:0.67rem;width:78px;">{dn}</span>'
+                    f'<div style="flex:1;background:#1e293b;border-radius:2px;height:4px;">'
+                    f'<div style="background:{"#dc2626" if dv>=7 else "#ea580c" if dv>=5 else "#d97706" if dv>=3 else "#334155"};'
+                    f'height:4px;border-radius:2px;width:{min(dv/10*100,100):.0f}%;"></div></div>'
+                    f'<span style="color:#64748b;font-size:0.67rem;width:24px;text-align:right;">{dv:.1f}</span>'
+                    f'</div>'
+                    for dn,dv in dims
+                ])
+
+                badges_html = ""
+                if triggered:
+                    rule_badge_colors = {
+                        "Rule 1": ("#7c3aed","#ede9fe"),
+                        "Rule 2": ("#0369a1","#dbeafe"),
+                        "Rule 3": ("#dc2626","#fee2e2"),
+                        "Rule 4": ("#d97706","#fef3c7"),
+                        "Rule 5": ("#b91c1c","#fee2e2"),
+                        "Holida": ("#b45309","#fef3c7"),
+                    }
+                    for rule_label in triggered.split("; "):
+                        key = rule_label[:6]
+                        fg, bg2 = rule_badge_colors.get(key, ("#64748b","#1e293b"))
+                        badges_html += (
+                            f'<span style="background:{bg2};color:{fg};border:1px solid {fg}44;'
+                            f'padding:2px 8px;border-radius:4px;font-size:0.68rem;'
+                            f'margin-right:4px;margin-bottom:4px;display:inline-block;">'
+                            f'{rule_label}</span>'
+                        )
+
+                chain_badge = (
+                    f'&nbsp;<span style="background:#1e1b4b;color:#a5b4fc;'
+                    f'border:1px solid #6366f144;padding:2px 8px;border-radius:4px;'
+                    f'font-size:0.68rem;font-family:\'IBM Plex Mono\',monospace;">'
+                    f'⛓ {chain_id}</span>'
+                    if chain_id else ""
+                )
+
+                st.markdown(f"""
+<div style="background:#0f172a;border-left:3px solid {bc};border-radius:6px;
+            padding:14px 18px;">
+  <div style="display:flex;justify-content:space-between;margin-bottom:8px;">
+    <span style="color:{bc};font-weight:700;">Event #{rank}
+      <span style="background:{bc}22;border:1px solid {bc}44;color:{bc};
+             padding:2px 8px;border-radius:4px;font-size:0.7rem;margin-left:8px;">
+        {tier} · {score:.1f}/10</span>{chain_badge}</span>
+    <span style="color:#334155;font-size:0.72rem;">{str(row.get('timestamp',''))}</span>
+  </div>
+  {f'<div style="margin-bottom:8px;">{badges_html}</div>' if badges_html else ''}
+  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;
+              font-size:0.8rem;margin-bottom:10px;">
+    <div><span style="color:#475569;">User: </span>
+         <span style="color:#e2e8f0;">{user_id}</span></div>
+    <div><span style="color:#475569;">Action: </span>
+         <span style="color:#e2e8f0;">{action}</span></div>
+    <div><span style="color:#475569;">Role: </span>
+         <span style="color:#e2e8f0;">{row.get('role','—')}</span></div>
+    <div><span style="color:#475569;">Record ID: </span>
+         <span style="color:#e2e8f0;">{row.get('record_id','—')}</span></div>
+    <div><span style="color:#475569;">Record Type: </span>
+         <span style="color:#e2e8f0;">{row.get('record_type','—')}</span></div>
+    <div><span style="color:#475569;">Comment: </span>
+         <span style="color:{'#fbbf24' if row.get('score_rule1_vague_rationale',0)>0 else '#e2e8f0'};">
+           {str(row.get('comments','—'))[:60]}</span></div>
+  </div>
+  {f'<div style="background:#1a0f2e;border:1px solid #7c3aed44;border-radius:4px;padding:8px 12px;margin-bottom:8px;"><p style="color:#475569;font-size:0.67rem;text-transform:uppercase;letter-spacing:1px;margin:0 0 4px;">Rule Rationale</p><p style="color:#c4b5fd;font-size:0.79rem;line-height:1.4;margin:0;">{rule_rat[:300]}</p></div>' if rule_rat else ''}
+  {f'<div style="background:#0f1f12;border:1px solid #16a34a44;border-radius:4px;padding:8px 12px;margin-bottom:8px;"><p style="color:#475569;font-size:0.67rem;text-transform:uppercase;letter-spacing:1px;margin:0 0 4px;">Recommended Action</p><p style="color:#86efac;font-size:0.79rem;line-height:1.4;margin:0;">{action_req}</p></div>' if action_req else ''}
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+    <div><p style="color:#475569;font-size:0.67rem;text-transform:uppercase;
+             letter-spacing:1px;margin:0 0 5px;">Dimension Scores</p>
+         {dim_html}</div>
+    <div><p style="color:#475569;font-size:0.67rem;text-transform:uppercase;
+             letter-spacing:1px;margin:0 0 5px;">AI Justification</p>
+         <p style="color:#cbd5e1;font-size:0.81rem;line-height:1.5;margin:0;">
+           {str(row.get('AI_Justification',''))}</p></div>
+  </div>
+</div>""", unsafe_allow_html=True)
 
 
 # =============================================================================
