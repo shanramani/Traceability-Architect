@@ -6781,11 +6781,9 @@ def show_periodic_review(user: str, role: str, model_id: str):
             "title":   "Audit Trail Review",
             "section": "21 CFR Part 11 §11.10(e) · EU Annex 11 Cl. 9",
             "desc":    (
-                "16-rule detection engine — vague rationale · velocity bursts · "
-                "admin on GxP · value drift · credential abuse · delete-recreate · "
-                "audit trail tampering · privileged access · off-hours · federal holidays · "
-                "timestamp gaps · reversals · service accounts · dormant accounts · "
-                "suspicious sequences · first-time behaviour"
+                "Upload your audit trail log file to run the 16-rule detection engine. "
+                "Escalates the 20 highest-risk events with a evidence package for "
+                "your Periodic Review Report."
             ),
             "status":  "live",
             "btn_label": "Launch →",
@@ -6813,9 +6811,9 @@ def show_periodic_review(user: str, role: str, model_id: str):
             "title":   "Periodic Review Report Drafter",
             "section": "All sections · Full report output",
             "desc":    (
-                "Upload your Periodic Review SOP and module outputs. Drafts a complete "
-                "Periodic Review Report using your company terminology, SOP references, "
-                "and CAPA system — producing a Word document ready for approval."
+                "Upload your Periodic Review SOP and a model Periodic Report to "
+                "auto-draft a complete report in your company terminology — "
+                "Word document ready for approval."
             ),
             "status":  "coming_soon",
             "btn_label": "Coming Soon",
@@ -6831,7 +6829,17 @@ def show_periodic_review(user: str, role: str, model_id: str):
     # Apple-style card CSS injected once
     st.markdown("""
 <style>
-.pr-card-wrap { height: 100%; display: flex; flex-direction: column; }
+/* Force all three column wrappers in the PR card row to stretch equally */
+[data-testid="stHorizontalBlock"] > [data-testid="stColumn"] {
+    display: flex !important;
+    flex-direction: column !important;
+}
+.pr-card-wrap {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    height: 100%;
+}
 .pr-card {
     background: #ffffff;
     border: 1px solid #d2d2d7;
@@ -6843,6 +6851,7 @@ def show_periodic_review(user: str, role: str, model_id: str):
     flex-direction: column;
     box-shadow: 0 1px 4px rgba(0,0,0,0.06);
     transition: box-shadow 0.18s ease;
+    min-height: 200px;
 }
 .pr-card:hover { box-shadow: 0 4px 16px rgba(0,0,0,0.10); }
 .pr-card-accent { height: 3px; border-radius: 2px; margin-bottom: 18px; }
