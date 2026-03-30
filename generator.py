@@ -4714,8 +4714,8 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
             return 10.0
         if any(k in rec for k in _AT_SENSITIVE) and any(k in act for k in _AT_DELETE_KW):
             return 8.0
-        if any(k in rec for k in _AT_SENSITIVE):
-            return 5.0
+        # Removed 5.0 tier — non-destructive actions on GxP tables are normal
+        # system use and add noise without actionable signal.
         return 0.0
     df["score_record"] = df.apply(_rec, axis=1)
 
@@ -5425,8 +5425,6 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
             fired.append("Rule 7 — Audit Trail Integrity Event [CRITICAL]")
         elif float(row.get("score_record", 0)) >= 8:
             fired.append("Rule 7 — Sensitive Record Deletion [HIGH]")
-        elif float(row.get("score_record", 0)) >= 5:
-            fired.append("Rule 7 — Sensitive Record Access [MEDIUM]")
         if float(row.get("score_privilege", 0)) >= 7:
             fired.append("Rule 8 — Privileged User on GxP Data [HIGH]")
         if float(row.get("score_velocity", 0)) >= 3.5:
@@ -5680,9 +5678,27 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
                     f"The audit trail configuration itself was modified. Any change to audit "
                     f"trail settings requires immediate investigation and formal documentation.")
         if rg >= 7:
-            return ("Escalate to CAPA",
-                    f"A gap in the audit trail may indicate logging was suspended. "
-                    f"If unplanned, this is a critical audit trail integrity finding.")
+            # Check whether the gap event falls during business hours —
+            # a gap during working hours is more suspicious than an overnight gap
+            try:
+                gap_ts  = pd.Timestamp(str(row.get("timestamp","")))
+                gap_hour = gap_ts.hour if not pd.isnull(gap_ts) else -1
+                gap_wd   = gap_ts.weekday() if not pd.isnull(gap_ts) else -1
+                is_biz   = (gap_wd < 5 and
+                            _AT_BIZ_START <= gap_hour < _AT_BIZ_END)
+            except Exception:
+                is_biz = True  # assume business hours if can't parse
+
+            if is_biz:
+                return ("Escalate to CAPA",
+                        "A gap in the audit trail occurred during business hours. "
+                        "An unexplained pause in logging during working hours is a "
+                        "critical audit trail integrity finding requiring investigation.")
+            else:
+                return ("Investigate — Verify Source Data",
+                        "A gap in the audit trail was detected outside business hours. "
+                        "Verify whether this aligns with an approved maintenance window "
+                        "or scheduled system downtime before escalating.")
 
         # High findings with no mitigating comment → Escalate
         if r4 >= 7:
@@ -6052,6 +6068,84 @@ def at_build_excel(top_df, scored_df, system_name, r_start, r_end, fname) -> byt
     ws.row_dimensions[row].height = 18
     row += 2
 
+    # ── Critical Findings Box — shown FIRST so auditor sees it immediately ────
+    critical_events = top_df[
+        top_df["Risk_Tier"].astype(str) == "Critical"
+    ].copy() if not top_df.empty else pd.DataFrame()
+
+    if not critical_events.empty:
+        # Red alert header
+        ws.merge_cells(f"A{row}:B{row}")
+        alert_hdr = ws.cell(
+            row=row, column=1,
+            value=f"⚠  CRITICAL FINDINGS REQUIRING IMMEDIATE ACTION  "
+                  f"({len(critical_events)} event{'s' if len(critical_events)>1 else ''})"
+        )
+        alert_hdr.font      = Font(bold=True, color="FFFFFF", name="Calibri", size=11)
+        alert_hdr.fill      = _fill("991B1B")
+        alert_hdr.alignment = Alignment(horizontal="center", vertical="center")
+        ws.row_dimensions[row].height = 22
+        row += 1
+
+        # Column headers for critical findings table
+        for ci, (lbl, w) in enumerate([
+            ("Event Chain", 14), ("User", 20), ("Rule Triggered", 38),
+            ("Record / Table", 26), ("Date & Time", 22)
+        ], 1):
+            c_hdr = ws.cell(row=row, column=ci, value=lbl)
+            c_hdr.font      = Font(bold=True, color="FFFFFF", name="Calibri", size=9)
+            c_hdr.fill      = _fill("7F1D1D")
+            c_hdr.border    = bdr
+            c_hdr.alignment = Alignment(horizontal="center", vertical="center")
+        ws.row_dimensions[row].height = 16
+
+        # Critical events data (merge A:B into 5 cols using column C-F area)
+        ws.column_dimensions["A"].width = 14
+        ws.column_dimensions["B"].width = 20
+        ws.column_dimensions["C"].width = 38
+        ws.column_dimensions["D"].width = 26
+        ws.column_dimensions["E"].width = 22
+        row += 1
+
+        for _, ev in critical_events.iterrows():
+            chain = str(ev.get("Event_Chain_ID","—"))
+            usr   = str(ev.get("user_id","—"))
+            rule  = str(ev.get("Triggered_Rules","—")).split(";")[0].strip()
+            # Clean rule label — remove severity tag for brevity
+            rule  = rule.replace(" [CRITICAL]","").replace(" [HIGH]","").strip()
+            rec   = str(ev.get("record_id","—"))
+            if rec in ("","nan","—"):
+                rec = str(ev.get("record_type","—"))
+            ts    = str(ev.get("timestamp","—"))
+
+            row_data = [chain, usr, rule, rec, ts]
+            for ci, val in enumerate(row_data, 1):
+                c_data = ws.cell(row=row, column=ci, value=val)
+                c_data.font      = Font(bold=(ci==3), color="7F1D1D",
+                                        name="Calibri", size=9)
+                c_data.fill      = _fill("FEF2F2")
+                c_data.border    = bdr
+                c_data.alignment = Alignment(vertical="center", wrap_text=True)
+            ws.row_dimensions[row].height = 16
+            row += 1
+
+        row += 1   # spacer after critical box
+
+    elif n_crit == 0 and n_high == 0:
+        # Green all-clear box
+        ws.merge_cells(f"A{row}:B{row}")
+        ok_cell = ws.cell(row=row, column=1,
+                          value="✓  NO CRITICAL OR HIGH-RISK EVENTS IDENTIFIED")
+        ok_cell.font      = Font(bold=True, color="166534", name="Calibri", size=11)
+        ok_cell.fill      = _fill("DCFCE7")
+        ok_cell.alignment = Alignment(horizontal="center", vertical="center")
+        ws.row_dimensions[row].height = 22
+        row += 2
+
+    # Reset column widths back to standard after critical box
+    ws.column_dimensions["A"].width = 36
+    ws.column_dimensions["B"].width = 52
+
     def _summary_row(label, value, bold_val=False, section=False, tier=None):
         nonlocal row
         c1 = ws.cell(row=row, column=1, value=label)
@@ -6347,7 +6441,11 @@ def at_build_excel(top_df, scored_df, system_name, r_start, r_end, fname) -> byt
         f"The {n_esc} records requiring review are documented in the 'Events for Review' sheet. "
         f"Each finding has been reviewed and dispositioned by the undersigned reviewer. "
         f"Risk thresholds applied: Critical ≥{t_crit}, High ≥{t_high}, Medium ≥{t_med}. "
-        f"Regulatory basis: 21 CFR Part 11 §11.10(e) and EU Annex 11 Clause 9."
+        f"Regulatory basis: 21 CFR Part 11 §11.10(e) and EU Annex 11 Clause 9.\n\n"
+        f"Timezone note: Off-hours scoring (Rule 11) assumes all timestamps in the uploaded "
+        f"file are in the same timezone. If your system exports timestamps in UTC or a "
+        f"non-local timezone, off-hours flags should be interpreted accordingly. "
+        f"Reviewers should verify local shift patterns before dispositing temporal anomalies."
     ))
     stmt.font      = _body_font(color=C_VALUE_FG)
     stmt.fill      = _fill(C_ALT_ROW)
@@ -6919,7 +7017,10 @@ indicating audit trail configuration was changed: audit trail, audit log,
 log enabled, log disabled, audit enabled, audit disabled, configuration change,
 system setting.
 **Trigger (High — 8.0):** A delete action on a GxP-sensitive record type.
-**Trigger (Medium — 5.0):** Any action on a GxP-sensitive record type.
+**Note:** Non-destructive read/access actions on GxP-sensitive record types
+(SELECT, VIEW, READ) are no longer scored. Only audit trail integrity events
+(Critical) and sensitive record deletions (High) produce a Rule 7 score.
+This prevents routine system use from appearing as false positives.
 **GxP-sensitive record types include:** batch record, audit trail, electronic
 signature, test result, clinical, raw data, master data, configuration, user
 account, role, permission, quality record, change control, deviation, CAPA, OOS.
@@ -6971,6 +7072,14 @@ on a weekday.
 **Score cap:** 10.0 maximum regardless of how many triggers combine.
 **Regulatory basis:** 21 CFR Part 11 §11.10(e). Off-hours activity is a risk
 indicator requiring justification, not a violation per se.
+**Timezone assumption:** This rule assumes all timestamps in the uploaded file are
+in the same timezone. If your system exports timestamps in UTC or a non-local
+timezone, off-hours flags must be interpreted accordingly. For global systems,
+reviewers should verify the local shift pattern for the user's site before
+dispositing any Rule 11 finding. A flag at 02:00 UTC may be 10:00 local time
+for a user in a different region — not an anomaly at all.
+*Recommendation:* Add a note in your Periodic Review Report specifying which
+timezone the audit trail timestamps represent.
 
 ---
 
@@ -7145,7 +7254,8 @@ downgraded by a low composite score.
 | Rule 3 fired | Escalate to CAPA |
 | Rule 6 fired | Escalate to CAPA |
 | Rule 7 (audit ctrl) fired | Escalate to CAPA |
-| Rule 10 (gap) fired | Escalate to CAPA |
+| Rule 10 (gap) during business hours | Escalate to CAPA |
+| Rule 10 (gap) outside business hours | Investigate — Verify Source Data |
 | Rule 4 fired | Escalate to CAPA |
 | Rule 1 — blank comment | Escalate to CAPA |
 | Rule 1 — vague term | Justified — Amendment Required |
@@ -7729,7 +7839,7 @@ match your system's export column names to the fields above — rename nothing i
                     "score_rule15_suspicious_sequence",
                     "score_rule16_first_time_behavior",
                 ]
-                _GATE_THRESHOLD = 5.0  # minimum score for any named rule to qualify
+                _GATE_THRESHOLD = 6.0  # minimum score for any named rule to qualify
 
                 def _has_named_rule(row):
                     return any(
