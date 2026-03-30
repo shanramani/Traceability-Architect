@@ -175,7 +175,7 @@ def _inject_password_security():
     </script>
     """, height=0, scrolling=False)
 
-st.set_page_config(page_title=f"Architect v{VERSION}", layout="wide")
+st.set_page_config(page_title="VALINTEL.AI — Validation Intelligence", layout="wide")
 
 # =============================================================================
 # 2. DATABASE
@@ -3426,6 +3426,13 @@ st.markdown("""
     div.stButton > button[key="clear_results_btn"]:hover:not(:disabled) {
         background: #475569 !important; color: white !important;
         border-color: #64748b !important;
+    }
+
+    /* ── Back to Periodic Review — prevent text wrapping ── */
+    div.stButton > button[key="pr_back_btn"],
+    div.stButton > button[key="pr_back_btn2"] {
+        white-space: nowrap !important;
+        min-width: 220px !important;
     }
 
     /* ── Sticky top-right terminate button overlay ── */
@@ -6690,7 +6697,7 @@ def show_periodic_review(user: str, role: str, model_id: str):
 
     # ── If a sub-module is open, show it with a Back button ──────────────────
     if active == "audit_trail":
-        bc, _ = st.columns([2, 8])
+        bc, _ = st.columns([3, 7])
         with bc:
             if st.button("← Back to Periodic Review", key="pr_back_btn"):
                 st.session_state["pr_active_module"] = None
@@ -6699,7 +6706,7 @@ def show_periodic_review(user: str, role: str, model_id: str):
         return
 
     if active in ("access_review", "report_drafter"):
-        bc, _ = st.columns([2, 8])
+        bc, _ = st.columns([3, 7])
         with bc:
             if st.button("← Back to Periodic Review", key="pr_back_btn2"):
                 st.session_state["pr_active_module"] = None
@@ -6715,7 +6722,7 @@ def show_periodic_review(user: str, role: str, model_id: str):
     st.markdown(
         "<p style='color:#94a3b8;margin-top:-12px;'>Select a module below. "
         "Each module covers a mandatory section of your Periodic Review Report "
-        "per 21 CFR Part 11, EU Annex 11, and SOP-418.</p>",
+        "per 21 CFR Part 11, EU Annex 11, and your internal SOP(s).</p>",
         unsafe_allow_html=True
     )
     st.markdown("<br>", unsafe_allow_html=True)
@@ -6724,48 +6731,28 @@ def show_periodic_review(user: str, role: str, model_id: str):
     modules = [
         {
             "key":     "audit_trail",
-            "number":  "Module 1",
-            "title":   "Audit Trail Intelligence",
-            "section": "SOP-418 §9.1.6 · 21 CFR Part 11 §11.10(e) · EU Annex 11 Cl. 9",
+            "title":   "Audit Trail Review",
+            "section": "21 CFR Part 11 §11.10(e) · EU Annex 11 Cl. 9",
             "desc":    (
-                "Reduce 10,000 audit log entries to the 20 highest-risk events. "
-                "Scores every event across 6 risk dimensions — velocity bursts, "
-                "off-hours activity, admin privilege abuse, delete-recreate patterns, "
-                "audit trail gaps, and sensitive record manipulation. "
-                "Outputs a signed evidence package ready to attach as Appendix to "
-                "your Periodic Review Report."
+                "Reduce thousands of audit log entries to the 20 highest-risk events. "
+                "Scores every event across 6 risk dimensions and outputs a signed "
+                "evidence package ready to attach to your Periodic Review Report."
             ),
-            "bullets": [
-                "🔴 Velocity bursts & bulk modifications",
-                "🔴 Admin privilege on GxP records",
-                "🔴 Audit trail disable / gap detection",
-                "🟡 Off-hours & weekend activity",
-                "🟡 Delete → Recreate same record",
-            ],
             "status":  "live",
-            "btn_label": "Launch Module 1 →",
+            "btn_label": "Launch →",
             "color":   "#0284c7",
             "bg":      "#0c1f36",
             "border":  "#1e3a5f",
         },
         {
             "key":     "access_review",
-            "number":  "Module 2",
-            "title":   "User Access Review Intelligence",
-            "section": "SOP-418 §9.1.5 · 21 CFR Part 11 §11.300",
+            "title":   "User Access Review",
+            "section": "21 CFR Part 11 §11.300",
             "desc":    (
-                "Upload your user access list CSV. The tool flags dormant accounts, "
-                "admin roles assigned to non-admin functions, accounts active before "
-                "training was completed, delta from last approved review, and shared "
-                "account fingerprinting across IP addresses."
+                "Upload your user access list to flag dormant accounts, admin roles "
+                "on non-admin functions, accounts active before training completion, "
+                "and shared account fingerprinting."
             ),
-            "bullets": [
-                "🔴 Dormant accounts still active",
-                "🔴 Admin roles on non-admin functions",
-                "🔴 New accounts since last review",
-                "🟡 Shared account / credential reuse",
-                "🟡 Account created and used same day",
-            ],
             "status":  "coming_soon",
             "btn_label": "Coming Soon",
             "color":   "#475569",
@@ -6774,23 +6761,13 @@ def show_periodic_review(user: str, role: str, model_id: str):
         },
         {
             "key":     "report_drafter",
-            "number":  "Module 3",
             "title":   "Periodic Review Report Drafter",
-            "section": "SOP-418 §9.2 · All sections",
+            "section": "All sections · Full report output",
             "desc":    (
-                "Upload your company's Periodic Review SOP and the outputs from "
-                "Modules 1 and 2. The tool drafts a complete Periodic Review Report "
-                "using your own company terminology, SOP references, and CAPA system "
-                "name. Derives the fit-for-use conclusion from finding severity. "
-                "Produces a Word document 70% ready for approval."
+                "Upload your Periodic Review SOP and module outputs. Drafts a complete "
+                "Periodic Review Report using your company terminology, SOP references, "
+                "and CAPA system — producing a Word document ready for approval."
             ),
-            "bullets": [
-                "📄 Company-specific terminology extraction",
-                "📄 Auto-populates §9.1.5 and §9.1.6 from modules",
-                "📄 Derives Fit / Fit with Restrictions / Not Fit conclusion",
-                "📄 CAPA recommendations in your SOP language",
-                "📄 Word document output ready for circulation",
-            ],
             "status":  "coming_soon",
             "btn_label": "Coming Soon",
             "color":   "#475569",
@@ -6799,64 +6776,48 @@ def show_periodic_review(user: str, role: str, model_id: str):
         },
     ]
 
-    for mod in modules:
+    col1, col2, col3 = st.columns(3)
+    _card_cols = [col1, col2, col3]
+    for idx, mod in enumerate(modules):
         live = mod["status"] == "live"
-        bullets_html = "".join(
-            f'<li style="color:#94a3b8;font-size:0.82rem;margin-bottom:3px;">{b}</li>'
-            for b in mod["bullets"]
-        )
-        st.markdown(f"""
+        with _card_cols[idx]:
+            st.markdown(f"""
 <div style="background:{mod['bg']};border:1.5px solid {mod['border']};
-            border-left:4px solid {mod['color']};border-radius:10px;
-            padding:22px 26px;margin-bottom:16px;font-family:'Inter',sans-serif;">
-  <div style="display:flex;justify-content:space-between;align-items:flex-start;">
-    <div style="flex:1;">
-      <p style="margin:0;color:{mod['color']};font-size:0.7rem;letter-spacing:3px;
-                text-transform:uppercase;">{mod['number']}
-        {'&nbsp;&nbsp;<span style="background:#059669;color:white;padding:1px 6px;border-radius:3px;font-size:0.65rem;">LIVE</span>' if live else '&nbsp;&nbsp;<span style="background:#1e293b;color:#64748b;padding:1px 6px;border-radius:3px;font-size:0.65rem;">COMING SOON</span>'}
-      </p>
-      <p style="margin:4px 0 2px;font-size:1.2rem;font-weight:700;
-                color:{'#e2e8f0' if live else '#475569'};">{mod['title']}</p>
-      <p style="margin:0 0 10px;color:#475569;font-size:0.72rem;
-                font-family:'Courier New',monospace;">{mod['section']}</p>
-      <p style="margin:0 0 10px;color:{'#94a3b8' if live else '#334155'};
-                font-size:0.83rem;line-height:1.5;">{mod['desc']}</p>
-      <ul style="margin:0;padding-left:16px;">{bullets_html}</ul>
-    </div>
-  </div>
+            border-top:4px solid {mod['color']};border-radius:10px;
+            padding:20px 22px;font-family:'Inter',sans-serif;height:100%;">
+  <p style="margin:0 0 2px;color:{mod['color']};font-size:0.68rem;letter-spacing:2px;
+            text-transform:uppercase;">
+    {'<span style="background:#059669;color:white;padding:1px 6px;border-radius:3px;font-size:0.65rem;margin-right:6px;">LIVE</span>' if live else '<span style="background:#1e293b;color:#64748b;padding:1px 6px;border-radius:3px;font-size:0.65rem;margin-right:6px;">COMING SOON</span>'}
+  </p>
+  <p style="margin:8px 0 4px;font-size:1.05rem;font-weight:700;
+            color:{'#e2e8f0' if live else '#475569'};">{mod['title']}</p>
+  <p style="margin:0 0 10px;color:#475569;font-size:0.70rem;
+            font-family:'Courier New',monospace;">{mod['section']}</p>
+  <p style="margin:0;color:{'#94a3b8' if live else '#334155'};
+            font-size:0.81rem;line-height:1.5;">{mod['desc']}</p>
 </div>
 """, unsafe_allow_html=True)
-
-        if live:
-            _, btn_col, _ = st.columns([6, 3, 1])
-            with btn_col:
+            st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
+            if live:
                 if st.button(mod["btn_label"], key=f"pr_open_{mod['key']}",
                              type="primary", use_container_width=True):
                     st.session_state["pr_active_module"] = mod["key"]
                     st.rerun()
-        st.markdown("", unsafe_allow_html=True)
+            else:
+                st.button(mod["btn_label"], key=f"pr_open_{mod['key']}",
+                          disabled=True, use_container_width=True)
 
 
 def show_audit_trail(user: str, role: str, model_id: str):
     """Render Periodic Review — Module 1: Audit Trail Intelligence."""
-    st.title("🔍 Audit Trail Intelligence")
+    st.title("🔍 Audit Trail Review Intelligence")
     st.markdown(
-        "<p style='color:#94a3b8;margin-top:-12px;'>Periodic Review Module 1 — "
-        "Reduce 10,000 audit log entries to the 20 highest-risk events, "
-        "with documented statistical justification for Section 9.1.6 of your "
-        "Periodic Review Report.</p>",
+        "<p style='color:#94a3b8;margin-top:-12px;'>"
+        "Periodic Review: Audit Trail Review Intelligence — Reduce audit log entries "
+        "to the 20 highest-risk events, with documented statistical justification "
+        "for the Periodic Review Report.</p>",
         unsafe_allow_html=True
     )
-
-    # Reset button
-    rc, _ = st.columns([2, 8])
-    with rc:
-        if st.button("🔄 New Analysis", key="at_reset_btn"):
-            for k in ["at_raw_df","at_mapped_df","at_scored_df","at_top20_df",
-                      "at_file_name","at_mapping_done","at_analysis_done","at_total_events"]:
-                st.session_state[k] = _defaults.get(k)
-            st.session_state["at_key_n"] = st.session_state.get("at_key_n",0) + 1
-            st.rerun()
 
     # ── System metadata (always shown) ───────────────────────────────────────
     mc1, mc2, mc3 = st.columns(3)
@@ -6872,39 +6833,6 @@ def show_audit_trail(user: str, role: str, model_id: str):
         st.session_state["at_review_end"] = st.text_input(
             "Review Period End", value=st.session_state.get("at_review_end",""),
             placeholder="e.g. 31-Dec-2024", key="at_rend")
-
-    # ── Risk threshold calibration ────────────────────────────────────────────
-    with st.expander("⚙️ Risk Threshold Calibration (GAMP 5)", expanded=False):
-        st.caption(
-            "Adjust score thresholds to match your organisation's internal SOP. "
-            "Raw scores never change — only tier labels update. "
-            "Default values align with GAMP 5 risk classification."
-        )
-        tc1, tc2, tc3 = st.columns(3)
-        with tc1:
-            st.session_state["at_thresh_critical"] = st.number_input(
-                "🔴 Critical (≥)", min_value=1.0, max_value=9.5, step=0.5,
-                value=float(st.session_state.get("at_thresh_critical", 7.0)),
-                key="at_thresh_crit_input"
-            )
-        with tc2:
-            st.session_state["at_thresh_high"] = st.number_input(
-                "🟠 High (≥)", min_value=0.5, max_value=9.0, step=0.5,
-                value=float(st.session_state.get("at_thresh_high", 5.0)),
-                key="at_thresh_high_input"
-            )
-        with tc3:
-            st.session_state["at_thresh_medium"] = st.number_input(
-                "🟡 Medium (≥)", min_value=0.5, max_value=8.5, step=0.5,
-                value=float(st.session_state.get("at_thresh_medium", 3.0)),
-                key="at_thresh_med_input"
-            )
-        st.caption(
-            f"Current: Critical ≥{st.session_state['at_thresh_critical']} · "
-            f"High ≥{st.session_state['at_thresh_high']} · "
-            f"Medium ≥{st.session_state['at_thresh_medium']} · "
-            f"Low <{st.session_state['at_thresh_medium']}"
-        )
 
     st.markdown("---")
 
@@ -7425,285 +7353,1192 @@ match your system's export column names to the fields above — rename nothing i
 | `Changed To`, `New Entry`, `Value After` | `new_value` |
 """)
 
-        # ── Generate and offer sample CSV download ────────────────────────────
-        def _build_sample_csv() -> bytes:
+        # ── Generate and offer sample audit log template download (xlsx) ──────
+        def _build_sample_xlsx() -> bytes:
             """
-            Generates a realistic 1,000-row GxP audit trail CSV covering all
-            8 columns. Background data is clean and realistic. Traps are
-            embedded at dynamically-calculated positions — changing TOTAL_ROWS
-            never causes an IndexError because all indices are derived, not
-            hardcoded.
-
-            Traps embedded:
-              • Rule 1  — Vague/missing rationale on RESULTS/BATCH UPDATEs
-              • Rule 2  — >10 RESULT_INSERT by same user within 15 min
-              • Rule 3  — Admin/DBA INSERT or UPDATE on production tables
-              • Rule 4  — Numeric outlier new_value (>3 std dev from mean)
-              • Rule 5  — 3+ LOGIN_FAILED → LOGIN → DELETE within 30 min
-              • Temporal — Off-hours and weekend events
-              • Holiday  — Event on US Federal Holiday (July 4)
-              • Gap      — >2-hour silence in the audit trail
-              • Del/Recreate — Same record deleted then recreated within 4 hrs
-              • Audit ctrl — Admin disabling audit trail config at 3 AM
+            Returns a two-sheet Excel workbook:
+              Sheet 1 — Usage:     Plain-English guide to every column and the
+                                   detection rules the tool can identify.
+              Sheet 2 — Audit Log: 1,000-row realistic GxP audit trail using
+                                   the validated labware_comprehensive_test
+                                   dataset. Covers all 10 detection scenarios.
+            Replace Sheet 2 with your own system export to analyse real data.
             """
-            import datetime as _dt, random as _rnd, math as _math, io as _io
+            import openpyxl
+            from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 
-            TOTAL_ROWS   = 1000
-            HEADER       = ["timestamp","user_id","action_type","record_type",
-                            "role","record_id","comments","new_value"]
+            wb = openpyxl.Workbook()
 
-            # ── Actors ───────────────────────────────────────────────────────
-            ANALYSTS    = ["analyst_jones","analyst_brown","analyst_patel",
-                           "analyst_smith","analyst_lee"]
-            SUPERVISORS = ["supervisor_chen","supervisor_white"]
-            ADMINS      = ["admin_sys","dba_oracle"]
+            # ── Sheet 1: Usage ────────────────────────────────────────────────
+            ws_usage = wb.active
+            ws_usage.title = "Usage"
 
-            # ── Normal value distribution for RESULTS (mean ~7.1, sd ~0.3) ──
-            NORMAL_MEAN = 7.1
-            NORMAL_SD   = 0.3
+            hdr_fill  = PatternFill("solid", fgColor="0F172A")
+            hdr_font  = Font(bold=True, color="38BDF8", size=11)
+            sec_fill  = PatternFill("solid", fgColor="1E293B")
+            sec_font  = Font(bold=True, color="E2E8F0", size=10)
+            body_font = Font(color="CBD5E1", size=9)
+            thin      = Side(style="thin", color="334155")
+            border    = Border(bottom=thin)
 
-            # ── Date range (Mon–Fri business hours as baseline) ───────────
-            START_DATE  = _dt.date(2024, 1, 2)   # first working day of year
+            def _uw(row_num, col_num, value, font=None, fill=None, wrap=False):
+                cell = ws_usage.cell(row=row_num, column=col_num, value=value)
+                if font:  cell.font  = font
+                if fill:  cell.fill  = fill
+                cell.alignment = Alignment(wrap_text=wrap, vertical="top")
+                return cell
 
-            def _workday_ts(day_offset: int, hour: int, minute: int,
-                            second: int = 0) -> str:
-                d = START_DATE + _dt.timedelta(days=day_offset)
-                return f"{d} {hour:02d}:{minute:02d}:{second:02d}"
+            ws_usage.column_dimensions["A"].width = 28
+            ws_usage.column_dimensions["B"].width = 72
 
-            def _good_comment(record_id: str, action: str) -> str:
-                templates = [
-                    f"Measurement recorded per SOP-031 section 4.2 for {record_id}",
-                    f"Value updated following supervisor review of {record_id}",
-                    f"Routine entry per batch manufacturing record MO-{record_id[-4:]}",
-                    f"Data entry per protocol REF-2024-{record_id[-3:]}",
-                    f"Corrected transcription error; source: bench sheet BS-{record_id[-3:]}",
-                    f"pH result recorded by analyst after instrument calibration check",
-                    f"Analyst entry per approved procedure SOP-045 section 3.1",
-                ]
-                return _rnd.choice(templates)
+            r = 1
+            _uw(r, 1, "VALINTEL.AI — Audit Trail Review Intelligence",
+                Font(bold=True, color="38BDF8", size=13), hdr_fill)
+            ws_usage.merge_cells(f"A{r}:B{r}")
+            ws_usage.row_dimensions[r].height = 26
+            r += 1
 
-            # ── Build background rows (clean, low-risk) ───────────────────
-            rows = []
-            day  = 0
-            hour = 8
-            minute_counter = 0
+            _uw(r, 1, "Sample Audit Log Template — Usage Guide",
+                Font(italic=True, color="94A3B8", size=9), hdr_fill)
+            ws_usage.merge_cells(f"A{r}:B{r}")
+            r += 2
 
-            def _next_ts(delta_min: int = 3) -> str:
-                nonlocal day, hour, minute_counter
-                minute_counter += delta_min
-                if minute_counter >= 60:
-                    hour          += minute_counter // 60
-                    minute_counter = minute_counter % 60
-                if hour >= 17:          # end of business day
-                    day   += 1
-                    hour   = 8
-                    minute_counter = 0
-                    if (START_DATE + _dt.timedelta(days=day)).weekday() >= 5:
-                        day += 2       # skip weekend
-                return _workday_ts(day, hour, minute_counter,
-                                   _rnd.randint(0, 59))
+            # Column guide
+            _uw(r, 1, "COLUMN REFERENCE", sec_font, sec_fill)
+            _uw(r, 2, "Description & accepted values", sec_font, sec_fill)
+            r += 1
 
-            rec_counter = 1000
-            batch_counter = 100
-
-            def _res_id() -> str:
-                nonlocal rec_counter
-                rec_counter += 1
-                return f"RES-{rec_counter}"
-
-            def _bat_id() -> str:
-                nonlocal batch_counter
-                batch_counter += 1
-                return f"BAT-2024-{batch_counter:03d}"
-
-            # Fill most rows with clean realistic data
-            while len(rows) < TOTAL_ROWS:
-                analyst = _rnd.choice(ANALYSTS)
-                val     = round(_rnd.gauss(NORMAL_MEAN, NORMAL_SD), 2)
-                rid     = _res_id()
-                rows.append([
-                    _next_ts(3), analyst, "UPDATE", "RESULTS",
-                    "Analyst", rid, _good_comment(rid, "UPDATE"),
-                    str(val)
-                ])
-
-            # ── Now surgically inject traps at distributed positions ───────
-            # All positions are calculated as fractions of TOTAL_ROWS so the
-            # generator never needs updating if TOTAL_ROWS changes.
-
-            def _pos(fraction: float, offset: int = 0) -> int:
-                """Return a safe row index = fraction × TOTAL_ROWS + offset."""
-                return max(0, min(TOTAL_ROWS - 1,
-                                  int(fraction * TOTAL_ROWS) + offset))
-
-            # ── Trap 1: RULE 1 — Vague rationale (scattered, 5 instances) ──
-            vague_comments = ["fixed", "error", "update", "", "changed"]
-            for i, vc in enumerate(vague_comments):
-                p = _pos(0.05 + i * 0.08)
-                rows[p] = [
-                    rows[p][0], _rnd.choice(ANALYSTS), "UPDATE", "RESULTS",
-                    "Analyst", _res_id(), vc,
-                    str(round(_rnd.gauss(NORMAL_MEAN, NORMAL_SD), 2))
-                ]
-
-            # ── Trap 2: RULE 2 — Contemporaneous burst (12 inserts, 12 min) ─
-            burst_start = _pos(0.30)
-            burst_user  = "analyst_jones"
-            burst_date  = _workday_ts(30, 14, 0, 0)  # fixed time for burst
-            burst_dt    = _dt.datetime(2024, 2, 5, 14, 0, 0)
-            for i in range(12):
-                t = (burst_dt + _dt.timedelta(minutes=i)).strftime(
-                    "%Y-%m-%d %H:%M:%S")
-                p = min(burst_start + i, TOTAL_ROWS - 1)
-                rows[p] = [
-                    t, burst_user, "RESULT_INSERT", "RESULTS",
-                    "Analyst", f"RES-B{i+1:03d}", "",
-                    str(round(_rnd.gauss(NORMAL_MEAN, NORMAL_SD), 2))
-                ]
-
-            # ── Trap 3: RULE 3 — Admin on production tables (2 instances) ──
-            p3a = _pos(0.50)
-            rows[p3a] = [
-                _workday_ts(50, 16, 45, 2), "admin_sys",
-                "UPDATE", "SAMPLE_DATA", "Admin",
-                "SMP-0500", "System maintenance", "ACTIVE"
+            col_guide = [
+                ("timestamp",    "Date/time of the event. Format: YYYY-MM-DD HH:MM:SS  (required)"),
+                ("user_id",      "Username or account ID that performed the action  (required)"),
+                ("action_type",  "Type of operation, e.g. UPDATE, INSERT, DELETE, LOGIN, LOGIN_FAILED  (required)"),
+                ("record_type",  "GxP table or entity affected, e.g. RESULTS, BATCH_RELEASE, AUDIT_TRAIL"),
+                ("role",         "System role of the user at time of event, e.g. Analyst, Admin, DBA"),
+                ("record_id",    "Unique identifier of the record changed, e.g. RES-001, BAT-2024-001"),
+                ("comments",     "Change rationale or reason field as logged by the system"),
+                ("new_value",    "Updated value after the change (numeric or text)"),
             ]
-            p3b = _pos(0.50, 2)
-            rows[p3b] = [
-                _workday_ts(50, 16, 47, 33), "dba_oracle",
-                "INSERT", "BATCH_RELEASE", "DBA",
-                _bat_id(), "Direct DB insert", "RELEASED"
+            for col, desc in col_guide:
+                _uw(r, 1, col,  Font(bold=True, color="7DD3FC", size=9), wrap=True)
+                _uw(r, 2, desc, body_font, wrap=True)
+                ws_usage.row_dimensions[r].height = 18
+                r += 1
+
+            r += 1
+            _uw(r, 1, "DETECTION SCENARIOS IN THIS TEMPLATE", sec_font, sec_fill)
+            _uw(r, 2, "Rule triggered · what to look for", sec_font, sec_fill)
+            r += 1
+
+            scenarios = [
+                ("Rule 1 — Vague Rationale",
+                 "4 UPDATE events where comments = 'Error', 'Correction', 'fixed', 'ok'. "
+                 "These should surface as High risk in the escalated events list."),
+                ("Rule 2 — Contemporaneous Burst",
+                 "12 RESULT_INSERT actions by analyst_jones within 2 minutes (23:00–23:01). "
+                 "Threshold is >10 inserts in any 15-minute window by the same user."),
+                ("Rule 3 — Admin / GxP Conflict",
+                 "admin_sys performs INSERT on BATCH_RELEASE — admin accounts should never "
+                 "write directly to production GxP tables (segregation of duties)."),
+                ("Rule 4 — Change Control Drift",
+                 "A new_value of 147.3 is >3 standard deviations above the dataset mean (~7.4). "
+                 "Flags statistically anomalous numeric changes."),
+                ("Rule 5 — Failed Login → Data Manipulation",
+                 "analyst_x has 3 LOGIN_FAILED events at 10:00–10:06, successful login at 10:08, "
+                 "then a DELETE on RESULTS (RES-5050) just 7 minutes later."),
+                ("Rule 6 — Delete → Recreate Same Record",
+                 "analyst_y DELETEs RES-8888 at 18:00 then creates a new entry for RES-8888 "
+                 "at 18:15 — a known method of modifying locked GxP records."),
+                ("Rule 7 — Audit Trail Integrity Event",
+                 "dba_prod performs UPDATE on AUDIT_TRAIL at 13:00 — any modification of the "
+                 "audit trail itself is Critical by definition."),
+                ("Rule 8 — Privileged User on GxP Data",
+                 "admin_sys and dba_prod (Admin role) act directly on GxP tables. "
+                 "Complements Rule 3 with broader record-type coverage."),
+                ("Off-Hours Activity",
+                 "Entry at 02:14 and multiple entries after 20:00. The engine flags activity "
+                 "outside standard business hours (08:00–20:00) as elevated risk."),
+                ("Weekend + Holiday Activity",
+                 "2026-03-28 (Saturday) and 2026-07-04 (Saturday + US federal holiday July 4th). "
+                 "Both are flagged — holiday detection is independent of weekend detection."),
+                ("Timestamp Gap",
+                 "A 5h 46m gap between 02:14 and 08:00, and a 98-day gap before the July 4 entry. "
+                 "Gaps > 2 hours during expected activity periods may indicate audit trail tampering."),
+            ]
+            for name, detail in scenarios:
+                _uw(r, 1, name,   Font(bold=True, color="FCD34D", size=9), wrap=True)
+                _uw(r, 2, detail, body_font, wrap=True)
+                ws_usage.row_dimensions[r].height = 30
+                r += 1
+
+            r += 1
+            _uw(r, 1, "HOW TO USE YOUR OWN DATA", sec_font, sec_fill)
+            ws_usage.merge_cells(f"A{r}:B{r}")
+            r += 1
+            instructions = [
+                "1. Export your GxP system's audit trail as CSV or Excel.",
+                "2. Delete or replace the data in the 'Audit Log' sheet (keep the header row).",
+                "3. Upload the file in the VALINTEL.AI Audit Trail Review module.",
+                "4. Use the column mapper to match your system's column names to the required fields.",
+                "5. Run the analysis — the engine scores every event and escalates the top 20.",
+            ]
+            for inst in instructions:
+                _uw(r, 1, inst, body_font, wrap=True)
+                ws_usage.merge_cells(f"A{r}:B{r}")
+                ws_usage.row_dimensions[r].height = 16
+                r += 1
+
+            # ── Sheet 2: Audit Log data ───────────────────────────────────────
+            ws_data = wb.create_sheet("Audit Log")
+
+            # Embed the validated labware_comprehensive_test dataset
+            HEADER = ["timestamp","user_id","action_type","record_type",
+                      "role","record_id","comments","new_value"]
+
+            DATA_ROWS = [
+                ["2026-03-23 02:14:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1401", "Insomnia entry", "7.5"],
+                ["2026-03-23 08:00:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1000", "Standard value entry per SOP-01", "7.48"],
+                ["2026-03-23 08:05:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1001", "Standard value entry per SOP-01", "7.05"],
+                ["2026-03-23 08:10:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1002", "Standard value entry per SOP-01", "7.13"],
+                ["2026-03-23 08:15:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1003", "Standard value entry per SOP-01", "7.49"],
+                ["2026-03-23 08:20:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1004", "Standard value entry per SOP-01", "7.14"],
+                ["2026-03-23 08:25:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1005", "Standard value entry per SOP-01", "7.5"],
+                ["2026-03-23 08:30:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1006", "Standard value entry per SOP-01", "7.41"],
+                ["2026-03-23 08:35:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1007", "Standard value entry per SOP-01", "7.32"],
+                ["2026-03-23 08:40:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1008", "Standard value entry per SOP-01", "7.03"],
+                ["2026-03-23 08:45:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1009", "Standard value entry per SOP-01", "7.12"],
+                ["2026-03-23 08:55:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1011", "Standard value entry per SOP-01", "7.13"],
+                ["2026-03-23 09:00:00", "admin_sys", "INSERT", "BATCH_RELEASE", "Admin", "BATCH-999", "Urgent release", "RELEASED"],
+                ["2026-03-23 09:00:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1012", "Standard value entry per SOP-01", "7.02"],
+                ["2026-03-23 09:05:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1013", "Standard value entry per SOP-01", "7.17"],
+                ["2026-03-23 09:10:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1014", "Standard value entry per SOP-01", "7.5"],
+                ["2026-03-23 09:15:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1015", "Standard value entry per SOP-01", "7.44"],
+                ["2026-03-23 09:20:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1016", "Standard value entry per SOP-01", "7.13"],
+                ["2026-03-23 09:25:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1017", "Standard value entry per SOP-01", "7.17"],
+                ["2026-03-23 09:30:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1018", "Standard value entry per SOP-01", "7.29"],
+                ["2026-03-23 09:35:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1019", "Standard value entry per SOP-01", "7.49"],
+                ["2026-03-23 10:00:00", "analyst_x", "LOGIN_FAILED", "USER_SESSION", "Analyst", "SES-01", "Wrong password", ""],
+                ["2026-03-23 10:03:00", "analyst_x", "LOGIN_FAILED", "USER_SESSION", "Analyst", "SES-01", "Wrong password", ""],
+                ["2026-03-23 10:05:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1025", "Standard value entry per SOP-01", "7.37"],
+                ["2026-03-23 10:06:00", "analyst_x", "LOGIN_FAILED", "USER_SESSION", "Analyst", "SES-01", "Wrong password", ""],
+                ["2026-03-23 10:08:00", "analyst_x", "LOGIN", "USER_SESSION", "Analyst", "SES-01", "Success", ""],
+                ["2026-03-23 10:10:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1026", "Standard value entry per SOP-01", "7.27"],
+                ["2026-03-23 10:15:00", "analyst_x", "DELETE", "RESULTS", "Analyst", "RES-5050", "Cleaning up error", ""],
+                ["2026-03-23 10:15:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1027", "Standard value entry per SOP-01", "7.18"],
+                ["2026-03-23 10:20:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1028", "Standard value entry per SOP-01", "7.43"],
+                ["2026-03-23 10:25:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1029", "Standard value entry per SOP-01", "7.02"],
+                ["2026-03-23 10:30:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1030", "Standard value entry per SOP-01", "7.02"],
+                ["2026-03-23 10:35:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1031", "Standard value entry per SOP-01", "7.4"],
+                ["2026-03-23 10:40:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1032", "Standard value entry per SOP-01", "7.18"],
+                ["2026-03-23 10:45:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1033", "Standard value entry per SOP-01", "7.43"],
+                ["2026-03-23 10:50:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1034", "Standard value entry per SOP-01", "7.01"],
+                ["2026-03-23 10:55:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1035", "Standard value entry per SOP-01", "7.02"],
+                ["2026-03-23 11:00:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1036", "Standard value entry per SOP-01", "7.14"],
+                ["2026-03-23 11:05:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1037", "Standard value entry per SOP-01", "7.17"],
+                ["2026-03-23 11:10:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1038", "Standard value entry per SOP-01", "7.21"],
+                ["2026-03-23 11:15:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1039", "Standard value entry per SOP-01", "7.17"],
+                ["2026-03-23 11:20:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1040", "Standard value entry per SOP-01", "7.31"],
+                ["2026-03-23 11:25:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1041", "Standard value entry per SOP-01", "7.21"],
+                ["2026-03-23 11:30:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1042", "Standard value entry per SOP-01", "7.14"],
+                ["2026-03-23 11:35:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1043", "Standard value entry per SOP-01", "7.45"],
+                ["2026-03-23 11:40:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1044", "Standard value entry per SOP-01", "7.23"],
+                ["2026-03-23 11:45:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1045", "Standard value entry per SOP-01", "7.03"],
+                ["2026-03-23 11:50:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1046", "Standard value entry per SOP-01", "7.23"],
+                ["2026-03-23 11:55:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1047", "Standard value entry per SOP-01", "7.15"],
+                ["2026-03-23 12:00:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1048", "Standard value entry per SOP-01", "7.05"],
+                ["2026-03-23 12:05:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1049", "Standard value entry per SOP-01", "7.49"],
+                ["2026-03-23 12:15:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1051", "Standard value entry per SOP-01", "7.01"],
+                ["2026-03-23 12:20:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1052", "Standard value entry per SOP-01", "7.36"],
+                ["2026-03-23 12:25:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1053", "Standard value entry per SOP-01", "7.19"],
+                ["2026-03-23 12:30:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1054", "Standard value entry per SOP-01", "7.25"],
+                ["2026-03-23 12:35:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1055", "Standard value entry per SOP-01", "7.46"],
+                ["2026-03-23 12:40:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1056", "Standard value entry per SOP-01", "7.33"],
+                ["2026-03-23 12:45:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1057", "Standard value entry per SOP-01", "7.25"],
+                ["2026-03-23 12:50:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1058", "Standard value entry per SOP-01", "7.04"],
+                ["2026-03-23 12:55:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1059", "Standard value entry per SOP-01", "7.5"],
+                ["2026-03-23 13:00:00", "dba_prod", "UPDATE", "AUDIT_TRAIL", "Admin", "SYS-001", "System maintenance", "DISABLED"],
+                ["2026-03-23 13:00:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1060", "Standard value entry per SOP-01", "7.23"],
+                ["2026-03-23 13:05:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1061", "Standard value entry per SOP-01", "7.06"],
+                ["2026-03-23 13:10:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1062", "Standard value entry per SOP-01", "7.02"],
+                ["2026-03-23 13:15:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1063", "Standard value entry per SOP-01", "7.38"],
+                ["2026-03-23 13:20:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1064", "Standard value entry per SOP-01", "7.22"],
+                ["2026-03-23 13:25:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1065", "Standard value entry per SOP-01", "7.36"],
+                ["2026-03-23 13:30:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1066", "Standard value entry per SOP-01", "7.36"],
+                ["2026-03-23 13:35:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1067", "Standard value entry per SOP-01", "7.12"],
+                ["2026-03-23 13:40:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1068", "Standard value entry per SOP-01", "7.06"],
+                ["2026-03-23 13:45:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1069", "Standard value entry per SOP-01", "7.18"],
+                ["2026-03-23 13:50:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1070", "Standard value entry per SOP-01", "7.17"],
+                ["2026-03-23 13:55:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1071", "Standard value entry per SOP-01", "7.3"],
+                ["2026-03-23 14:00:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1072", "Standard value entry per SOP-01", "7.02"],
+                ["2026-03-23 14:05:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1073", "Standard value entry per SOP-01", "7.03"],
+                ["2026-03-23 14:10:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1074", "Standard value entry per SOP-01", "7.22"],
+                ["2026-03-23 14:15:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1075", "Standard value entry per SOP-01", "7.27"],
+                ["2026-03-23 14:20:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1076", "Standard value entry per SOP-01", "7.2"],
+                ["2026-03-23 14:25:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1077", "Standard value entry per SOP-01", "7.34"],
+                ["2026-03-23 14:30:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1078", "Standard value entry per SOP-01", "7.22"],
+                ["2026-03-23 14:35:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1079", "Standard value entry per SOP-01", "7.21"],
+                ["2026-03-23 14:40:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1080", "Standard value entry per SOP-01", "7.42"],
+                ["2026-03-23 14:45:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1081", "Standard value entry per SOP-01", "7.42"],
+                ["2026-03-23 14:50:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1082", "Standard value entry per SOP-01", "7.25"],
+                ["2026-03-23 14:55:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1083", "Standard value entry per SOP-01", "7.02"],
+                ["2026-03-23 15:00:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1084", "Standard value entry per SOP-01", "7.06"],
+                ["2026-03-23 15:05:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1085", "Standard value entry per SOP-01", "7.03"],
+                ["2026-03-23 15:10:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1086", "Standard value entry per SOP-01", "7.06"],
+                ["2026-03-23 15:15:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1087", "Standard value entry per SOP-01", "7.07"],
+                ["2026-03-23 15:20:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1088", "Standard value entry per SOP-01", "7.2"],
+                ["2026-03-23 15:25:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1089", "Standard value entry per SOP-01", "7.13"],
+                ["2026-03-23 15:30:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1090", "Standard value entry per SOP-01", "7.24"],
+                ["2026-03-23 15:35:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1091", "Standard value entry per SOP-01", "7.1"],
+                ["2026-03-23 15:40:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1092", "Standard value entry per SOP-01", "7.34"],
+                ["2026-03-23 15:45:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1093", "Standard value entry per SOP-01", "7.27"],
+                ["2026-03-23 15:50:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1094", "Standard value entry per SOP-01", "7.5"],
+                ["2026-03-23 15:55:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1095", "Standard value entry per SOP-01", "7.49"],
+                ["2026-03-23 16:00:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1096", "Standard value entry per SOP-01", "7.28"],
+                ["2026-03-23 16:05:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1097", "Standard value entry per SOP-01", "7.18"],
+                ["2026-03-23 16:10:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1098", "Standard value entry per SOP-01", "7.01"],
+                ["2026-03-23 16:15:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1099", "Standard value entry per SOP-01", "7.32"],
+                ["2026-03-23 16:25:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1101", "Standard value entry per SOP-01", "7.33"],
+                ["2026-03-23 16:30:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1102", "Standard value entry per SOP-01", "7.48"],
+                ["2026-03-23 16:35:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1103", "Standard value entry per SOP-01", "7.06"],
+                ["2026-03-23 16:40:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1104", "Standard value entry per SOP-01", "7.07"],
+                ["2026-03-23 16:50:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1106", "Standard value entry per SOP-01", "7.24"],
+                ["2026-03-23 16:55:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1107", "Standard value entry per SOP-01", "7.21"],
+                ["2026-03-23 17:00:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1108", "Standard value entry per SOP-01", "7.09"],
+                ["2026-03-23 17:05:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1109", "Standard value entry per SOP-01", "7.25"],
+                ["2026-03-23 17:10:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1110", "Standard value entry per SOP-01", "7.06"],
+                ["2026-03-23 17:15:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1111", "Standard value entry per SOP-01", "7.13"],
+                ["2026-03-23 17:20:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1112", "Standard value entry per SOP-01", "7.19"],
+                ["2026-03-23 17:25:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1113", "Standard value entry per SOP-01", "7.32"],
+                ["2026-03-23 17:30:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1114", "Standard value entry per SOP-01", "7.42"],
+                ["2026-03-23 17:35:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1115", "Standard value entry per SOP-01", "7.35"],
+                ["2026-03-23 17:40:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1116", "Standard value entry per SOP-01", "7.1"],
+                ["2026-03-23 17:45:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1117", "Standard value entry per SOP-01", "7.08"],
+                ["2026-03-23 17:50:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1118", "Standard value entry per SOP-01", "7.46"],
+                ["2026-03-23 17:55:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1119", "Standard value entry per SOP-01", "7.23"],
+                ["2026-03-23 18:00:00", "analyst_y", "DELETE", "RESULTS", "Analyst", "RES-8888", "Error", ""],
+                ["2026-03-23 18:00:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1120", "Standard value entry per SOP-01", "7.33"],
+                ["2026-03-23 18:05:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1121", "Standard value entry per SOP-01", "7.19"],
+                ["2026-03-23 18:10:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1122", "Standard value entry per SOP-01", "7.3"],
+                ["2026-03-23 18:15:00", "analyst_y", "INSERT", "RESULTS", "Analyst", "RES-8888", "Correction", "7.2"],
+                ["2026-03-23 18:15:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1123", "Standard value entry per SOP-01", "7.31"],
+                ["2026-03-23 18:20:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1124", "Standard value entry per SOP-01", "7.16"],
+                ["2026-03-23 18:25:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1125", "Standard value entry per SOP-01", "7.16"],
+                ["2026-03-23 18:30:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1126", "Standard value entry per SOP-01", "7.09"],
+                ["2026-03-23 18:35:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1127", "Standard value entry per SOP-01", "7.4"],
+                ["2026-03-23 18:40:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1128", "Standard value entry per SOP-01", "7.18"],
+                ["2026-03-23 18:45:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1129", "Standard value entry per SOP-01", "7.34"],
+                ["2026-03-23 18:50:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1130", "Standard value entry per SOP-01", "7.3"],
+                ["2026-03-23 18:55:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1131", "Standard value entry per SOP-01", "7.18"],
+                ["2026-03-23 19:00:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1132", "Standard value entry per SOP-01", "7.44"],
+                ["2026-03-23 19:05:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1133", "Standard value entry per SOP-01", "7.05"],
+                ["2026-03-23 19:10:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1134", "Standard value entry per SOP-01", "7.48"],
+                ["2026-03-23 19:15:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1135", "Standard value entry per SOP-01", "7.25"],
+                ["2026-03-23 19:20:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1136", "Standard value entry per SOP-01", "7.09"],
+                ["2026-03-23 19:25:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1137", "Standard value entry per SOP-01", "7.45"],
+                ["2026-03-23 19:30:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1138", "Standard value entry per SOP-01", "7.1"],
+                ["2026-03-23 19:35:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1139", "Standard value entry per SOP-01", "7.1"],
+                ["2026-03-23 19:40:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1140", "Standard value entry per SOP-01", "7.15"],
+                ["2026-03-23 19:45:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1141", "Standard value entry per SOP-01", "7.16"],
+                ["2026-03-23 19:50:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1142", "Standard value entry per SOP-01", "7.01"],
+                ["2026-03-23 19:55:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1143", "Standard value entry per SOP-01", "7.35"],
+                ["2026-03-23 20:00:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1144", "Standard value entry per SOP-01", "7.17"],
+                ["2026-03-23 20:05:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1145", "Standard value entry per SOP-01", "7.46"],
+                ["2026-03-23 20:10:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1146", "Standard value entry per SOP-01", "7.32"],
+                ["2026-03-23 20:15:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1147", "Standard value entry per SOP-01", "7.14"],
+                ["2026-03-23 20:20:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1148", "Standard value entry per SOP-01", "7.48"],
+                ["2026-03-23 20:25:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1149", "Standard value entry per SOP-01", "7.1"],
+                ["2026-03-23 20:30:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1150", "", "7.13"],
+                ["2026-03-23 20:35:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1151", "fixed", "7.02"],
+                ["2026-03-23 20:40:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1152", "ok", "7.16"],
+                ["2026-03-23 20:45:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1153", "Standard value entry per SOP-01", "7.33"],
+                ["2026-03-23 20:50:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1154", "Standard value entry per SOP-01", "7.34"],
+                ["2026-03-23 20:55:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1155", "Standard value entry per SOP-01", "7.22"],
+                ["2026-03-23 21:00:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1156", "Standard value entry per SOP-01", "7.18"],
+                ["2026-03-23 21:05:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1157", "Standard value entry per SOP-01", "7.4"],
+                ["2026-03-23 21:10:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1158", "Standard value entry per SOP-01", "7.48"],
+                ["2026-03-23 21:15:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1159", "Standard value entry per SOP-01", "7.27"],
+                ["2026-03-23 21:20:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1160", "Standard value entry per SOP-01", "7.45"],
+                ["2026-03-23 21:25:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1161", "Standard value entry per SOP-01", "7.34"],
+                ["2026-03-23 21:30:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1162", "Standard value entry per SOP-01", "7.2"],
+                ["2026-03-23 21:35:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1163", "Standard value entry per SOP-01", "7.01"],
+                ["2026-03-23 21:40:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1164", "Standard value entry per SOP-01", "7.2"],
+                ["2026-03-23 21:45:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1165", "Standard value entry per SOP-01", "7.37"],
+                ["2026-03-23 21:50:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1166", "Standard value entry per SOP-01", "7.46"],
+                ["2026-03-23 21:55:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1167", "Standard value entry per SOP-01", "7.13"],
+                ["2026-03-23 22:00:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1168", "Standard value entry per SOP-01", "7.34"],
+                ["2026-03-23 22:05:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1169", "Standard value entry per SOP-01", "7.42"],
+                ["2026-03-23 22:10:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1170", "Standard value entry per SOP-01", "7.49"],
+                ["2026-03-23 22:15:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1171", "Standard value entry per SOP-01", "7.05"],
+                ["2026-03-23 22:20:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1172", "Standard value entry per SOP-01", "7.41"],
+                ["2026-03-23 22:25:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1173", "Standard value entry per SOP-01", "7.21"],
+                ["2026-03-23 22:30:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1174", "Standard value entry per SOP-01", "7.02"],
+                ["2026-03-23 22:35:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1175", "Standard value entry per SOP-01", "7.12"],
+                ["2026-03-23 22:40:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1176", "Standard value entry per SOP-01", "7.06"],
+                ["2026-03-23 22:45:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1177", "Standard value entry per SOP-01", "7.48"],
+                ["2026-03-23 22:50:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1178", "Standard value entry per SOP-01", "7.32"],
+                ["2026-03-23 22:55:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1179", "Standard value entry per SOP-01", "7.07"],
+                ["2026-03-23 23:00:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1180", "Standard value entry per SOP-01", "7.31"],
+                ["2026-03-23 23:00:00", "analyst_jones", "RESULT_INSERT", "RESULTS", "Analyst", "RES-BURST-0", "Bulk upload", "7.2"],
+                ["2026-03-23 23:00:10", "analyst_jones", "RESULT_INSERT", "RESULTS", "Analyst", "RES-BURST-1", "Bulk upload", "7.2"],
+                ["2026-03-23 23:00:20", "analyst_jones", "RESULT_INSERT", "RESULTS", "Analyst", "RES-BURST-2", "Bulk upload", "7.2"],
+                ["2026-03-23 23:00:30", "analyst_jones", "RESULT_INSERT", "RESULTS", "Analyst", "RES-BURST-3", "Bulk upload", "7.2"],
+                ["2026-03-23 23:00:40", "analyst_jones", "RESULT_INSERT", "RESULTS", "Analyst", "RES-BURST-4", "Bulk upload", "7.2"],
+                ["2026-03-23 23:00:50", "analyst_jones", "RESULT_INSERT", "RESULTS", "Analyst", "RES-BURST-5", "Bulk upload", "7.2"],
+                ["2026-03-23 23:01:00", "analyst_jones", "RESULT_INSERT", "RESULTS", "Analyst", "RES-BURST-6", "Bulk upload", "7.2"],
+                ["2026-03-23 23:01:10", "analyst_jones", "RESULT_INSERT", "RESULTS", "Analyst", "RES-BURST-7", "Bulk upload", "7.2"],
+                ["2026-03-23 23:01:20", "analyst_jones", "RESULT_INSERT", "RESULTS", "Analyst", "RES-BURST-8", "Bulk upload", "7.2"],
+                ["2026-03-23 23:01:30", "analyst_jones", "RESULT_INSERT", "RESULTS", "Analyst", "RES-BURST-9", "Bulk upload", "7.2"],
+                ["2026-03-23 23:01:40", "analyst_jones", "RESULT_INSERT", "RESULTS", "Analyst", "RES-BURST-10", "Bulk upload", "7.2"],
+                ["2026-03-23 23:01:50", "analyst_jones", "RESULT_INSERT", "RESULTS", "Analyst", "RES-BURST-11", "Bulk upload", "7.2"],
+                ["2026-03-23 23:05:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1181", "Standard value entry per SOP-01", "7.44"],
+                ["2026-03-23 23:10:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1182", "Standard value entry per SOP-01", "7.48"],
+                ["2026-03-23 23:15:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1183", "Standard value entry per SOP-01", "7.48"],
+                ["2026-03-23 23:20:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1184", "Standard value entry per SOP-01", "7.28"],
+                ["2026-03-23 23:25:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1185", "Standard value entry per SOP-01", "7.07"],
+                ["2026-03-23 23:30:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1186", "Standard value entry per SOP-01", "7.35"],
+                ["2026-03-23 23:30:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1400", "Late night check", "7.32"],
+                ["2026-03-23 23:35:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1187", "Standard value entry per SOP-01", "7.13"],
+                ["2026-03-23 23:40:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1188", "Standard value entry per SOP-01", "7.44"],
+                ["2026-03-23 23:45:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1189", "Standard value entry per SOP-01", "7.33"],
+                ["2026-03-23 23:50:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1190", "Standard value entry per SOP-01", "7.01"],
+                ["2026-03-23 23:55:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1191", "Standard value entry per SOP-01", "7.35"],
+                ["2026-03-24 00:00:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1192", "Standard value entry per SOP-01", "7.31"],
+                ["2026-03-24 00:05:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1193", "Standard value entry per SOP-01", "7.23"],
+                ["2026-03-24 00:10:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1194", "Standard value entry per SOP-01", "7.37"],
+                ["2026-03-24 00:15:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1195", "Standard value entry per SOP-01", "7.47"],
+                ["2026-03-24 00:20:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1196", "Standard value entry per SOP-01", "7.1"],
+                ["2026-03-24 00:25:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1197", "Standard value entry per SOP-01", "7.49"],
+                ["2026-03-24 00:30:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1198", "Standard value entry per SOP-01", "7.41"],
+                ["2026-03-24 00:35:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1199", "Standard value entry per SOP-01", "7.3"],
+                ["2026-03-24 00:40:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1200", "Outlier test", "147.3"],
+                ["2026-03-24 00:45:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1201", "Standard value entry per SOP-01", "7.0"],
+                ["2026-03-24 00:50:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1202", "Standard value entry per SOP-01", "7.4"],
+                ["2026-03-24 00:55:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1203", "Standard value entry per SOP-01", "7.42"],
+                ["2026-03-24 01:00:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1204", "Standard value entry per SOP-01", "7.42"],
+                ["2026-03-24 01:05:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1205", "Standard value entry per SOP-01", "7.29"],
+                ["2026-03-24 01:10:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1206", "Standard value entry per SOP-01", "7.04"],
+                ["2026-03-24 01:15:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1207", "Standard value entry per SOP-01", "7.4"],
+                ["2026-03-24 01:20:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1208", "Standard value entry per SOP-01", "7.19"],
+                ["2026-03-24 01:25:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1209", "Standard value entry per SOP-01", "7.33"],
+                ["2026-03-24 01:30:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1210", "Standard value entry per SOP-01", "7.09"],
+                ["2026-03-24 01:35:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1211", "Standard value entry per SOP-01", "7.17"],
+                ["2026-03-24 01:40:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1212", "Standard value entry per SOP-01", "7.3"],
+                ["2026-03-24 01:45:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1213", "Standard value entry per SOP-01", "7.19"],
+                ["2026-03-24 01:50:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1214", "Standard value entry per SOP-01", "7.35"],
+                ["2026-03-24 01:55:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1215", "Standard value entry per SOP-01", "7.06"],
+                ["2026-03-24 02:00:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1216", "Standard value entry per SOP-01", "7.38"],
+                ["2026-03-24 02:05:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1217", "Standard value entry per SOP-01", "7.25"],
+                ["2026-03-24 02:10:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1218", "Standard value entry per SOP-01", "7.25"],
+                ["2026-03-24 02:15:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1219", "Standard value entry per SOP-01", "7.49"],
+                ["2026-03-24 02:20:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1220", "Standard value entry per SOP-01", "7.35"],
+                ["2026-03-24 02:25:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1221", "Standard value entry per SOP-01", "7.27"],
+                ["2026-03-24 02:30:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1222", "Standard value entry per SOP-01", "7.26"],
+                ["2026-03-24 02:35:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1223", "Standard value entry per SOP-01", "7.34"],
+                ["2026-03-24 02:40:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1224", "Standard value entry per SOP-01", "7.4"],
+                ["2026-03-24 02:45:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1225", "Standard value entry per SOP-01", "7.12"],
+                ["2026-03-24 02:50:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1226", "Standard value entry per SOP-01", "7.17"],
+                ["2026-03-24 02:55:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1227", "Standard value entry per SOP-01", "7.28"],
+                ["2026-03-24 03:00:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1228", "Standard value entry per SOP-01", "7.07"],
+                ["2026-03-24 03:05:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1229", "Standard value entry per SOP-01", "7.31"],
+                ["2026-03-24 03:10:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1230", "Standard value entry per SOP-01", "7.47"],
+                ["2026-03-24 03:15:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1231", "Standard value entry per SOP-01", "7.22"],
+                ["2026-03-24 03:20:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1232", "Standard value entry per SOP-01", "7.19"],
+                ["2026-03-24 03:25:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1233", "Standard value entry per SOP-01", "7.32"],
+                ["2026-03-24 03:30:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1234", "Standard value entry per SOP-01", "7.05"],
+                ["2026-03-24 03:35:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1235", "Standard value entry per SOP-01", "7.34"],
+                ["2026-03-24 03:40:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1236", "Standard value entry per SOP-01", "7.0"],
+                ["2026-03-24 03:45:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1237", "Standard value entry per SOP-01", "7.44"],
+                ["2026-03-24 03:50:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1238", "Standard value entry per SOP-01", "7.12"],
+                ["2026-03-24 03:55:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1239", "Standard value entry per SOP-01", "7.07"],
+                ["2026-03-24 04:00:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1240", "Standard value entry per SOP-01", "7.28"],
+                ["2026-03-24 04:05:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1241", "Standard value entry per SOP-01", "7.25"],
+                ["2026-03-24 04:10:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1242", "Standard value entry per SOP-01", "7.39"],
+                ["2026-03-24 04:15:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1243", "Standard value entry per SOP-01", "7.31"],
+                ["2026-03-24 04:20:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1244", "Standard value entry per SOP-01", "7.11"],
+                ["2026-03-24 04:25:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1245", "Standard value entry per SOP-01", "7.12"],
+                ["2026-03-24 04:30:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1246", "Standard value entry per SOP-01", "7.11"],
+                ["2026-03-24 04:35:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1247", "Standard value entry per SOP-01", "7.5"],
+                ["2026-03-24 04:40:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1248", "Standard value entry per SOP-01", "7.29"],
+                ["2026-03-24 04:45:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1249", "Standard value entry per SOP-01", "7.28"],
+                ["2026-03-24 04:50:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1250", "Standard value entry per SOP-01", "7.14"],
+                ["2026-03-24 04:55:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1251", "Standard value entry per SOP-01", "7.3"],
+                ["2026-03-24 05:00:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1252", "Standard value entry per SOP-01", "7.4"],
+                ["2026-03-24 05:05:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1253", "Standard value entry per SOP-01", "7.5"],
+                ["2026-03-24 05:10:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1254", "Standard value entry per SOP-01", "7.35"],
+                ["2026-03-24 05:15:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1255", "Standard value entry per SOP-01", "7.3"],
+                ["2026-03-24 05:20:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1256", "Standard value entry per SOP-01", "7.15"],
+                ["2026-03-24 05:25:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1257", "Standard value entry per SOP-01", "7.11"],
+                ["2026-03-24 05:30:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1258", "Standard value entry per SOP-01", "7.19"],
+                ["2026-03-24 05:35:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1259", "Standard value entry per SOP-01", "7.04"],
+                ["2026-03-24 05:40:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1260", "Standard value entry per SOP-01", "7.46"],
+                ["2026-03-24 05:45:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1261", "Standard value entry per SOP-01", "7.34"],
+                ["2026-03-24 05:50:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1262", "Standard value entry per SOP-01", "7.16"],
+                ["2026-03-24 05:55:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1263", "Standard value entry per SOP-01", "7.11"],
+                ["2026-03-24 06:00:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1264", "Standard value entry per SOP-01", "7.19"],
+                ["2026-03-24 06:05:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1265", "Standard value entry per SOP-01", "7.09"],
+                ["2026-03-24 06:10:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1266", "Standard value entry per SOP-01", "7.49"],
+                ["2026-03-24 06:15:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1267", "Standard value entry per SOP-01", "7.22"],
+                ["2026-03-24 06:20:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1268", "Standard value entry per SOP-01", "7.37"],
+                ["2026-03-24 06:25:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1269", "Standard value entry per SOP-01", "7.15"],
+                ["2026-03-24 06:30:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1270", "Standard value entry per SOP-01", "7.15"],
+                ["2026-03-24 06:35:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1271", "Standard value entry per SOP-01", "7.17"],
+                ["2026-03-24 06:40:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1272", "Standard value entry per SOP-01", "7.43"],
+                ["2026-03-24 06:45:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1273", "Standard value entry per SOP-01", "7.4"],
+                ["2026-03-24 06:50:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1274", "Standard value entry per SOP-01", "7.41"],
+                ["2026-03-24 06:55:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1275", "Standard value entry per SOP-01", "7.1"],
+                ["2026-03-24 07:00:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1276", "Standard value entry per SOP-01", "7.37"],
+                ["2026-03-24 07:05:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1277", "Standard value entry per SOP-01", "7.37"],
+                ["2026-03-24 07:10:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1278", "Standard value entry per SOP-01", "7.24"],
+                ["2026-03-24 07:15:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1279", "Standard value entry per SOP-01", "7.32"],
+                ["2026-03-24 07:20:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1280", "Standard value entry per SOP-01", "7.3"],
+                ["2026-03-24 07:25:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1281", "Standard value entry per SOP-01", "7.14"],
+                ["2026-03-24 07:30:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1282", "Standard value entry per SOP-01", "7.47"],
+                ["2026-03-24 07:35:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1283", "Standard value entry per SOP-01", "7.35"],
+                ["2026-03-24 07:40:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1284", "Standard value entry per SOP-01", "7.06"],
+                ["2026-03-24 07:45:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1285", "Standard value entry per SOP-01", "7.2"],
+                ["2026-03-24 07:50:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1286", "Standard value entry per SOP-01", "7.41"],
+                ["2026-03-24 07:55:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1287", "Standard value entry per SOP-01", "7.2"],
+                ["2026-03-24 08:00:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1288", "Standard value entry per SOP-01", "7.38"],
+                ["2026-03-24 08:05:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1289", "Standard value entry per SOP-01", "7.41"],
+                ["2026-03-24 08:10:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1290", "Standard value entry per SOP-01", "7.35"],
+                ["2026-03-24 08:15:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1291", "Standard value entry per SOP-01", "7.46"],
+                ["2026-03-24 08:20:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1292", "Standard value entry per SOP-01", "7.03"],
+                ["2026-03-24 08:25:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1293", "Standard value entry per SOP-01", "7.08"],
+                ["2026-03-24 08:30:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1294", "Standard value entry per SOP-01", "7.41"],
+                ["2026-03-24 08:35:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1295", "Standard value entry per SOP-01", "7.0"],
+                ["2026-03-24 08:40:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1296", "Standard value entry per SOP-01", "7.12"],
+                ["2026-03-24 08:45:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1297", "Standard value entry per SOP-01", "7.26"],
+                ["2026-03-24 08:50:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1298", "Standard value entry per SOP-01", "7.25"],
+                ["2026-03-24 08:55:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1299", "Standard value entry per SOP-01", "7.39"],
+                ["2026-03-24 10:00:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1312", "Standard value entry per SOP-01", "7.37"],
+                ["2026-03-24 10:05:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1313", "Standard value entry per SOP-01", "7.44"],
+                ["2026-03-24 10:10:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1314", "Standard value entry per SOP-01", "7.47"],
+                ["2026-03-24 10:15:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1315", "Standard value entry per SOP-01", "7.18"],
+                ["2026-03-24 10:20:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1316", "Standard value entry per SOP-01", "7.31"],
+                ["2026-03-24 10:25:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1317", "Standard value entry per SOP-01", "7.13"],
+                ["2026-03-24 10:30:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1318", "Standard value entry per SOP-01", "7.34"],
+                ["2026-03-24 10:35:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1319", "Standard value entry per SOP-01", "7.23"],
+                ["2026-03-24 10:40:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1320", "Standard value entry per SOP-01", "7.45"],
+                ["2026-03-24 10:45:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1321", "Standard value entry per SOP-01", "7.49"],
+                ["2026-03-24 10:50:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1322", "Standard value entry per SOP-01", "7.33"],
+                ["2026-03-24 10:55:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1323", "Standard value entry per SOP-01", "7.38"],
+                ["2026-03-24 11:00:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1324", "Standard value entry per SOP-01", "7.4"],
+                ["2026-03-24 11:05:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1325", "Standard value entry per SOP-01", "7.07"],
+                ["2026-03-24 11:10:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1326", "Standard value entry per SOP-01", "7.5"],
+                ["2026-03-24 11:15:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1327", "Standard value entry per SOP-01", "7.13"],
+                ["2026-03-24 11:20:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1328", "Standard value entry per SOP-01", "7.42"],
+                ["2026-03-24 11:25:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1329", "Standard value entry per SOP-01", "7.4"],
+                ["2026-03-24 11:30:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1330", "Standard value entry per SOP-01", "7.17"],
+                ["2026-03-24 11:35:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1331", "Standard value entry per SOP-01", "7.28"],
+                ["2026-03-24 11:40:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1332", "Standard value entry per SOP-01", "7.0"],
+                ["2026-03-24 11:45:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1333", "Standard value entry per SOP-01", "7.01"],
+                ["2026-03-24 11:50:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1334", "Standard value entry per SOP-01", "7.1"],
+                ["2026-03-24 11:55:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1335", "Standard value entry per SOP-01", "7.14"],
+                ["2026-03-24 12:00:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1336", "Standard value entry per SOP-01", "7.32"],
+                ["2026-03-24 12:05:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1337", "Standard value entry per SOP-01", "7.47"],
+                ["2026-03-24 12:10:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1338", "Standard value entry per SOP-01", "7.15"],
+                ["2026-03-24 12:15:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1339", "Standard value entry per SOP-01", "7.41"],
+                ["2026-03-24 12:20:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1340", "Standard value entry per SOP-01", "7.15"],
+                ["2026-03-24 12:25:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1341", "Standard value entry per SOP-01", "7.23"],
+                ["2026-03-24 12:30:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1342", "Standard value entry per SOP-01", "7.32"],
+                ["2026-03-24 12:35:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1343", "Standard value entry per SOP-01", "7.11"],
+                ["2026-03-24 12:40:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1344", "Standard value entry per SOP-01", "7.27"],
+                ["2026-03-24 12:45:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1345", "Standard value entry per SOP-01", "7.22"],
+                ["2026-03-24 12:50:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1346", "Standard value entry per SOP-01", "7.3"],
+                ["2026-03-24 12:55:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1347", "Standard value entry per SOP-01", "7.45"],
+                ["2026-03-24 13:00:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1348", "Standard value entry per SOP-01", "7.38"],
+                ["2026-03-24 13:05:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1349", "Standard value entry per SOP-01", "7.45"],
+                ["2026-03-24 13:10:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1350", "Standard value entry per SOP-01", "7.3"],
+                ["2026-03-24 13:15:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1351", "Standard value entry per SOP-01", "7.14"],
+                ["2026-03-24 13:20:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1352", "Standard value entry per SOP-01", "7.34"],
+                ["2026-03-24 13:25:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1353", "Standard value entry per SOP-01", "7.37"],
+                ["2026-03-24 13:30:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1354", "Standard value entry per SOP-01", "7.09"],
+                ["2026-03-24 13:35:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1355", "Standard value entry per SOP-01", "7.26"],
+                ["2026-03-24 13:40:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1356", "Standard value entry per SOP-01", "7.44"],
+                ["2026-03-24 13:45:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1357", "Standard value entry per SOP-01", "7.22"],
+                ["2026-03-24 13:50:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1358", "Standard value entry per SOP-01", "7.18"],
+                ["2026-03-24 13:55:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1359", "Standard value entry per SOP-01", "7.49"],
+                ["2026-03-24 14:00:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1360", "Standard value entry per SOP-01", "7.06"],
+                ["2026-03-24 14:05:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1361", "Standard value entry per SOP-01", "7.06"],
+                ["2026-03-24 14:10:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1362", "Standard value entry per SOP-01", "7.5"],
+                ["2026-03-24 14:15:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1363", "Standard value entry per SOP-01", "7.03"],
+                ["2026-03-24 14:20:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1364", "Standard value entry per SOP-01", "7.17"],
+                ["2026-03-24 14:25:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1365", "Standard value entry per SOP-01", "7.39"],
+                ["2026-03-24 14:30:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1366", "Standard value entry per SOP-01", "7.36"],
+                ["2026-03-24 14:35:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1367", "Standard value entry per SOP-01", "7.13"],
+                ["2026-03-24 14:40:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1368", "Standard value entry per SOP-01", "7.08"],
+                ["2026-03-24 14:45:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1369", "Standard value entry per SOP-01", "7.24"],
+                ["2026-03-24 14:50:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1370", "Standard value entry per SOP-01", "7.34"],
+                ["2026-03-24 14:55:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1371", "Standard value entry per SOP-01", "7.25"],
+                ["2026-03-24 15:00:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1372", "Standard value entry per SOP-01", "7.2"],
+                ["2026-03-24 15:05:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1373", "Standard value entry per SOP-01", "7.29"],
+                ["2026-03-24 15:10:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1374", "Standard value entry per SOP-01", "7.14"],
+                ["2026-03-24 15:15:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1375", "Standard value entry per SOP-01", "7.08"],
+                ["2026-03-24 15:20:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1376", "Standard value entry per SOP-01", "7.43"],
+                ["2026-03-24 15:25:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1377", "Standard value entry per SOP-01", "7.4"],
+                ["2026-03-24 15:30:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1378", "Standard value entry per SOP-01", "7.28"],
+                ["2026-03-24 15:35:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1379", "Standard value entry per SOP-01", "7.28"],
+                ["2026-03-24 15:40:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1380", "Standard value entry per SOP-01", "7.3"],
+                ["2026-03-24 15:45:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1381", "Standard value entry per SOP-01", "7.23"],
+                ["2026-03-24 15:50:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1382", "Standard value entry per SOP-01", "7.18"],
+                ["2026-03-24 15:55:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1383", "Standard value entry per SOP-01", "7.38"],
+                ["2026-03-24 16:00:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1384", "Standard value entry per SOP-01", "7.25"],
+                ["2026-03-24 16:05:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1385", "Standard value entry per SOP-01", "7.09"],
+                ["2026-03-24 16:10:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1386", "Standard value entry per SOP-01", "7.42"],
+                ["2026-03-24 16:15:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1387", "Standard value entry per SOP-01", "7.43"],
+                ["2026-03-24 16:20:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1388", "Standard value entry per SOP-01", "7.49"],
+                ["2026-03-24 16:25:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1389", "Standard value entry per SOP-01", "7.28"],
+                ["2026-03-24 16:30:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1390", "Standard value entry per SOP-01", "7.48"],
+                ["2026-03-24 16:35:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1391", "Standard value entry per SOP-01", "7.1"],
+                ["2026-03-24 16:40:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1392", "Standard value entry per SOP-01", "7.36"],
+                ["2026-03-24 16:45:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1393", "Standard value entry per SOP-01", "7.32"],
+                ["2026-03-24 16:50:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1394", "Standard value entry per SOP-01", "7.12"],
+                ["2026-03-24 16:55:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1395", "Standard value entry per SOP-01", "7.03"],
+                ["2026-03-24 17:00:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1396", "Standard value entry per SOP-01", "7.22"],
+                ["2026-03-24 17:05:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1397", "Standard value entry per SOP-01", "7.01"],
+                ["2026-03-24 17:10:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1398", "Standard value entry per SOP-01", "7.22"],
+                ["2026-03-24 17:15:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1399", "Standard value entry per SOP-01", "7.23"],
+                ["2026-03-24 17:30:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1402", "Standard value entry per SOP-01", "7.4"],
+                ["2026-03-24 17:35:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1403", "Standard value entry per SOP-01", "7.44"],
+                ["2026-03-24 17:40:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1404", "Standard value entry per SOP-01", "7.21"],
+                ["2026-03-24 17:45:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1405", "Standard value entry per SOP-01", "7.16"],
+                ["2026-03-24 17:50:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1406", "Standard value entry per SOP-01", "7.39"],
+                ["2026-03-24 17:55:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1407", "Standard value entry per SOP-01", "7.23"],
+                ["2026-03-24 18:00:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1408", "Standard value entry per SOP-01", "7.08"],
+                ["2026-03-24 18:05:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1409", "Standard value entry per SOP-01", "7.33"],
+                ["2026-03-24 18:10:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1410", "Standard value entry per SOP-01", "7.35"],
+                ["2026-03-24 18:15:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1411", "Standard value entry per SOP-01", "7.38"],
+                ["2026-03-24 18:20:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1412", "Standard value entry per SOP-01", "7.03"],
+                ["2026-03-24 18:25:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1413", "Standard value entry per SOP-01", "7.31"],
+                ["2026-03-24 18:30:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1414", "Standard value entry per SOP-01", "7.23"],
+                ["2026-03-24 18:35:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1415", "Standard value entry per SOP-01", "7.21"],
+                ["2026-03-24 18:40:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1416", "Standard value entry per SOP-01", "7.07"],
+                ["2026-03-24 18:45:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1417", "Standard value entry per SOP-01", "7.08"],
+                ["2026-03-24 18:50:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1418", "Standard value entry per SOP-01", "7.21"],
+                ["2026-03-24 18:55:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1419", "Standard value entry per SOP-01", "7.37"],
+                ["2026-03-24 19:00:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1420", "Standard value entry per SOP-01", "7.14"],
+                ["2026-03-24 19:05:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1421", "Standard value entry per SOP-01", "7.03"],
+                ["2026-03-24 19:10:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1422", "Standard value entry per SOP-01", "7.04"],
+                ["2026-03-24 19:15:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1423", "Standard value entry per SOP-01", "7.12"],
+                ["2026-03-24 19:20:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1424", "Standard value entry per SOP-01", "7.23"],
+                ["2026-03-24 19:25:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1425", "Standard value entry per SOP-01", "7.35"],
+                ["2026-03-24 19:30:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1426", "Standard value entry per SOP-01", "7.29"],
+                ["2026-03-24 19:35:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1427", "Standard value entry per SOP-01", "7.05"],
+                ["2026-03-24 19:40:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1428", "Standard value entry per SOP-01", "7.45"],
+                ["2026-03-24 19:45:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1429", "Standard value entry per SOP-01", "7.26"],
+                ["2026-03-24 19:50:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1430", "Standard value entry per SOP-01", "7.43"],
+                ["2026-03-24 19:55:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1431", "Standard value entry per SOP-01", "7.48"],
+                ["2026-03-24 20:00:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1432", "Standard value entry per SOP-01", "7.09"],
+                ["2026-03-24 20:05:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1433", "Standard value entry per SOP-01", "7.34"],
+                ["2026-03-24 20:10:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1434", "Standard value entry per SOP-01", "7.23"],
+                ["2026-03-24 20:15:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1435", "Standard value entry per SOP-01", "7.27"],
+                ["2026-03-24 20:20:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1436", "Standard value entry per SOP-01", "7.09"],
+                ["2026-03-24 20:25:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1437", "Standard value entry per SOP-01", "7.44"],
+                ["2026-03-24 20:30:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1438", "Standard value entry per SOP-01", "7.39"],
+                ["2026-03-24 20:35:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1439", "Standard value entry per SOP-01", "7.44"],
+                ["2026-03-24 20:40:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1440", "Standard value entry per SOP-01", "7.16"],
+                ["2026-03-24 20:45:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1441", "Standard value entry per SOP-01", "7.07"],
+                ["2026-03-24 20:50:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1442", "Standard value entry per SOP-01", "7.11"],
+                ["2026-03-24 20:55:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1443", "Standard value entry per SOP-01", "7.29"],
+                ["2026-03-24 21:00:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1444", "Standard value entry per SOP-01", "7.0"],
+                ["2026-03-24 21:05:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1445", "Standard value entry per SOP-01", "7.11"],
+                ["2026-03-24 21:10:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1446", "Standard value entry per SOP-01", "7.26"],
+                ["2026-03-24 21:15:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1447", "Standard value entry per SOP-01", "7.04"],
+                ["2026-03-24 21:20:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1448", "Standard value entry per SOP-01", "7.18"],
+                ["2026-03-24 21:25:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1449", "Standard value entry per SOP-01", "7.49"],
+                ["2026-03-24 21:30:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1450", "Standard value entry per SOP-01", "7.42"],
+                ["2026-03-24 21:35:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1451", "Standard value entry per SOP-01", "7.48"],
+                ["2026-03-24 21:40:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1452", "Standard value entry per SOP-01", "7.18"],
+                ["2026-03-24 21:45:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1453", "Standard value entry per SOP-01", "7.43"],
+                ["2026-03-24 21:50:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1454", "Standard value entry per SOP-01", "7.11"],
+                ["2026-03-24 21:55:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1455", "Standard value entry per SOP-01", "7.36"],
+                ["2026-03-24 22:00:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1456", "Standard value entry per SOP-01", "7.06"],
+                ["2026-03-24 22:05:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1457", "Standard value entry per SOP-01", "7.25"],
+                ["2026-03-24 22:10:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1458", "Standard value entry per SOP-01", "7.0"],
+                ["2026-03-24 22:15:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1459", "Standard value entry per SOP-01", "7.21"],
+                ["2026-03-24 22:20:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1460", "Standard value entry per SOP-01", "7.21"],
+                ["2026-03-24 22:25:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1461", "Standard value entry per SOP-01", "7.35"],
+                ["2026-03-24 22:30:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1462", "Standard value entry per SOP-01", "7.36"],
+                ["2026-03-24 22:35:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1463", "Standard value entry per SOP-01", "7.22"],
+                ["2026-03-24 22:40:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1464", "Standard value entry per SOP-01", "7.4"],
+                ["2026-03-24 22:45:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1465", "Standard value entry per SOP-01", "7.13"],
+                ["2026-03-24 22:50:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1466", "Standard value entry per SOP-01", "7.12"],
+                ["2026-03-24 22:55:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1467", "Standard value entry per SOP-01", "7.45"],
+                ["2026-03-24 23:00:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1468", "Standard value entry per SOP-01", "7.02"],
+                ["2026-03-24 23:05:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1469", "Standard value entry per SOP-01", "7.26"],
+                ["2026-03-24 23:10:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1470", "Standard value entry per SOP-01", "7.39"],
+                ["2026-03-24 23:15:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1471", "Standard value entry per SOP-01", "7.21"],
+                ["2026-03-24 23:20:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1472", "Standard value entry per SOP-01", "7.49"],
+                ["2026-03-24 23:25:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1473", "Standard value entry per SOP-01", "7.23"],
+                ["2026-03-24 23:30:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1474", "Standard value entry per SOP-01", "7.44"],
+                ["2026-03-24 23:35:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1475", "Standard value entry per SOP-01", "7.15"],
+                ["2026-03-24 23:40:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1476", "Standard value entry per SOP-01", "7.17"],
+                ["2026-03-24 23:45:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1477", "Standard value entry per SOP-01", "7.48"],
+                ["2026-03-24 23:50:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1478", "Standard value entry per SOP-01", "7.24"],
+                ["2026-03-24 23:55:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1479", "Standard value entry per SOP-01", "7.42"],
+                ["2026-03-25 00:00:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1480", "Standard value entry per SOP-01", "7.29"],
+                ["2026-03-25 00:05:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1481", "Standard value entry per SOP-01", "7.35"],
+                ["2026-03-25 00:10:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1482", "Standard value entry per SOP-01", "7.26"],
+                ["2026-03-25 00:15:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1483", "Standard value entry per SOP-01", "7.44"],
+                ["2026-03-25 00:20:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1484", "Standard value entry per SOP-01", "7.24"],
+                ["2026-03-25 00:25:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1485", "Standard value entry per SOP-01", "7.05"],
+                ["2026-03-25 00:30:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1486", "Standard value entry per SOP-01", "7.26"],
+                ["2026-03-25 00:35:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1487", "Standard value entry per SOP-01", "7.19"],
+                ["2026-03-25 00:40:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1488", "Standard value entry per SOP-01", "7.03"],
+                ["2026-03-25 00:45:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1489", "Standard value entry per SOP-01", "7.29"],
+                ["2026-03-25 00:50:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1490", "Standard value entry per SOP-01", "7.05"],
+                ["2026-03-25 00:55:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1491", "Standard value entry per SOP-01", "7.46"],
+                ["2026-03-25 01:00:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1492", "Standard value entry per SOP-01", "7.46"],
+                ["2026-03-25 01:05:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1493", "Standard value entry per SOP-01", "7.48"],
+                ["2026-03-25 01:10:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1494", "Standard value entry per SOP-01", "7.39"],
+                ["2026-03-25 01:15:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1495", "Standard value entry per SOP-01", "7.32"],
+                ["2026-03-25 01:20:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1496", "Standard value entry per SOP-01", "7.48"],
+                ["2026-03-25 01:25:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1497", "Standard value entry per SOP-01", "7.33"],
+                ["2026-03-25 01:30:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1498", "Standard value entry per SOP-01", "7.33"],
+                ["2026-03-25 01:35:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1499", "Standard value entry per SOP-01", "7.14"],
+                ["2026-03-25 01:45:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1501", "Standard value entry per SOP-01", "7.48"],
+                ["2026-03-25 01:50:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1502", "Standard value entry per SOP-01", "7.18"],
+                ["2026-03-25 01:55:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1503", "Standard value entry per SOP-01", "7.42"],
+                ["2026-03-25 02:00:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1504", "Standard value entry per SOP-01", "7.35"],
+                ["2026-03-25 02:05:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1505", "Standard value entry per SOP-01", "7.25"],
+                ["2026-03-25 02:10:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1506", "Standard value entry per SOP-01", "7.34"],
+                ["2026-03-25 02:15:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1507", "Standard value entry per SOP-01", "7.41"],
+                ["2026-03-25 02:20:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1508", "Standard value entry per SOP-01", "7.26"],
+                ["2026-03-25 02:25:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1509", "Standard value entry per SOP-01", "7.47"],
+                ["2026-03-25 02:30:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1510", "Standard value entry per SOP-01", "7.17"],
+                ["2026-03-25 02:35:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1511", "Standard value entry per SOP-01", "7.36"],
+                ["2026-03-25 02:40:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1512", "Standard value entry per SOP-01", "7.07"],
+                ["2026-03-25 02:45:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1513", "Standard value entry per SOP-01", "7.45"],
+                ["2026-03-25 02:50:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1514", "Standard value entry per SOP-01", "7.46"],
+                ["2026-03-25 02:55:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1515", "Standard value entry per SOP-01", "7.13"],
+                ["2026-03-25 03:00:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1516", "Standard value entry per SOP-01", "7.12"],
+                ["2026-03-25 03:05:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1517", "Standard value entry per SOP-01", "7.02"],
+                ["2026-03-25 03:10:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1518", "Standard value entry per SOP-01", "7.09"],
+                ["2026-03-25 03:15:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1519", "Standard value entry per SOP-01", "7.26"],
+                ["2026-03-25 03:20:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1520", "Standard value entry per SOP-01", "7.2"],
+                ["2026-03-25 03:25:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1521", "Standard value entry per SOP-01", "7.11"],
+                ["2026-03-25 03:30:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1522", "Standard value entry per SOP-01", "7.49"],
+                ["2026-03-25 03:35:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1523", "Standard value entry per SOP-01", "7.11"],
+                ["2026-03-25 03:40:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1524", "Standard value entry per SOP-01", "7.11"],
+                ["2026-03-25 03:45:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1525", "Standard value entry per SOP-01", "7.4"],
+                ["2026-03-25 03:50:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1526", "Standard value entry per SOP-01", "7.07"],
+                ["2026-03-25 03:55:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1527", "Standard value entry per SOP-01", "7.08"],
+                ["2026-03-25 04:00:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1528", "Standard value entry per SOP-01", "7.03"],
+                ["2026-03-25 04:05:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1529", "Standard value entry per SOP-01", "7.31"],
+                ["2026-03-25 04:10:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1530", "Standard value entry per SOP-01", "7.27"],
+                ["2026-03-25 04:15:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1531", "Standard value entry per SOP-01", "7.42"],
+                ["2026-03-25 04:20:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1532", "Standard value entry per SOP-01", "7.32"],
+                ["2026-03-25 04:25:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1533", "Standard value entry per SOP-01", "7.3"],
+                ["2026-03-25 04:30:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1534", "Standard value entry per SOP-01", "7.34"],
+                ["2026-03-25 04:35:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1535", "Standard value entry per SOP-01", "7.08"],
+                ["2026-03-25 04:40:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1536", "Standard value entry per SOP-01", "7.19"],
+                ["2026-03-25 04:45:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1537", "Standard value entry per SOP-01", "7.34"],
+                ["2026-03-25 04:50:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1538", "Standard value entry per SOP-01", "7.09"],
+                ["2026-03-25 04:55:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1539", "Standard value entry per SOP-01", "7.38"],
+                ["2026-03-25 05:00:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1540", "Standard value entry per SOP-01", "7.03"],
+                ["2026-03-25 05:05:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1541", "Standard value entry per SOP-01", "7.44"],
+                ["2026-03-25 05:10:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1542", "Standard value entry per SOP-01", "7.08"],
+                ["2026-03-25 05:15:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1543", "Standard value entry per SOP-01", "7.13"],
+                ["2026-03-25 05:20:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1544", "Standard value entry per SOP-01", "7.32"],
+                ["2026-03-25 05:25:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1545", "Standard value entry per SOP-01", "7.22"],
+                ["2026-03-25 05:30:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1546", "Standard value entry per SOP-01", "7.47"],
+                ["2026-03-25 05:35:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1547", "Standard value entry per SOP-01", "7.31"],
+                ["2026-03-25 05:40:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1548", "Standard value entry per SOP-01", "7.03"],
+                ["2026-03-25 05:45:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1549", "Standard value entry per SOP-01", "7.46"],
+                ["2026-03-25 05:50:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1550", "Standard value entry per SOP-01", "7.35"],
+                ["2026-03-25 05:55:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1551", "Standard value entry per SOP-01", "7.02"],
+                ["2026-03-25 06:00:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1552", "Standard value entry per SOP-01", "7.25"],
+                ["2026-03-25 06:05:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1553", "Standard value entry per SOP-01", "7.39"],
+                ["2026-03-25 06:10:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1554", "Standard value entry per SOP-01", "7.01"],
+                ["2026-03-25 06:15:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1555", "Standard value entry per SOP-01", "7.38"],
+                ["2026-03-25 06:20:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1556", "Standard value entry per SOP-01", "7.31"],
+                ["2026-03-25 06:25:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1557", "Standard value entry per SOP-01", "7.35"],
+                ["2026-03-25 06:30:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1558", "Standard value entry per SOP-01", "7.28"],
+                ["2026-03-25 06:35:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1559", "Standard value entry per SOP-01", "7.42"],
+                ["2026-03-25 06:40:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1560", "Standard value entry per SOP-01", "7.29"],
+                ["2026-03-25 06:45:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1561", "Standard value entry per SOP-01", "7.16"],
+                ["2026-03-25 06:50:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1562", "Standard value entry per SOP-01", "7.2"],
+                ["2026-03-25 06:55:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1563", "Standard value entry per SOP-01", "7.18"],
+                ["2026-03-25 07:00:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1564", "Standard value entry per SOP-01", "7.25"],
+                ["2026-03-25 07:05:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1565", "Standard value entry per SOP-01", "7.38"],
+                ["2026-03-25 07:10:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1566", "Standard value entry per SOP-01", "7.28"],
+                ["2026-03-25 07:15:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1567", "Standard value entry per SOP-01", "7.15"],
+                ["2026-03-25 07:20:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1568", "Standard value entry per SOP-01", "7.27"],
+                ["2026-03-25 07:25:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1569", "Standard value entry per SOP-01", "7.1"],
+                ["2026-03-25 07:30:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1570", "Standard value entry per SOP-01", "7.25"],
+                ["2026-03-25 07:35:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1571", "Standard value entry per SOP-01", "7.49"],
+                ["2026-03-25 07:40:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1572", "Standard value entry per SOP-01", "7.45"],
+                ["2026-03-25 07:45:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1573", "Standard value entry per SOP-01", "7.3"],
+                ["2026-03-25 07:50:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1574", "Standard value entry per SOP-01", "7.29"],
+                ["2026-03-25 07:55:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1575", "Standard value entry per SOP-01", "7.41"],
+                ["2026-03-25 08:00:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1576", "Standard value entry per SOP-01", "7.21"],
+                ["2026-03-25 08:05:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1577", "Standard value entry per SOP-01", "7.3"],
+                ["2026-03-25 08:10:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1578", "Standard value entry per SOP-01", "7.05"],
+                ["2026-03-25 08:15:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1579", "Standard value entry per SOP-01", "7.48"],
+                ["2026-03-25 08:20:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1580", "Standard value entry per SOP-01", "7.12"],
+                ["2026-03-25 08:25:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1581", "Standard value entry per SOP-01", "7.39"],
+                ["2026-03-25 08:30:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1582", "Standard value entry per SOP-01", "7.46"],
+                ["2026-03-25 08:35:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1583", "Standard value entry per SOP-01", "7.19"],
+                ["2026-03-25 08:40:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1584", "Standard value entry per SOP-01", "7.14"],
+                ["2026-03-25 08:45:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1585", "Standard value entry per SOP-01", "7.32"],
+                ["2026-03-25 08:50:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1586", "Standard value entry per SOP-01", "7.45"],
+                ["2026-03-25 08:55:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1587", "Standard value entry per SOP-01", "7.08"],
+                ["2026-03-25 09:00:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1588", "Standard value entry per SOP-01", "7.05"],
+                ["2026-03-25 09:05:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1589", "Standard value entry per SOP-01", "7.07"],
+                ["2026-03-25 09:10:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1590", "Standard value entry per SOP-01", "7.03"],
+                ["2026-03-25 09:15:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1591", "Standard value entry per SOP-01", "7.16"],
+                ["2026-03-25 09:20:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1592", "Standard value entry per SOP-01", "7.3"],
+                ["2026-03-25 09:25:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1593", "Standard value entry per SOP-01", "7.18"],
+                ["2026-03-25 09:30:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1594", "Standard value entry per SOP-01", "7.14"],
+                ["2026-03-25 09:35:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1595", "Standard value entry per SOP-01", "7.44"],
+                ["2026-03-25 09:40:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1596", "Standard value entry per SOP-01", "7.41"],
+                ["2026-03-25 09:45:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1597", "Standard value entry per SOP-01", "7.18"],
+                ["2026-03-25 09:50:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1598", "Standard value entry per SOP-01", "7.36"],
+                ["2026-03-25 09:55:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1599", "Standard value entry per SOP-01", "7.12"],
+                ["2026-03-25 10:05:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1601", "Standard value entry per SOP-01", "7.05"],
+                ["2026-03-25 10:10:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1602", "Standard value entry per SOP-01", "7.5"],
+                ["2026-03-25 10:15:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1603", "Standard value entry per SOP-01", "7.17"],
+                ["2026-03-25 10:20:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1604", "Standard value entry per SOP-01", "7.14"],
+                ["2026-03-25 10:25:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1605", "Standard value entry per SOP-01", "7.04"],
+                ["2026-03-25 10:30:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1606", "Standard value entry per SOP-01", "7.33"],
+                ["2026-03-25 10:35:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1607", "Standard value entry per SOP-01", "7.15"],
+                ["2026-03-25 10:40:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1608", "Standard value entry per SOP-01", "7.46"],
+                ["2026-03-25 10:45:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1609", "Standard value entry per SOP-01", "7.32"],
+                ["2026-03-25 10:50:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1610", "Standard value entry per SOP-01", "7.34"],
+                ["2026-03-25 10:55:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1611", "Standard value entry per SOP-01", "7.19"],
+                ["2026-03-25 11:00:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1612", "Standard value entry per SOP-01", "7.45"],
+                ["2026-03-25 11:05:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1613", "Standard value entry per SOP-01", "7.04"],
+                ["2026-03-25 11:10:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1614", "Standard value entry per SOP-01", "7.03"],
+                ["2026-03-25 11:15:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1615", "Standard value entry per SOP-01", "7.36"],
+                ["2026-03-25 11:20:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1616", "Standard value entry per SOP-01", "7.02"],
+                ["2026-03-25 11:25:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1617", "Standard value entry per SOP-01", "7.19"],
+                ["2026-03-25 11:30:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1618", "Standard value entry per SOP-01", "7.29"],
+                ["2026-03-25 11:35:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1619", "Standard value entry per SOP-01", "7.48"],
+                ["2026-03-25 11:40:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1620", "Standard value entry per SOP-01", "7.4"],
+                ["2026-03-25 11:45:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1621", "Standard value entry per SOP-01", "7.09"],
+                ["2026-03-25 11:50:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1622", "Standard value entry per SOP-01", "7.25"],
+                ["2026-03-25 11:55:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1623", "Standard value entry per SOP-01", "7.34"],
+                ["2026-03-25 12:00:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1624", "Standard value entry per SOP-01", "7.19"],
+                ["2026-03-25 12:05:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1625", "Standard value entry per SOP-01", "7.17"],
+                ["2026-03-25 12:10:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1626", "Standard value entry per SOP-01", "7.16"],
+                ["2026-03-25 12:15:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1627", "Standard value entry per SOP-01", "7.32"],
+                ["2026-03-25 12:20:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1628", "Standard value entry per SOP-01", "7.47"],
+                ["2026-03-25 12:25:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1629", "Standard value entry per SOP-01", "7.38"],
+                ["2026-03-25 12:30:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1630", "Standard value entry per SOP-01", "7.03"],
+                ["2026-03-25 12:35:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1631", "Standard value entry per SOP-01", "7.04"],
+                ["2026-03-25 12:40:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1632", "Standard value entry per SOP-01", "7.2"],
+                ["2026-03-25 12:45:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1633", "Standard value entry per SOP-01", "7.2"],
+                ["2026-03-25 12:50:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1634", "Standard value entry per SOP-01", "7.36"],
+                ["2026-03-25 12:55:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1635", "Standard value entry per SOP-01", "7.41"],
+                ["2026-03-25 13:00:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1636", "Standard value entry per SOP-01", "7.48"],
+                ["2026-03-25 13:05:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1637", "Standard value entry per SOP-01", "7.26"],
+                ["2026-03-25 13:10:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1638", "Standard value entry per SOP-01", "7.31"],
+                ["2026-03-25 13:15:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1639", "Standard value entry per SOP-01", "7.21"],
+                ["2026-03-25 13:20:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1640", "Standard value entry per SOP-01", "7.47"],
+                ["2026-03-25 13:25:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1641", "Standard value entry per SOP-01", "7.09"],
+                ["2026-03-25 13:30:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1642", "Standard value entry per SOP-01", "7.34"],
+                ["2026-03-25 13:35:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1643", "Standard value entry per SOP-01", "7.19"],
+                ["2026-03-25 13:40:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1644", "Standard value entry per SOP-01", "7.04"],
+                ["2026-03-25 13:45:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1645", "Standard value entry per SOP-01", "7.31"],
+                ["2026-03-25 13:50:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1646", "Standard value entry per SOP-01", "7.3"],
+                ["2026-03-25 13:55:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1647", "Standard value entry per SOP-01", "7.24"],
+                ["2026-03-25 14:00:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1648", "Standard value entry per SOP-01", "7.34"],
+                ["2026-03-25 14:05:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1649", "Standard value entry per SOP-01", "7.32"],
+                ["2026-03-25 14:10:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1650", "Standard value entry per SOP-01", "7.07"],
+                ["2026-03-25 14:15:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1651", "Standard value entry per SOP-01", "7.19"],
+                ["2026-03-25 14:20:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1652", "Standard value entry per SOP-01", "7.1"],
+                ["2026-03-25 14:25:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1653", "Standard value entry per SOP-01", "7.23"],
+                ["2026-03-25 14:30:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1654", "Standard value entry per SOP-01", "7.39"],
+                ["2026-03-25 14:35:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1655", "Standard value entry per SOP-01", "7.25"],
+                ["2026-03-25 14:40:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1656", "Standard value entry per SOP-01", "7.42"],
+                ["2026-03-25 14:45:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1657", "Standard value entry per SOP-01", "7.09"],
+                ["2026-03-25 14:50:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1658", "Standard value entry per SOP-01", "7.31"],
+                ["2026-03-25 14:55:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1659", "Standard value entry per SOP-01", "7.14"],
+                ["2026-03-25 15:00:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1660", "Standard value entry per SOP-01", "7.31"],
+                ["2026-03-25 15:05:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1661", "Standard value entry per SOP-01", "7.28"],
+                ["2026-03-25 15:10:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1662", "Standard value entry per SOP-01", "7.16"],
+                ["2026-03-25 15:15:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1663", "Standard value entry per SOP-01", "7.11"],
+                ["2026-03-25 15:20:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1664", "Standard value entry per SOP-01", "7.04"],
+                ["2026-03-25 15:25:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1665", "Standard value entry per SOP-01", "7.4"],
+                ["2026-03-25 15:30:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1666", "Standard value entry per SOP-01", "7.01"],
+                ["2026-03-25 15:35:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1667", "Standard value entry per SOP-01", "7.14"],
+                ["2026-03-25 15:40:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1668", "Standard value entry per SOP-01", "7.43"],
+                ["2026-03-25 15:45:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1669", "Standard value entry per SOP-01", "7.31"],
+                ["2026-03-25 15:50:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1670", "Standard value entry per SOP-01", "7.34"],
+                ["2026-03-25 15:55:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1671", "Standard value entry per SOP-01", "7.33"],
+                ["2026-03-25 16:00:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1672", "Standard value entry per SOP-01", "7.12"],
+                ["2026-03-25 16:05:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1673", "Standard value entry per SOP-01", "7.23"],
+                ["2026-03-25 16:10:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1674", "Standard value entry per SOP-01", "7.21"],
+                ["2026-03-25 16:15:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1675", "Standard value entry per SOP-01", "7.44"],
+                ["2026-03-25 16:20:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1676", "Standard value entry per SOP-01", "7.2"],
+                ["2026-03-25 16:25:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1677", "Standard value entry per SOP-01", "7.39"],
+                ["2026-03-25 16:30:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1678", "Standard value entry per SOP-01", "7.06"],
+                ["2026-03-25 16:35:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1679", "Standard value entry per SOP-01", "7.13"],
+                ["2026-03-25 16:40:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1680", "Standard value entry per SOP-01", "7.4"],
+                ["2026-03-25 16:45:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1681", "Standard value entry per SOP-01", "7.3"],
+                ["2026-03-25 16:50:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1682", "Standard value entry per SOP-01", "7.11"],
+                ["2026-03-25 16:55:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1683", "Standard value entry per SOP-01", "7.12"],
+                ["2026-03-25 17:00:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1684", "Standard value entry per SOP-01", "7.16"],
+                ["2026-03-25 17:00:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1700", "Standard value entry per SOP-01", "7.48"],
+                ["2026-03-25 17:05:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1685", "Standard value entry per SOP-01", "7.29"],
+                ["2026-03-25 17:10:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1686", "Standard value entry per SOP-01", "7.13"],
+                ["2026-03-25 17:15:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1687", "Standard value entry per SOP-01", "7.25"],
+                ["2026-03-25 17:20:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1688", "Standard value entry per SOP-01", "7.36"],
+                ["2026-03-25 17:25:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1689", "Standard value entry per SOP-01", "7.3"],
+                ["2026-03-25 17:30:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1690", "Standard value entry per SOP-01", "7.19"],
+                ["2026-03-25 17:35:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1691", "Standard value entry per SOP-01", "7.16"],
+                ["2026-03-25 17:40:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1692", "Standard value entry per SOP-01", "7.02"],
+                ["2026-03-25 17:45:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1693", "Standard value entry per SOP-01", "7.15"],
+                ["2026-03-25 17:50:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1694", "Standard value entry per SOP-01", "7.26"],
+                ["2026-03-25 17:55:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1695", "Standard value entry per SOP-01", "7.3"],
+                ["2026-03-25 18:00:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1696", "Standard value entry per SOP-01", "7.34"],
+                ["2026-03-25 18:05:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1697", "Standard value entry per SOP-01", "7.42"],
+                ["2026-03-25 18:10:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1698", "Standard value entry per SOP-01", "7.32"],
+                ["2026-03-25 18:15:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1699", "Standard value entry per SOP-01", "7.29"],
+                ["2026-03-25 18:30:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1702", "Standard value entry per SOP-01", "7.12"],
+                ["2026-03-25 18:35:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1703", "Standard value entry per SOP-01", "7.23"],
+                ["2026-03-25 18:40:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1704", "Standard value entry per SOP-01", "7.45"],
+                ["2026-03-25 18:45:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1705", "Standard value entry per SOP-01", "7.06"],
+                ["2026-03-25 18:50:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1706", "Standard value entry per SOP-01", "7.22"],
+                ["2026-03-25 18:55:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1707", "Standard value entry per SOP-01", "7.03"],
+                ["2026-03-25 19:00:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1708", "Standard value entry per SOP-01", "7.27"],
+                ["2026-03-25 19:05:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1709", "Standard value entry per SOP-01", "7.09"],
+                ["2026-03-25 19:10:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1710", "Standard value entry per SOP-01", "7.34"],
+                ["2026-03-25 19:15:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1711", "Standard value entry per SOP-01", "7.2"],
+                ["2026-03-25 19:20:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1712", "Standard value entry per SOP-01", "7.42"],
+                ["2026-03-25 19:25:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1713", "Standard value entry per SOP-01", "7.4"],
+                ["2026-03-25 19:30:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1714", "Standard value entry per SOP-01", "7.03"],
+                ["2026-03-25 19:35:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1715", "Standard value entry per SOP-01", "7.01"],
+                ["2026-03-25 19:40:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1716", "Standard value entry per SOP-01", "7.29"],
+                ["2026-03-25 19:45:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1717", "Standard value entry per SOP-01", "7.24"],
+                ["2026-03-25 19:50:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1718", "Standard value entry per SOP-01", "7.39"],
+                ["2026-03-25 19:55:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1719", "Standard value entry per SOP-01", "7.49"],
+                ["2026-03-25 20:00:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1701", "Standard value entry per SOP-01", "7.02"],
+                ["2026-03-25 20:00:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1720", "Standard value entry per SOP-01", "7.23"],
+                ["2026-03-25 20:05:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1721", "Standard value entry per SOP-01", "7.04"],
+                ["2026-03-25 20:10:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1722", "Standard value entry per SOP-01", "7.02"],
+                ["2026-03-25 20:15:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1723", "Standard value entry per SOP-01", "7.12"],
+                ["2026-03-25 20:20:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1724", "Standard value entry per SOP-01", "7.48"],
+                ["2026-03-25 20:25:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1725", "Standard value entry per SOP-01", "7.04"],
+                ["2026-03-25 20:30:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1726", "Standard value entry per SOP-01", "7.48"],
+                ["2026-03-25 20:35:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1727", "Standard value entry per SOP-01", "7.42"],
+                ["2026-03-25 20:40:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1728", "Standard value entry per SOP-01", "7.44"],
+                ["2026-03-25 20:45:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1729", "Standard value entry per SOP-01", "7.1"],
+                ["2026-03-25 20:50:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1730", "Standard value entry per SOP-01", "7.06"],
+                ["2026-03-25 20:55:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1731", "Standard value entry per SOP-01", "7.34"],
+                ["2026-03-25 21:00:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1732", "Standard value entry per SOP-01", "7.23"],
+                ["2026-03-25 21:05:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1733", "Standard value entry per SOP-01", "7.45"],
+                ["2026-03-25 21:10:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1734", "Standard value entry per SOP-01", "7.38"],
+                ["2026-03-25 21:15:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1735", "Standard value entry per SOP-01", "7.29"],
+                ["2026-03-25 21:20:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1736", "Standard value entry per SOP-01", "7.03"],
+                ["2026-03-25 21:25:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1737", "Standard value entry per SOP-01", "7.19"],
+                ["2026-03-25 21:30:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1738", "Standard value entry per SOP-01", "7.48"],
+                ["2026-03-25 21:35:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1739", "Standard value entry per SOP-01", "7.42"],
+                ["2026-03-25 21:40:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1740", "Standard value entry per SOP-01", "7.23"],
+                ["2026-03-25 21:45:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1741", "Standard value entry per SOP-01", "7.08"],
+                ["2026-03-25 21:50:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1742", "Standard value entry per SOP-01", "7.3"],
+                ["2026-03-25 21:55:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1743", "Standard value entry per SOP-01", "7.42"],
+                ["2026-03-25 22:00:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1744", "Standard value entry per SOP-01", "7.45"],
+                ["2026-03-25 22:05:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1745", "Standard value entry per SOP-01", "7.42"],
+                ["2026-03-25 22:10:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1746", "Standard value entry per SOP-01", "7.02"],
+                ["2026-03-25 22:15:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1747", "Standard value entry per SOP-01", "7.01"],
+                ["2026-03-25 22:20:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1748", "Standard value entry per SOP-01", "7.03"],
+                ["2026-03-25 22:25:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1749", "Standard value entry per SOP-01", "7.09"],
+                ["2026-03-25 22:30:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1750", "Standard value entry per SOP-01", "7.25"],
+                ["2026-03-25 22:35:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1751", "Standard value entry per SOP-01", "7.02"],
+                ["2026-03-25 22:40:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1752", "Standard value entry per SOP-01", "7.12"],
+                ["2026-03-25 22:45:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1753", "Standard value entry per SOP-01", "7.24"],
+                ["2026-03-25 22:50:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1754", "Standard value entry per SOP-01", "7.26"],
+                ["2026-03-25 22:55:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1755", "Standard value entry per SOP-01", "7.13"],
+                ["2026-03-25 23:00:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1756", "Standard value entry per SOP-01", "7.26"],
+                ["2026-03-25 23:05:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1757", "Standard value entry per SOP-01", "7.26"],
+                ["2026-03-25 23:10:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1758", "Standard value entry per SOP-01", "7.26"],
+                ["2026-03-25 23:15:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1759", "Standard value entry per SOP-01", "7.37"],
+                ["2026-03-25 23:20:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1760", "Standard value entry per SOP-01", "7.05"],
+                ["2026-03-25 23:25:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1761", "Standard value entry per SOP-01", "7.21"],
+                ["2026-03-25 23:30:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1762", "Standard value entry per SOP-01", "7.32"],
+                ["2026-03-25 23:35:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1763", "Standard value entry per SOP-01", "7.33"],
+                ["2026-03-25 23:40:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1764", "Standard value entry per SOP-01", "7.02"],
+                ["2026-03-25 23:45:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1765", "Standard value entry per SOP-01", "7.14"],
+                ["2026-03-25 23:50:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1766", "Standard value entry per SOP-01", "7.18"],
+                ["2026-03-25 23:55:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1767", "Standard value entry per SOP-01", "7.49"],
+                ["2026-03-26 00:00:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1768", "Standard value entry per SOP-01", "7.18"],
+                ["2026-03-26 00:05:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1769", "Standard value entry per SOP-01", "7.13"],
+                ["2026-03-26 00:10:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1770", "Standard value entry per SOP-01", "7.32"],
+                ["2026-03-26 00:15:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1771", "Standard value entry per SOP-01", "7.49"],
+                ["2026-03-26 00:20:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1772", "Standard value entry per SOP-01", "7.01"],
+                ["2026-03-26 00:25:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1773", "Standard value entry per SOP-01", "7.4"],
+                ["2026-03-26 00:30:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1774", "Standard value entry per SOP-01", "7.01"],
+                ["2026-03-26 00:35:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1775", "Standard value entry per SOP-01", "7.45"],
+                ["2026-03-26 00:40:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1776", "Standard value entry per SOP-01", "7.28"],
+                ["2026-03-26 00:45:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1777", "Standard value entry per SOP-01", "7.23"],
+                ["2026-03-26 00:50:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1778", "Standard value entry per SOP-01", "7.47"],
+                ["2026-03-26 00:55:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1779", "Standard value entry per SOP-01", "7.09"],
+                ["2026-03-26 01:00:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1780", "Standard value entry per SOP-01", "7.11"],
+                ["2026-03-26 01:05:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1781", "Standard value entry per SOP-01", "7.36"],
+                ["2026-03-26 01:10:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1782", "Standard value entry per SOP-01", "7.03"],
+                ["2026-03-26 01:15:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1783", "Standard value entry per SOP-01", "7.31"],
+                ["2026-03-26 01:20:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1784", "Standard value entry per SOP-01", "7.11"],
+                ["2026-03-26 01:25:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1785", "Standard value entry per SOP-01", "7.44"],
+                ["2026-03-26 01:30:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1786", "Standard value entry per SOP-01", "7.47"],
+                ["2026-03-26 01:35:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1787", "Standard value entry per SOP-01", "7.33"],
+                ["2026-03-26 01:40:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1788", "Standard value entry per SOP-01", "7.17"],
+                ["2026-03-26 01:45:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1789", "Standard value entry per SOP-01", "7.28"],
+                ["2026-03-26 01:50:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1790", "Standard value entry per SOP-01", "7.36"],
+                ["2026-03-26 01:55:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1791", "Standard value entry per SOP-01", "7.04"],
+                ["2026-03-26 02:00:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1792", "Standard value entry per SOP-01", "7.31"],
+                ["2026-03-26 02:05:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1793", "Standard value entry per SOP-01", "7.29"],
+                ["2026-03-26 02:10:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1794", "Standard value entry per SOP-01", "7.36"],
+                ["2026-03-26 02:15:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1795", "Standard value entry per SOP-01", "7.11"],
+                ["2026-03-26 02:20:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1796", "Standard value entry per SOP-01", "7.13"],
+                ["2026-03-26 02:25:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1797", "Standard value entry per SOP-01", "7.37"],
+                ["2026-03-26 02:30:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1798", "Standard value entry per SOP-01", "7.35"],
+                ["2026-03-26 02:35:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1799", "Standard value entry per SOP-01", "7.13"],
+                ["2026-03-26 02:45:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1801", "Standard value entry per SOP-01", "7.35"],
+                ["2026-03-26 02:50:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1802", "Standard value entry per SOP-01", "7.01"],
+                ["2026-03-26 02:55:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1803", "Standard value entry per SOP-01", "7.29"],
+                ["2026-03-26 03:00:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1804", "Standard value entry per SOP-01", "7.11"],
+                ["2026-03-26 03:05:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1805", "Standard value entry per SOP-01", "7.32"],
+                ["2026-03-26 03:10:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1806", "Standard value entry per SOP-01", "7.11"],
+                ["2026-03-26 03:15:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1807", "Standard value entry per SOP-01", "7.5"],
+                ["2026-03-26 03:20:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1808", "Standard value entry per SOP-01", "7.21"],
+                ["2026-03-26 03:25:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1809", "Standard value entry per SOP-01", "7.19"],
+                ["2026-03-26 03:30:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1810", "Standard value entry per SOP-01", "7.09"],
+                ["2026-03-26 03:35:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1811", "Standard value entry per SOP-01", "7.45"],
+                ["2026-03-26 03:40:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1812", "Standard value entry per SOP-01", "7.23"],
+                ["2026-03-26 03:45:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1813", "Standard value entry per SOP-01", "7.1"],
+                ["2026-03-26 03:50:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1814", "Standard value entry per SOP-01", "7.16"],
+                ["2026-03-26 03:55:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1815", "Standard value entry per SOP-01", "7.21"],
+                ["2026-03-26 04:00:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1816", "Standard value entry per SOP-01", "7.33"],
+                ["2026-03-26 04:05:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1817", "Standard value entry per SOP-01", "7.33"],
+                ["2026-03-26 04:10:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1818", "Standard value entry per SOP-01", "7.39"],
+                ["2026-03-26 04:15:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1819", "Standard value entry per SOP-01", "7.44"],
+                ["2026-03-26 04:20:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1820", "Standard value entry per SOP-01", "7.48"],
+                ["2026-03-26 04:25:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1821", "Standard value entry per SOP-01", "7.23"],
+                ["2026-03-26 04:30:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1822", "Standard value entry per SOP-01", "7.39"],
+                ["2026-03-26 04:35:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1823", "Standard value entry per SOP-01", "7.37"],
+                ["2026-03-26 04:40:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1824", "Standard value entry per SOP-01", "7.18"],
+                ["2026-03-26 04:45:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1825", "Standard value entry per SOP-01", "7.37"],
+                ["2026-03-26 04:50:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1826", "Standard value entry per SOP-01", "7.03"],
+                ["2026-03-26 04:55:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1827", "Standard value entry per SOP-01", "7.13"],
+                ["2026-03-26 05:00:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1828", "Standard value entry per SOP-01", "7.2"],
+                ["2026-03-26 05:05:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1829", "Standard value entry per SOP-01", "7.32"],
+                ["2026-03-26 05:10:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1830", "Standard value entry per SOP-01", "7.18"],
+                ["2026-03-26 05:15:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1831", "Standard value entry per SOP-01", "7.26"],
+                ["2026-03-26 05:20:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1832", "Standard value entry per SOP-01", "7.27"],
+                ["2026-03-26 05:25:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1833", "Standard value entry per SOP-01", "7.38"],
+                ["2026-03-26 05:30:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1834", "Standard value entry per SOP-01", "7.46"],
+                ["2026-03-26 05:35:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1835", "Standard value entry per SOP-01", "7.34"],
+                ["2026-03-26 05:40:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1836", "Standard value entry per SOP-01", "7.19"],
+                ["2026-03-26 05:45:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1837", "Standard value entry per SOP-01", "7.31"],
+                ["2026-03-26 05:50:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1838", "Standard value entry per SOP-01", "7.44"],
+                ["2026-03-26 05:55:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1839", "Standard value entry per SOP-01", "7.49"],
+                ["2026-03-26 06:00:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1840", "Standard value entry per SOP-01", "7.04"],
+                ["2026-03-26 06:05:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1841", "Standard value entry per SOP-01", "7.23"],
+                ["2026-03-26 06:10:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1842", "Standard value entry per SOP-01", "7.29"],
+                ["2026-03-26 06:15:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1843", "Standard value entry per SOP-01", "7.47"],
+                ["2026-03-26 06:20:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1844", "Standard value entry per SOP-01", "7.24"],
+                ["2026-03-26 06:25:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1845", "Standard value entry per SOP-01", "7.1"],
+                ["2026-03-26 06:30:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1846", "Standard value entry per SOP-01", "7.22"],
+                ["2026-03-26 06:35:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1847", "Standard value entry per SOP-01", "7.32"],
+                ["2026-03-26 06:40:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1848", "Standard value entry per SOP-01", "7.09"],
+                ["2026-03-26 06:45:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1849", "Standard value entry per SOP-01", "7.48"],
+                ["2026-03-26 06:50:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1850", "Standard value entry per SOP-01", "7.13"],
+                ["2026-03-26 06:55:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1851", "Standard value entry per SOP-01", "7.31"],
+                ["2026-03-26 07:00:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1852", "Standard value entry per SOP-01", "7.26"],
+                ["2026-03-26 07:05:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1853", "Standard value entry per SOP-01", "7.12"],
+                ["2026-03-26 07:10:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1854", "Standard value entry per SOP-01", "7.29"],
+                ["2026-03-26 07:15:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1855", "Standard value entry per SOP-01", "7.42"],
+                ["2026-03-26 07:20:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1856", "Standard value entry per SOP-01", "7.42"],
+                ["2026-03-26 07:25:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1857", "Standard value entry per SOP-01", "7.04"],
+                ["2026-03-26 07:30:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1858", "Standard value entry per SOP-01", "7.42"],
+                ["2026-03-26 07:35:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1859", "Standard value entry per SOP-01", "7.41"],
+                ["2026-03-26 07:40:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1860", "Standard value entry per SOP-01", "7.03"],
+                ["2026-03-26 07:45:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1861", "Standard value entry per SOP-01", "7.13"],
+                ["2026-03-26 07:50:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1862", "Standard value entry per SOP-01", "7.17"],
+                ["2026-03-26 07:55:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1863", "Standard value entry per SOP-01", "7.1"],
+                ["2026-03-26 08:00:00", "analyst_jones", "SELECT", "AUDIT_TRAIL", "Analyst", "", "Reviewing logs", ""],
+                ["2026-03-26 08:00:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1864", "Standard value entry per SOP-01", "7.37"],
+                ["2026-03-26 08:05:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1865", "Standard value entry per SOP-01", "7.02"],
+                ["2026-03-26 08:10:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1866", "Standard value entry per SOP-01", "7.44"],
+                ["2026-03-26 08:15:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1867", "Standard value entry per SOP-01", "7.14"],
+                ["2026-03-26 08:20:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1868", "Standard value entry per SOP-01", "7.22"],
+                ["2026-03-26 08:25:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1869", "Standard value entry per SOP-01", "7.47"],
+                ["2026-03-26 08:30:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1870", "Standard value entry per SOP-01", "7.14"],
+                ["2026-03-26 08:35:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1871", "Standard value entry per SOP-01", "7.0"],
+                ["2026-03-26 08:40:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1872", "Standard value entry per SOP-01", "7.03"],
+                ["2026-03-26 08:45:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1873", "Standard value entry per SOP-01", "7.44"],
+                ["2026-03-26 08:50:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1874", "Standard value entry per SOP-01", "7.4"],
+                ["2026-03-26 08:55:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1875", "Standard value entry per SOP-01", "7.06"],
+                ["2026-03-26 09:00:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1876", "Standard value entry per SOP-01", "7.04"],
+                ["2026-03-26 09:05:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1877", "Standard value entry per SOP-01", "7.19"],
+                ["2026-03-26 09:10:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1878", "Standard value entry per SOP-01", "7.18"],
+                ["2026-03-26 09:15:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1879", "Standard value entry per SOP-01", "7.31"],
+                ["2026-03-26 09:20:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1880", "Standard value entry per SOP-01", "7.32"],
+                ["2026-03-26 09:25:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1881", "Standard value entry per SOP-01", "7.3"],
+                ["2026-03-26 09:30:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1882", "Standard value entry per SOP-01", "7.0"],
+                ["2026-03-26 09:35:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1883", "Standard value entry per SOP-01", "7.32"],
+                ["2026-03-26 09:40:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1884", "Standard value entry per SOP-01", "7.37"],
+                ["2026-03-26 09:45:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1885", "Standard value entry per SOP-01", "7.16"],
+                ["2026-03-26 09:50:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1886", "Standard value entry per SOP-01", "7.36"],
+                ["2026-03-26 09:55:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1887", "Standard value entry per SOP-01", "7.38"],
+                ["2026-03-26 10:00:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1888", "Standard value entry per SOP-01", "7.46"],
+                ["2026-03-26 10:05:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1889", "Standard value entry per SOP-01", "7.18"],
+                ["2026-03-26 10:10:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1890", "Standard value entry per SOP-01", "7.4"],
+                ["2026-03-26 10:15:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1891", "Standard value entry per SOP-01", "7.2"],
+                ["2026-03-26 10:20:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1892", "Standard value entry per SOP-01", "7.47"],
+                ["2026-03-26 10:25:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1893", "Standard value entry per SOP-01", "7.1"],
+                ["2026-03-26 10:30:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1894", "Standard value entry per SOP-01", "7.42"],
+                ["2026-03-26 10:35:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1895", "Standard value entry per SOP-01", "7.11"],
+                ["2026-03-26 10:40:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1896", "Standard value entry per SOP-01", "7.1"],
+                ["2026-03-26 10:45:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1897", "Standard value entry per SOP-01", "7.44"],
+                ["2026-03-26 10:50:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1898", "Standard value entry per SOP-01", "7.32"],
+                ["2026-03-26 10:55:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1899", "Standard value entry per SOP-01", "7.17"],
+                ["2026-03-26 11:00:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1900", "Standard value entry per SOP-01", "7.35"],
+                ["2026-03-26 11:05:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1901", "Standard value entry per SOP-01", "7.35"],
+                ["2026-03-26 11:10:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1902", "Standard value entry per SOP-01", "7.02"],
+                ["2026-03-26 11:15:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1903", "Standard value entry per SOP-01", "7.31"],
+                ["2026-03-26 11:20:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1904", "Standard value entry per SOP-01", "7.15"],
+                ["2026-03-26 11:25:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1905", "Standard value entry per SOP-01", "7.12"],
+                ["2026-03-26 11:30:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1906", "Standard value entry per SOP-01", "7.44"],
+                ["2026-03-26 11:35:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1907", "Standard value entry per SOP-01", "7.11"],
+                ["2026-03-26 11:40:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1908", "Standard value entry per SOP-01", "7.42"],
+                ["2026-03-26 11:45:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1909", "Standard value entry per SOP-01", "7.01"],
+                ["2026-03-26 11:50:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1910", "Standard value entry per SOP-01", "7.36"],
+                ["2026-03-26 11:55:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1911", "Standard value entry per SOP-01", "7.45"],
+                ["2026-03-26 12:00:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1912", "Standard value entry per SOP-01", "7.47"],
+                ["2026-03-26 12:05:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1913", "Standard value entry per SOP-01", "7.28"],
+                ["2026-03-26 12:10:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1914", "Standard value entry per SOP-01", "7.24"],
+                ["2026-03-26 12:15:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1915", "Standard value entry per SOP-01", "7.01"],
+                ["2026-03-26 12:20:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1916", "Standard value entry per SOP-01", "7.28"],
+                ["2026-03-26 12:25:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1917", "Standard value entry per SOP-01", "7.2"],
+                ["2026-03-26 12:30:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1918", "Standard value entry per SOP-01", "7.18"],
+                ["2026-03-26 12:35:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1919", "Standard value entry per SOP-01", "7.2"],
+                ["2026-03-26 12:40:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1920", "Standard value entry per SOP-01", "7.32"],
+                ["2026-03-26 12:45:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1921", "Standard value entry per SOP-01", "7.46"],
+                ["2026-03-26 12:50:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1922", "Standard value entry per SOP-01", "7.35"],
+                ["2026-03-26 12:55:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1923", "Standard value entry per SOP-01", "7.09"],
+                ["2026-03-26 13:00:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1924", "Standard value entry per SOP-01", "7.47"],
+                ["2026-03-26 13:05:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1925", "Standard value entry per SOP-01", "7.5"],
+                ["2026-03-26 13:10:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1926", "Standard value entry per SOP-01", "7.09"],
+                ["2026-03-26 13:15:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1927", "Standard value entry per SOP-01", "7.02"],
+                ["2026-03-26 13:20:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1928", "Standard value entry per SOP-01", "7.01"],
+                ["2026-03-26 13:25:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1929", "Standard value entry per SOP-01", "7.38"],
+                ["2026-03-26 13:30:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1930", "Standard value entry per SOP-01", "7.38"],
+                ["2026-03-26 13:35:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1931", "Standard value entry per SOP-01", "7.06"],
+                ["2026-03-26 13:40:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1932", "Standard value entry per SOP-01", "7.22"],
+                ["2026-03-26 13:45:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1933", "Standard value entry per SOP-01", "7.11"],
+                ["2026-03-26 13:50:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1934", "Standard value entry per SOP-01", "7.18"],
+                ["2026-03-26 13:55:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1935", "Standard value entry per SOP-01", "7.12"],
+                ["2026-03-26 14:00:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1936", "Standard value entry per SOP-01", "7.22"],
+                ["2026-03-26 14:05:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1937", "Standard value entry per SOP-01", "7.18"],
+                ["2026-03-26 14:10:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1938", "Standard value entry per SOP-01", "7.49"],
+                ["2026-03-26 14:15:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1939", "Standard value entry per SOP-01", "7.23"],
+                ["2026-03-26 14:20:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1940", "Standard value entry per SOP-01", "7.26"],
+                ["2026-03-26 14:25:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1941", "Standard value entry per SOP-01", "7.08"],
+                ["2026-03-26 14:30:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1942", "Standard value entry per SOP-01", "7.03"],
+                ["2026-03-26 14:35:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1943", "Standard value entry per SOP-01", "7.1"],
+                ["2026-03-26 14:40:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1944", "Standard value entry per SOP-01", "7.04"],
+                ["2026-03-26 14:45:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1945", "Standard value entry per SOP-01", "7.45"],
+                ["2026-03-26 14:50:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1946", "Standard value entry per SOP-01", "7.36"],
+                ["2026-03-26 14:55:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1947", "Standard value entry per SOP-01", "7.08"],
+                ["2026-03-26 15:00:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1948", "Standard value entry per SOP-01", "7.41"],
+                ["2026-03-26 15:05:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1949", "Standard value entry per SOP-01", "7.11"],
+                ["2026-03-26 15:10:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1950", "Standard value entry per SOP-01", "7.04"],
+                ["2026-03-26 15:15:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1951", "Standard value entry per SOP-01", "7.19"],
+                ["2026-03-26 15:20:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1952", "Standard value entry per SOP-01", "7.42"],
+                ["2026-03-26 15:25:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1953", "Standard value entry per SOP-01", "7.16"],
+                ["2026-03-26 15:30:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1954", "Standard value entry per SOP-01", "7.02"],
+                ["2026-03-26 15:35:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1955", "Standard value entry per SOP-01", "7.23"],
+                ["2026-03-26 15:40:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1956", "Standard value entry per SOP-01", "7.17"],
+                ["2026-03-26 15:45:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1957", "Standard value entry per SOP-01", "7.37"],
+                ["2026-03-26 15:50:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1958", "Standard value entry per SOP-01", "7.26"],
+                ["2026-03-26 15:55:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1959", "Standard value entry per SOP-01", "7.22"],
+                ["2026-03-26 16:00:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1960", "Standard value entry per SOP-01", "7.09"],
+                ["2026-03-26 16:05:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1961", "Standard value entry per SOP-01", "7.13"],
+                ["2026-03-26 16:10:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1962", "Standard value entry per SOP-01", "7.37"],
+                ["2026-03-26 16:15:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1963", "Standard value entry per SOP-01", "7.0"],
+                ["2026-03-26 16:20:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1964", "Standard value entry per SOP-01", "7.45"],
+                ["2026-03-26 16:25:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1965", "Standard value entry per SOP-01", "7.07"],
+                ["2026-03-26 16:30:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1966", "Standard value entry per SOP-01", "7.07"],
+                ["2026-03-26 16:35:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1967", "Standard value entry per SOP-01", "7.13"],
+                ["2026-03-26 16:40:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1968", "Standard value entry per SOP-01", "7.22"],
+                ["2026-03-26 16:45:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1969", "Standard value entry per SOP-01", "7.1"],
+                ["2026-03-26 16:50:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1970", "Standard value entry per SOP-01", "7.13"],
+                ["2026-03-26 16:55:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1971", "Standard value entry per SOP-01", "7.3"],
+                ["2026-03-26 17:00:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1972", "Standard value entry per SOP-01", "7.26"],
+                ["2026-03-26 17:05:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1973", "Standard value entry per SOP-01", "7.44"],
+                ["2026-03-26 17:10:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1974", "Standard value entry per SOP-01", "7.14"],
+                ["2026-03-26 17:15:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1975", "Standard value entry per SOP-01", "7.01"],
+                ["2026-03-26 17:20:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1976", "Standard value entry per SOP-01", "7.29"],
+                ["2026-03-26 17:25:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1977", "Standard value entry per SOP-01", "7.32"],
+                ["2026-03-26 17:30:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1978", "Standard value entry per SOP-01", "7.27"],
+                ["2026-03-26 17:35:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1979", "Standard value entry per SOP-01", "7.18"],
+                ["2026-03-26 17:40:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1980", "Standard value entry per SOP-01", "7.36"],
+                ["2026-03-26 17:45:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1981", "Standard value entry per SOP-01", "7.4"],
+                ["2026-03-26 17:50:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1982", "Standard value entry per SOP-01", "7.35"],
+                ["2026-03-26 17:55:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1983", "Standard value entry per SOP-01", "7.45"],
+                ["2026-03-26 18:00:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1984", "Standard value entry per SOP-01", "7.14"],
+                ["2026-03-26 18:05:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1985", "Standard value entry per SOP-01", "7.23"],
+                ["2026-03-26 18:10:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1986", "Standard value entry per SOP-01", "7.14"],
+                ["2026-03-26 18:15:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1987", "Standard value entry per SOP-01", "7.32"],
+                ["2026-03-26 18:20:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1988", "Standard value entry per SOP-01", "7.11"],
+                ["2026-03-26 18:25:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1989", "Standard value entry per SOP-01", "7.09"],
+                ["2026-03-26 18:30:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1990", "Standard value entry per SOP-01", "7.39"],
+                ["2026-03-26 18:35:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1991", "Standard value entry per SOP-01", "7.04"],
+                ["2026-03-26 18:40:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1992", "Standard value entry per SOP-01", "7.32"],
+                ["2026-03-26 18:45:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1993", "Standard value entry per SOP-01", "7.23"],
+                ["2026-03-26 18:50:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1994", "Standard value entry per SOP-01", "7.17"],
+                ["2026-03-26 18:55:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1995", "Standard value entry per SOP-01", "7.13"],
+                ["2026-03-26 19:00:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1996", "Standard value entry per SOP-01", "7.31"],
+                ["2026-03-26 19:05:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1997", "Standard value entry per SOP-01", "7.29"],
+                ["2026-03-26 19:10:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1998", "Standard value entry per SOP-01", "7.24"],
+                ["2026-03-26 19:15:00", "jsmith", "UPDATE", "RESULTS", "Analyst", "RES-1999", "Standard value entry per SOP-01", "7.44"],
+                ["2026-03-28 10:00:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1600", "Weekend catchup", "7.04"],
+                ["2026-07-04 11:00:00", "analyst_y", "UPDATE", "RESULTS", "Analyst", "RES-1500", "Holiday work", "7.18"],
             ]
 
-            # ── Trap 4: RULE 4 — Outlier new_value (>3 std dev from mean) ──
-            # Mean ~7.1, SD ~0.3  →  outlier needs to be > 8.0 or < 6.2 by 3×SD
-            # Use 147.3 as the classic demo outlier
-            p4 = _pos(0.62)
-            rows[p4] = [
-                _workday_ts(62, 10, 22, 5), _rnd.choice(ANALYSTS),
-                "UPDATE", "RESULTS", "Analyst", _res_id(),
-                "Setpoint adjustment", "147.3"
-            ]
+            # Write header row
+            hdr_data_font  = Font(bold=True, color="E2E8F0", size=9)
+            hdr_data_fill  = PatternFill("solid", fgColor="0F172A")
+            for ci, col_name in enumerate(HEADER, 1):
+                cell = ws_data.cell(row=1, column=ci, value=col_name)
+                cell.font  = hdr_data_font
+                cell.fill  = hdr_data_fill
+                cell.alignment = Alignment(horizontal="center")
 
-            # ── Trap 5: RULE 5 — Failed login → Data manipulation ──────────
-            p5 = _pos(0.72)
-            fail_user = "analyst_smith"
-            fail_dt   = _dt.datetime(2024, 3, 18, 22, 0, 0)  # 10 PM
-            # 3 failed logins
-            for i in range(3):
-                t = (fail_dt + _dt.timedelta(minutes=i*3)).strftime(
-                    "%Y-%m-%d %H:%M:%S")
-                rows[min(p5 + i, TOTAL_ROWS - 1)] = [
-                    t, fail_user, "LOGIN_FAILED", "USER_SESSION",
-                    "Analyst", "", "Invalid credentials", ""
-                ]
-            # Successful login
-            rows[min(p5 + 3, TOTAL_ROWS - 1)] = [
-                (fail_dt + _dt.timedelta(minutes=10)).strftime(
-                    "%Y-%m-%d %H:%M:%S"),
-                fail_user, "LOGIN", "USER_SESSION",
-                "Analyst", "", "Successful login", ""
-            ]
-            # DELETE within 30 min of login
-            rows[min(p5 + 4, TOTAL_ROWS - 1)] = [
-                (fail_dt + _dt.timedelta(minutes=18)).strftime(
-                    "%Y-%m-%d %H:%M:%S"),
-                fail_user, "DELETE", "RESULTS",
-                "Analyst", "RES-9999", "", ""
-            ]
+            # Write data rows
+            data_font = Font(color="CBD5E1", size=9)
+            alt_fill  = PatternFill("solid", fgColor="0A1628")
+            for ri, row_vals in enumerate(DATA_ROWS, 2):
+                fill = alt_fill if ri % 2 == 0 else PatternFill("solid", fgColor="0F172A")
+                for ci, val in enumerate(row_vals, 1):
+                    cell = ws_data.cell(row=ri, column=ci, value=val)
+                    cell.font  = data_font
+                    cell.fill  = fill
 
-            # ── Trap 6: Off-hours activity (2:14 AM weekday) ────────────────
-            p6 = _pos(0.78)
-            rows[p6] = [
-                "2024-04-02 02:14:33", _rnd.choice(ANALYSTS),
-                "DELETE", "BATCH", "Analyst", _bat_id(), "", ""
-            ]
+            # Column widths
+            col_widths = [22, 18, 18, 18, 12, 16, 36, 12]
+            for ci, w in enumerate(col_widths, 1):
+                ws_data.column_dimensions[
+                    openpyxl.utils.get_column_letter(ci)].width = w
 
-            # ── Trap 7: US Federal Holiday (July 4, business hours) ─────────
-            p7 = _pos(0.82)
-            rows[p7] = [
-                "2024-07-04 11:00:00", _rnd.choice(ANALYSTS),
-                "UPDATE", "RESULTS", "Analyst", _res_id(),
-                "Routine entry", str(round(_rnd.gauss(NORMAL_MEAN, NORMAL_SD), 2))
-            ]
+            buf = io.BytesIO()
+            wb.save(buf)
+            return buf.getvalue()
 
-            # ── Trap 8: Timestamp gap (>2 hours silence) ─────────────────────
-            # Place two rows far apart in time — the engine detects the gap
-            p8 = _pos(0.86)
-            rows[p8] = [
-                "2024-05-14 09:00:00", _rnd.choice(ANALYSTS),
-                "UPDATE", "RESULTS", "Analyst", _res_id(),
-                _good_comment("RES-GAP", "UPDATE"),
-                str(round(_rnd.gauss(NORMAL_MEAN, NORMAL_SD), 2))
-            ]
-            rows[min(p8 + 1, TOTAL_ROWS - 1)] = [
-                "2024-05-14 11:35:00", _rnd.choice(ANALYSTS),
-                "UPDATE", "RESULTS", "Analyst", _res_id(),
-                _good_comment("RES-GAP2", "UPDATE"),
-                str(round(_rnd.gauss(NORMAL_MEAN, NORMAL_SD), 2))
-            ]
-
-            # ── Trap 9: Delete → Recreate same record_id ─────────────────────
-            p9        = _pos(0.91)
-            dup_rec   = "RES-DUPE-001"
-            dup_user  = "analyst_brown"
-            rows[p9]  = [
-                "2024-06-03 11:05:00", dup_user, "DELETE",
-                "RESULTS", "Analyst", dup_rec, "", ""
-            ]
-            rows[min(p9 + 1, TOTAL_ROWS - 1)] = [
-                "2024-06-03 11:08:22", dup_user, "INSERT",
-                "RESULTS", "Analyst", dup_rec,
-                "Re-entry after deletion", "99.99"
-            ]
-
-            # ── Trap 10: Audit trail config change at 3 AM ───────────────────
-            p10 = _pos(0.97)
-            rows[p10] = [
-                "2024-06-16 03:22:11", "admin_sys",
-                "UPDATE", "AUDIT_TRAIL", "Admin",
-                "", "Configuration update", "DISABLED"
-            ]
-
-            # ── Serialise to CSV ──────────────────────────────────────────────
-            lines = [",".join(HEADER)]
-            for r in rows:
-                lines.append(",".join(
-                    f'"{str(v)}"' if "," in str(v) else str(v)
-                    for v in r
-                ))
-            return "\n".join(lines).encode("utf-8")
-
-        sc1, sc2, sc3 = st.columns([4, 3, 3])
-        with sc1:
-            st.download_button(
-                label="📥 Download Sample CSV Template",
-                data=_build_sample_csv(),
-                file_name="sample_audit_trail_template.csv",
-                mime="text/csv",
-                key="at_sample_download",
-                help=(
-                    "1,000-row realistic GxP audit trail. "
-                    "Clean background data with 10 deliberate traps embedded "
-                    "at dynamically-calculated positions. "
-                    "Covers all 5 named rules + off-hours, holiday, gap, "
-                    "delete-recreate, and audit trail disable scenarios."
-                ),
-            )
-        with sc2:
-            st.markdown(
-                "<p style='color:#64748b;font-size:0.78rem;padding-top:8px;'>"
-                "1,000 rows · all 8 columns · 10 traps embedded<br>"
-                "Replace with your own data to analyse real systems.</p>",
-                unsafe_allow_html=True
-            )
-        with sc3:
-            st.markdown(
-                "<p style='color:#475569;font-size:0.78rem;padding-top:8px;'>"
-                "Traps: Rules 1–5 · Off-hours · Holiday<br>"
-                "Gap · Delete-Recreate · Audit Trail disable</p>",
-                unsafe_allow_html=True
-            )
+        st.download_button(
+            label="📥 Download Sample Audit Log Template",
+            data=_build_sample_xlsx(),
+            file_name="valintel_sample_audit_log_template.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key="at_sample_download",
+            help=(
+                "1,000-row validated GxP audit trail covering all 10 detection "
+                "scenarios. Sheet 1 (Usage) explains every column and rule. "
+                "Sheet 2 (Audit Log) contains the data — replace with your own "
+                "system export to analyse real audit trails."
+            ),
+        )
 
         st.markdown("<br>", unsafe_allow_html=True)
 
@@ -8107,6 +8942,18 @@ match your system's export column names to the fields above — rename nothing i
   </i>
 </div>""", unsafe_allow_html=True)
 
+        # ── New Analysis button — only shown after results are displayed ────────
+        st.markdown("<br>", unsafe_allow_html=True)
+        _, na_col, _ = st.columns([3, 4, 3])
+        with na_col:
+            if st.button("🔄 Start New Analysis", key="at_reset_btn",
+                         use_container_width=True):
+                for k in ["at_raw_df","at_mapped_df","at_scored_df","at_top20_df",
+                          "at_file_name","at_mapping_done","at_analysis_done","at_total_events"]:
+                    st.session_state[k] = _defaults.get(k)
+                st.session_state["at_key_n"] = st.session_state.get("at_key_n",0) + 1
+                st.rerun()
+
 
 # =============================================================================
 # 11. LOGIN
@@ -8195,7 +9042,7 @@ def show_app():
 
     # ── Sidebar ──
     with st.sidebar:
-        st.markdown(f'<p class="sb-title">CSV Generator v{VERSION}</p>', unsafe_allow_html=True)
+        st.markdown('<p class="sb-title">VALINTEL.AI — Validation Intelligence</p>', unsafe_allow_html=True)
         st.divider()
         st.markdown('<p class="sb-sub">🔧 Analysis Mode</p>', unsafe_allow_html=True)
         _modes = [
@@ -8226,97 +9073,7 @@ def show_app():
         # ── MANUAL EDIT v29-custom — DO NOT OVERWRITE ──────────────
         st.sidebar.markdown("<br><br>", unsafe_allow_html=True)
         st.session_state.selected_model = engine_name
-
-        st.markdown('<p class="sb-sub">📂 Upload system document like operational SOP or user guide, manual etc.</p>', unsafe_allow_html=True)
         # ── END MANUAL EDIT ────────────────────────────────────────
-        # Dynamic key so New Analysis can reset the sidebar uploader too
-        sys_up_key = f"sidebar_sys_uploader_{st.session_state.sys_uploader_key_n}"
-        sidebar_sys = st.file_uploader(
-            "SysContext", type="pdf", key=sys_up_key, label_visibility="collapsed"
-        )
-        if sidebar_sys is not None:
-            raw = sidebar_sys.getvalue()
-            if raw and b'%PDF' in raw[:1024]:
-                # ── Content gate: reject non-system documents ─────────────────
-                # Extract sample text and check for system-doc signals vs
-                # personal/non-operational document signals.
-                _sys_pages = []
-                try:
-                    import pdfplumber as _plb
-                    with _plb.open(io.BytesIO(raw)) as _pdf:
-                        for _pg in _pdf.pages[:4]:
-                            _t = _pg.extract_text() or ""
-                            if _t.strip():
-                                _sys_pages.append(_t.lower())
-                except Exception:
-                    pass
-                _sys_sample = " ".join(_sys_pages)
-
-                # Positive signals — screen/procedural/system-doc language
-                _SYS_POSITIVE = [
-                    r'\bclick\b', r'\bnavigate\b', r'\bselect\b', r'\bdashboard\b',
-                    r'\bscreen\b', r'\bbutton\b', r'\bmenu\b', r'\bfield\b',
-                    r'\bworkflow\b', r'\bprocedure\b', r'\bconfigure\b',
-                    r'\binstall\b', r'\blog.?in\b', r'\buser guide\b',
-                    r'\bmanual\b', r'\bsop\b', r'\binstruction\b',
-                    r'\bstep\s+\d\b', r'\bmodule\b', r'\btab\b', r'\bform\b',
-                    r'\bsystem\b', r'\bapplication\b', r'\bsoftware\b',
-                ]
-                # Negative signals — personal/non-operational documents
-                _SYS_NEGATIVE = [
-                    r'\bwork experience\b', r'\bemployment history\b',
-                    r'\bcurriculum vitae\b', r'\b\bcv\b\b',
-                    r'\beducation\b.*\buniversity\b', r'\bdegree\b.*\bgraduat',
-                    r'\bskills\b.*\bproficien', r'\breferences available\b',
-                    r'\bdate of birth\b', r'\blinkedin\.com\b',
-                    r'\binvoice\b', r'\bpurchase order\b',
-                    r'\btotal due\b', r'\bremit payment\b',
-                    r'\bdear\b.*\bsincerely\b',
-                ]
-                if _sys_sample:
-                    _neg_hits = [p for p in _SYS_NEGATIVE
-                                 if re.search(p, _sys_sample, re.IGNORECASE)]
-                    _pos_hits = [p for p in _SYS_POSITIVE
-                                 if re.search(p, _sys_sample, re.IGNORECASE)]
-
-                    if _neg_hits:
-                        st.sidebar.error(
-                            "⛔ **Document rejected** — this appears to be a personal or "
-                            "non-operational document (CV, invoice, letter, etc.). "
-                            "Upload a system User Guide, operational SOP, or instruction manual."
-                        )
-                        st.session_state["sys_context_bytes"] = None
-                        st.session_state["sys_context_name"]  = None
-                    elif len(_pos_hits) < 3:
-                        st.sidebar.warning(
-                            f"⚠️ **Low system-doc signal** ({len(_pos_hits)} indicator(s)). "
-                            "Expected a User Guide, SOP, or instruction manual with screen "
-                            "names, workflow steps, or procedural language. "
-                            "The document will be used but may not improve FRS quality."
-                        )
-                        st.session_state["sys_context_bytes"] = raw
-                        st.session_state["sys_context_name"]  = sidebar_sys.name
-                    else:
-                        st.session_state["sys_context_bytes"] = raw
-                        st.session_state["sys_context_name"]  = sidebar_sys.name
-                else:
-                    # Couldn't extract text (image-only PDF) — accept with warning
-                    st.sidebar.warning(
-                        "⚠️ Could not extract text from this PDF. "
-                        "Ensure it is OCR-searchable for best results."
-                    )
-                    st.session_state["sys_context_bytes"] = raw
-                    st.session_state["sys_context_name"]  = sidebar_sys.name
-        elif sidebar_sys is None:
-            st.session_state["sys_context_bytes"] = None
-            st.session_state["sys_context_name"]  = None
-
-        ctx_name = st.session_state.get("sys_context_name")
-        if ctx_name:
-            st.markdown(
-                f'<p class="sb-filename">📄 {ctx_name}</p>',
-                unsafe_allow_html=True
-            )
 
         st.divider()
         st.markdown(f'<p class="sidebar-stats">Operator: {user} &nbsp;|&nbsp; Role: {role}</p>', unsafe_allow_html=True)
@@ -8553,6 +9310,93 @@ def show_app():
     st.markdown("<br>", unsafe_allow_html=True)
     # ── END MANUAL EDIT ────────────────────────────────────────
 
+    # ── System Document uploader (New Validation only) ────────────────────────
+    st.markdown(
+        "<p style='font-size:0.85rem;font-weight:600;color:#475569;margin-bottom:4px;'>"
+        "📂 System Context Document <span style='font-weight:400;color:#94a3b8;'>"
+        "(optional) — User Guide, SOP, or Instruction Manual</span></p>",
+        unsafe_allow_html=True
+    )
+    sys_up_key = f"sidebar_sys_uploader_{st.session_state.sys_uploader_key_n}"
+    sidebar_sys = st.file_uploader(
+        "SysContext", type="pdf", key=sys_up_key, label_visibility="collapsed"
+    )
+    if sidebar_sys is not None:
+        raw = sidebar_sys.getvalue()
+        if raw and b'%PDF' in raw[:1024]:
+            _sys_pages = []
+            try:
+                import pdfplumber as _plb
+                with _plb.open(io.BytesIO(raw)) as _pdf:
+                    for _pg in _pdf.pages[:4]:
+                        _t = _pg.extract_text() or ""
+                        if _t.strip():
+                            _sys_pages.append(_t.lower())
+            except Exception:
+                pass
+            _sys_sample = " ".join(_sys_pages)
+
+            _SYS_POSITIVE = [
+                r'\bclick\b', r'\bnavigate\b', r'\bselect\b', r'\bdashboard\b',
+                r'\bscreen\b', r'\bbutton\b', r'\bmenu\b', r'\bfield\b',
+                r'\bworkflow\b', r'\bprocedure\b', r'\bconfigure\b',
+                r'\binstall\b', r'\blog.?in\b', r'\buser guide\b',
+                r'\bmanual\b', r'\bsop\b', r'\binstruction\b',
+                r'\bstep\s+\d\b', r'\bmodule\b', r'\btab\b', r'\bform\b',
+                r'\bsystem\b', r'\bapplication\b', r'\bsoftware\b',
+            ]
+            _SYS_NEGATIVE = [
+                r'\bwork experience\b', r'\bemployment history\b',
+                r'\bcurriculum vitae\b', r'\b\bcv\b\b',
+                r'\beducation\b.*\buniversity\b', r'\bdegree\b.*\bgraduat',
+                r'\bskills\b.*\bproficien', r'\breferences available\b',
+                r'\bdate of birth\b', r'\blinkedin\.com\b',
+                r'\binvoice\b', r'\bpurchase order\b',
+                r'\btotal due\b', r'\bremit payment\b',
+                r'\bdear\b.*\bsincerely\b',
+            ]
+            if _sys_sample:
+                _neg_hits = [p for p in _SYS_NEGATIVE
+                             if re.search(p, _sys_sample, re.IGNORECASE)]
+                _pos_hits = [p for p in _SYS_POSITIVE
+                             if re.search(p, _sys_sample, re.IGNORECASE)]
+                if _neg_hits:
+                    st.error(
+                        "⛔ **Document rejected** — this appears to be a personal or "
+                        "non-operational document (CV, invoice, letter, etc.). "
+                        "Upload a system User Guide, operational SOP, or instruction manual."
+                    )
+                    st.session_state["sys_context_bytes"] = None
+                    st.session_state["sys_context_name"]  = None
+                elif len(_pos_hits) < 3:
+                    st.warning(
+                        f"⚠️ **Low system-doc signal** ({len(_pos_hits)} indicator(s)). "
+                        "Expected a User Guide, SOP, or instruction manual with screen "
+                        "names, workflow steps, or procedural language. "
+                        "The document will be used but may not improve FRS quality."
+                    )
+                    st.session_state["sys_context_bytes"] = raw
+                    st.session_state["sys_context_name"]  = sidebar_sys.name
+                else:
+                    st.success(f"✅ System document accepted: **{sidebar_sys.name}**")
+                    st.session_state["sys_context_bytes"] = raw
+                    st.session_state["sys_context_name"]  = sidebar_sys.name
+            else:
+                st.warning(
+                    "⚠️ Could not extract text from this PDF. "
+                    "Ensure it is OCR-searchable for best results."
+                )
+                st.session_state["sys_context_bytes"] = raw
+                st.session_state["sys_context_name"]  = sidebar_sys.name
+    elif sidebar_sys is None:
+        st.session_state["sys_context_bytes"] = None
+        st.session_state["sys_context_name"]  = None
+
+    ctx_name = st.session_state.get("sys_context_name")
+    if ctx_name and sidebar_sys is None:
+        st.info(f"📄 Retained system document: **{ctx_name}**")
+
+    st.markdown("<br>", unsafe_allow_html=True)
 
     if st.button("🚀 Run Analysis", key="run_analysis_btn", disabled=not is_ready):
         file_bytes = st.session_state.sop_file_bytes
