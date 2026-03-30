@@ -4730,27 +4730,32 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
             return 0.0, ""
         if "UPDATE" not in act and "MODIFY" not in act and "EDIT" not in act:
             return 0.0, ""
-        # Check comment quality
-        if not cmt or cmt in ("", "nan", "none"):
+        # Blank or missing comment — always flag
+        if not cmt or cmt in ("", "nan", "none", "-", "—"):
             return 8.0, (
-                "Rule 1 — Vague Rationale [HIGH]: UPDATE on GxP table with no comment. "
-                "21 CFR Part 211.68 and ALCOA+ require contemporaneous, attributable "
-                "documentation for every data modification."
+                "No change reason was recorded for this data modification. "
+                "Every update to a GxP record requires a documented justification "
+                "explaining what changed and why (21 CFR Part 211.68, ALCOA+)."
             )
-        words = [w for w in cmt.split() if len(w) > 1]
-        if len(words) < 3:
-            return 8.0, (
-                f"Rule 1 — Vague Rationale [HIGH]: UPDATE on GxP table with only "
-                f"{len(words)} word(s) in comment ('{cmt}'). Fewer than 3 words is "
-                "insufficient documentation per ALCOA+ Attributable and Legible principles."
-            )
-        if any(vague in cmt for vague in _AT_VAGUE_TERMS):
+        # Contains a known vague/non-descriptive term — flag
+        words     = [w for w in cmt.split() if len(w) > 1]
+        has_vague = any(vague in cmt for vague in _AT_VAGUE_TERMS)
+        # Only flag short comments if they ALSO contain a vague term
+        # (avoids false positives on legitimate brief annotations like "Outlier test")
+        if has_vague:
             matched = [v for v in _AT_VAGUE_TERMS if v in cmt]
             return 7.0, (
-                f"Rule 1 — Vague Rationale [HIGH]: Non-descriptive comment "
-                f"('{cmt}') contains prohibited vague term(s): {matched}. "
-                "Comment lacks scientific justification required for GxP data modification "
-                "per 21 CFR Part 211.68."
+                f"The change reason recorded ('{cmt}') uses non-descriptive language "
+                f"({', '.join(matched)}) that does not explain what changed or why. "
+                "GxP data modifications require a specific, scientifically justified "
+                "rationale per 21 CFR Part 211.68."
+            )
+        # Very short AND no meaningful content (1 word only, not scientific)
+        if len(words) < 2:
+            return 6.0, (
+                f"The change reason ('{cmt}') is too brief to constitute adequate "
+                "documentation for a GxP record modification. A minimum of a clear, "
+                "specific explanation is required per ALCOA+ Attributable principle."
             )
         return 0.0, ""
 
@@ -4989,6 +4994,45 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
         return "Low"
     df["Risk_Tier"] = df["Risk_Score"].apply(_tier)
 
+    # ── Named rule tier overrides — named rules always win over composite ─────
+    # A Rule 3 (Admin/GxP) or Rule 5 (Failed Login) at 10/10 must be Critical
+    # regardless of what the composite score produces.
+    # A Rule 1 (Vague) or Rule 4 (Drift) at ≥7 must be at least High.
+    def _apply_tier_override(row):
+        tier = row["Risk_Tier"]
+        if float(row.get("score_rule3_admin_conflict", 0)) >= 8:
+            return "Critical"
+        if float(row.get("score_rule5_failed_login", 0)) >= 8:
+            return "Critical"
+        if float(row.get("score_del_recreate", 0)) >= 9:
+            return "Critical"
+        if float(row.get("score_record", 0)) >= 10:   # audit trail disable
+            return "Critical"
+        if float(row.get("score_rule1_vague_rationale", 0)) >= 7 and tier == "Low":
+            return "High"
+        if float(row.get("score_rule4_drift", 0)) >= 7 and tier == "Low":
+            return "High"
+        if float(row.get("score_rule2_burst", 0)) >= 6 and tier == "Low":
+            return "Medium"
+        return tier
+    df["Risk_Tier"] = df.apply(_apply_tier_override, axis=1)
+
+    # ── Deduplicate burst events — keep one representative per user+action burst
+    # so the Top 20 isn't dominated by 11 identical Rule 2 rows
+    df["_burst_key"] = (
+        df["user_id"].astype(str) + "|" +
+        df["action_type"].astype(str) + "|" +
+        df["score_rule2_burst"].astype(str)
+    )
+    # Mark all but the highest-scoring row in each burst group as duplicates
+    burst_mask = df["score_rule2_burst"] > 0
+    if burst_mask.any():
+        df["_burst_rank"] = df.groupby("_burst_key")["Risk_Score"].rank(
+            method="first", ascending=False)
+        df["_is_burst_dup"] = burst_mask & (df["_burst_rank"] > 1)
+    else:
+        df["_is_burst_dup"] = False
+
     # ── Triggered Rules summary column ───────────────────────────────────────
     # Lists which named rules fired for each event — useful for the Excel output
     def _triggered(row):
@@ -5199,45 +5243,41 @@ def at_generate_justifications(top_df: pd.DataFrame, model_id: str) -> pd.DataFr
         # ── Primary: LLM ──────────────────────────────────────────────────────
         try:
             from litellm import completion as _comp
-            prompt = f"""You are a GxP audit specialist writing a Periodic Review Report.
+            triggered = str(row.get("Triggered_Rules","None"))
+            rule_rat  = str(row.get("Rule_Rationale",""))
+            prompt = f"""You are writing a finding summary for a QA Manager doing a Periodic Review.
+The audience is non-technical — write clearly, avoid abbreviations and jargon.
 
-Event #{rank}/{total} escalated from audit trail analysis:
-  Timestamp:   {row.get('timestamp','Unknown')}
+Event details:
+  Date/Time:   {row.get('timestamp','Unknown')}
   User:        {row.get('user_id','Unknown')}
   Action:      {row.get('action_type','Unknown')}
-  Record ID:   {row.get('record_id','Unknown')}
-  Record Type: {row.get('record_type','Unknown')}
+  Record:      {row.get('record_id','Unknown')} ({row.get('record_type','Unknown')})
   Role:        {row.get('role','Unknown')}
-  Comments:    {row.get('comments','—')}
-  New Value:   {row.get('new_value','—')}
-  Risk Score:  {row.get('Risk_Score',0):.1f}/10  ({row.get('Risk_Tier','Unknown')})
+  Comment:     {row.get('comments','None provided')}
+  Risk Level:  {row.get('Risk_Tier','Unknown')}
 
-Named AI Skill Rules triggered: {row.get('Triggered_Rules','None')}
-Rule rationale: {row.get('Rule_Rationale','')}
+What triggered: {triggered}
+Finding detail: {rule_rat[:300] if rule_rat else 'Anomaly pattern detected by scoring engine.'}
 
-Dimension scores: Temporal={row.get('score_temporal',0):.1f}  Velocity={row.get('score_velocity',0):.1f}  Privilege={row.get('score_privilege',0):.1f}  Record={row.get('score_record',0):.1f}  Del-Recreate={row.get('score_del_recreate',0):.1f}  Gap={row.get('score_gap',0):.1f}
-Named rules: Rule1={row.get('score_rule1_vague_rationale',0):.1f}  Rule2={row.get('score_rule2_burst',0):.1f}  Rule3={row.get('score_rule3_admin_conflict',0):.1f}  Rule4={row.get('score_rule4_drift',0):.1f}
+Write exactly 3 SHORT sentences (max 25 words each):
+Sentence 1: What happened and what was unusual about it (plain English, no score numbers)
+Sentence 2: Why this matters from a compliance standpoint (one regulation or principle, named simply)
+Sentence 3: What the reviewer should do next (one clear action)
 
-Write exactly 3 sentences:
-1. Which named rules or dimensions triggered and why they matter for this specific event
-2. The exact compliance risk — cite the rule name AND regulation
-   (21 CFR Part 11 §11.10(e), §11.300, §11.10(d), 21 CFR Part 211.68,
-   EU Annex 11 Clause 9, or ALCOA+ principle as appropriate)
-3. The precise action the reviewer must take
-
-Professional GxP language. No bullets. No headers. Plain paragraph only."""
+No jargon. No score numbers. No bullets. No headers. Plain paragraph."""
 
             resp = _comp(
-                model=model_id, stream=False, temperature=0.2, max_tokens=280,
+                model=model_id, stream=False, temperature=0.15, max_tokens=200,
                 messages=[
                     {"role": "system", "content":
-                     "GxP audit specialist. Concise. Cite regulations. Never vague."},
+                     "QA compliance writer. Short clear sentences. No technical jargon. "
+                     "Write for a non-technical QA Manager. Max 25 words per sentence."},
                     {"role": "user", "content": prompt}
                 ]
             )
             candidate = resp.choices[0].message.content.strip()
-            # Sanity check — if response is too short or looks like an error, fallback
-            if len(candidate) > 80 and "error" not in candidate.lower()[:30]:
+            if len(candidate) > 60 and "error" not in candidate.lower()[:30]:
                 text = candidate
 
         except Exception:
@@ -5255,163 +5295,308 @@ Professional GxP language. No bullets. No headers. Plain paragraph only."""
 
 
 def at_build_excel(top_df, scored_df, system_name, r_start, r_end, fname) -> bytes:
-    """Build 3-sheet evidence workbook for Section 9.1.6 of Periodic Review Report."""
+    """
+    Build a clean, professional evidence workbook for QA reviewers and auditors.
+    White background, dark text, colour only on Risk Level cells.
+    Three sheets: Cover & Summary | Events for Review | Full Audit Log
+    """
     from openpyxl import Workbook
     output = io.BytesIO()
     wb     = Workbook()
-    navy   = "0A1628"
-    thin   = Side(style="thin", color="1E3A5F")
-    bdr    = Border(left=thin,right=thin,top=thin,bottom=thin)
-    hdr_f  = Font(bold=True,color="FFFFFF",name="Calibri",size=10)
-    hdr_fl = PatternFill("solid",fgColor=navy)
-    TIER_COLORS = {
-        "Critical":("450A0A","FCA5A5"),
-        "High":    ("431407","FDBA74"),
-        "Medium":  ("1A1A05","FDE68A"),
-        "Low":     ("052019","6EE7B7"),
+
+    # ── Colour palette — professional, printable ──────────────────────────────
+    C_HEADER_BG  = "1E3A5F"   # dark navy for header rows
+    C_HEADER_FG  = "FFFFFF"
+    C_SECTION_BG = "EBF3FB"   # very light blue for section dividers
+    C_SECTION_FG = "1E3A5F"
+    C_LABEL_FG   = "374151"   # dark grey for labels
+    C_VALUE_FG   = "111827"   # near-black for values
+    C_ALT_ROW    = "F9FAFB"   # very light grey alternating rows
+    C_WHITE      = "FFFFFF"
+
+    # Risk tier colours — background / text (light pastels, readable when printed)
+    TIER_BG = {
+        "Critical": "FECACA",   # soft red
+        "High":     "FED7AA",   # soft orange
+        "Medium":   "FEF08A",   # soft yellow
+        "Low":      "DCFCE7",   # soft green
+    }
+    TIER_FG = {
+        "Critical": "991B1B",
+        "High":     "9A3412",
+        "Medium":   "854D0E",
+        "Low":      "166534",
     }
 
-    total      = len(scored_df)
-    n_esc      = len(top_df)
-    n_crit     = int((scored_df["Risk_Tier"]=="Critical").sum())
-    n_high     = int((scored_df["Risk_Tier"]=="High").sum())
-    n_med      = int((scored_df["Risk_Tier"]=="Medium").sum())
-    n_low      = int((scored_df["Risk_Tier"]=="Low").sum())
-    pct_clear  = round((total-n_esc)/total*100,1) if total>0 else 0
+    thin  = Side(style="thin",  color="D1D5DB")
+    thick = Side(style="medium", color="1E3A5F")
+    bdr   = Border(left=thin, right=thin, top=thin, bottom=thin)
+    bdr_t = Border(left=thick, right=thick, top=thick, bottom=thick)
 
-    # Sheet 1 — Summary
-    ws = wb.active; ws.title = "Summary"
-    ws.sheet_properties.tabColor = "059669"
-    ws.column_dimensions["A"].width = 42
-    ws.column_dimensions["B"].width = 55
-
-    ws.merge_cells("A1:B1")
-    t = ws.cell(row=1,column=1,value="AUDIT TRAIL INTELLIGENCE — EVIDENCE PACKAGE")
-    t.font = Font(bold=True,color="38BDF8",name="Calibri",size=12)
-    t.fill = PatternFill("solid",fgColor=navy)
-    t.alignment = Alignment(horizontal="center")
+    def _hdr_font(size=10, bold=True, color=C_HEADER_FG):
+        return Font(bold=bold, color=color, name="Calibri", size=size)
+    def _body_font(size=10, bold=False, color=C_VALUE_FG):
+        return Font(bold=bold, color=color, name="Calibri", size=size)
+    def _fill(hex_color):
+        return PatternFill("solid", fgColor=hex_color)
 
     t_crit = float(st.session_state.get("at_thresh_critical", 7.0))
     t_high = float(st.session_state.get("at_thresh_high",     5.0))
     t_med  = float(st.session_state.get("at_thresh_medium",   3.0))
 
-    rows = [
-        ("System Name",          system_name,      None,    True),
-        ("Review Period",         f"{r_start} → {r_end}", None, False),
-        ("Source File",           fname,            None,    False),
-        ("Analysis Date",         str(datetime.date.today()), None, False),
-        ("Regulatory Basis",      "21 CFR Part 11 §11.10(e); EU Annex 11 Clause 9", None, False),
-        ("── Risk Thresholds (Locked) ──","",       navy,    False),
-        ("Critical threshold",    f"Score ≥ {t_crit}",  "450A0A", True),
-        ("High threshold",        f"Score ≥ {t_high}",  "431407", True),
-        ("Medium threshold",      f"Score ≥ {t_med}",   "1A1A05", False),
-        ("Low threshold",         f"Score < {t_med}",   "052019", False),
-        ("── Statistical Summary ──","",            navy,    False),
-        ("Total Events Analysed", total,            None,    True),
-        ("Events Auto-Cleared",   total-n_esc,      "052019",True),
-        ("% Auto-Cleared",        f"{pct_clear}%",  "052019",True),
-        ("Events Escalated",      n_esc,            None,    True),
-        ("── Risk Distribution ──","",              navy,    False),
-        (f"Critical (≥{t_crit})", n_crit,           "450A0A",True),
-        (f"High (≥{t_high})",     n_high,           "431407",True),
-        (f"Medium (≥{t_med})",    n_med,            "1A1A05",False),
-        (f"Low (<{t_med})",       n_low,            "052019",False),
-        ("── Reviewer Statement ──","",             navy,    False),
-        ("Statement",
-         f"AI-assisted audit trail review identified the {n_esc} highest-risk events "
-         f"from {total:,} total entries using anomaly scoring (thresholds: Critical≥{t_crit}, "
-         f"High≥{t_high}, Medium≥{t_med}). "
-         f"{pct_clear}% auto-cleared as low risk. All {n_esc} events reviewed and "
-         f"dispositioned per 21 CFR Part 11 §11.10(e) and EU Annex 11 Clause 9.",
-         None, False),
-    ]
-    for i,(lbl,val,fill,bold) in enumerate(rows,2):
-        c1 = ws.cell(row=i,column=1,value=lbl)
-        c2 = ws.cell(row=i,column=2,value=val)
-        c1.font = Font(color="94A3B8",name="Calibri",size=10)
-        c2.font = Font(color="FFFFFF",bold=bold,name="Calibri",size=10)
-        c1.border = c2.border = bdr
-        if fill:
-            f = PatternFill("solid",fgColor=fill)
-            c1.fill = c2.fill = f
+    total     = len(scored_df)
+    n_esc     = len(top_df)
+    n_crit    = int((scored_df["Risk_Tier"]=="Critical").sum())
+    n_high    = int((scored_df["Risk_Tier"]=="High").sum())
+    n_med     = int((scored_df["Risk_Tier"]=="Medium").sum())
+    n_low     = int((scored_df["Risk_Tier"]=="Low").sum())
+    pct_clear = round((total-n_esc)/total*100,1) if total>0 else 0
 
-    # Sheet 2 — Top 20
-    ws2 = wb.create_sheet("Top_20_Escalated")
+    # ══════════════════════════════════════════════════════════════════════════
+    # SHEET 1 — Cover & Summary
+    # ══════════════════════════════════════════════════════════════════════════
+    ws = wb.active
+    ws.title = "Summary"
+    ws.sheet_properties.tabColor = "1E3A5F"
+    ws.column_dimensions["A"].width = 36
+    ws.column_dimensions["B"].width = 52
+    ws.sheet_view.showGridLines = False
+
+    row = 1
+    # Title banner
+    ws.merge_cells(f"A{row}:B{row}")
+    c = ws.cell(row=row, column=1,
+                value="Audit Trail Review — Evidence Package")
+    c.font      = Font(bold=True, color=C_HEADER_FG, name="Calibri", size=14)
+    c.fill      = _fill(C_HEADER_BG)
+    c.alignment = Alignment(horizontal="center", vertical="center")
+    ws.row_dimensions[row].height = 28
+    row += 1
+
+    ws.merge_cells(f"A{row}:B{row}")
+    c = ws.cell(row=row, column=1,
+                value="Periodic Review — Section 9.1.6 Technical Review of Audit Trail")
+    c.font      = Font(bold=False, color="94A3B8", name="Calibri", size=10)
+    c.fill      = _fill(C_HEADER_BG)
+    c.alignment = Alignment(horizontal="center", vertical="center")
+    ws.row_dimensions[row].height = 18
+    row += 2
+
+    def _summary_row(label, value, bold_val=False, section=False, tier=None):
+        nonlocal row
+        c1 = ws.cell(row=row, column=1, value=label)
+        c2 = ws.cell(row=row, column=2, value=value)
+        if section:
+            c1.font = Font(bold=True, color=C_SECTION_FG, name="Calibri", size=10)
+            c2.font = Font(bold=True, color=C_SECTION_FG, name="Calibri", size=10)
+            c1.fill = c2.fill = _fill(C_SECTION_BG)
+        else:
+            c1.font = _body_font(color=C_LABEL_FG)
+            c2.font = _body_font(bold=bold_val, color=C_VALUE_FG)
+        if tier:
+            c2.fill = _fill(TIER_BG.get(tier, C_WHITE))
+            c2.font = Font(bold=True, color=TIER_FG.get(tier, C_VALUE_FG),
+                           name="Calibri", size=10)
+        for c in (c1, c2):
+            c.border    = bdr
+            c.alignment = Alignment(vertical="center", wrap_text=True)
+        ws.row_dimensions[row].height = 18
+        row += 1
+
+    _summary_row("REVIEW INFORMATION", "", section=True)
+    _summary_row("System Name",     system_name or "(not entered)", bold_val=True)
+    _summary_row("Review Period",   f"{r_start}  →  {r_end}")
+    _summary_row("Source File",     fname)
+    _summary_row("Analysis Date",   str(datetime.date.today()))
+    _summary_row("Regulatory Basis","21 CFR Part 11 §11.10(e)  |  EU Annex 11, Clause 9")
+    row += 1
+
+    _summary_row("RESULTS AT A GLANCE", "", section=True)
+    _summary_row("Total Records Reviewed",   f"{total:,}")
+    _summary_row("Records Auto-Cleared",     f"{total-n_esc:,}  ({pct_clear}%)")
+    _summary_row("Records Requiring Review", f"{n_esc}",         bold_val=True)
+    row += 1
+
+    _summary_row("BREAKDOWN BY RISK LEVEL", "", section=True)
+    _summary_row("Critical — Requires immediate action",     n_crit, tier="Critical")
+    _summary_row("High — Requires investigation",            n_high, tier="High")
+    _summary_row("Medium — Review recommended",              n_med,  tier="Medium")
+    _summary_row("Low — No action required",                 n_low,  tier="Low")
+    row += 1
+
+    _summary_row("THRESHOLD SETTINGS (used for this analysis)", "", section=True)
+    _summary_row("Critical level",  f"Score ≥ {t_crit}")
+    _summary_row("High level",      f"Score ≥ {t_high}")
+    _summary_row("Medium level",    f"Score ≥ {t_med}")
+    _summary_row("Low level",       f"Score < {t_med}")
+    row += 1
+
+    _summary_row("REVIEWER STATEMENT", "", section=True)
+    ws.merge_cells(f"A{row}:B{row}")
+    stmt = ws.cell(row=row, column=1, value=(
+        f"This audit trail review was performed using AI-assisted anomaly detection. "
+        f"{total:,} records were reviewed across the period {r_start} to {r_end}. "
+        f"{pct_clear}% of records were automatically cleared as low risk. "
+        f"The {n_esc} records requiring review are documented in the 'Events for Review' sheet. "
+        f"Each finding has been reviewed and dispositioned by the undersigned reviewer. "
+        f"Risk thresholds applied: Critical ≥{t_crit}, High ≥{t_high}, Medium ≥{t_med}. "
+        f"Regulatory basis: 21 CFR Part 11 §11.10(e) and EU Annex 11 Clause 9."
+    ))
+    stmt.font      = _body_font(color=C_VALUE_FG)
+    stmt.fill      = _fill(C_ALT_ROW)
+    stmt.border    = bdr
+    stmt.alignment = Alignment(vertical="top", wrap_text=True)
+    ws.row_dimensions[row].height = 72
+    row += 2
+
+    _summary_row("Reviewer Name",      "")
+    _summary_row("Reviewer Title",     "")
+    _summary_row("Date of Review",     "")
+    _summary_row("Reviewer Signature", "")
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # SHEET 2 — Events for Review (QA-friendly, no technical columns)
+    # ══════════════════════════════════════════════════════════════════════════
+    ws2 = wb.create_sheet("Events for Review")
     ws2.sheet_properties.tabColor = "DC2626"
-    disp = ["Rank","Risk_Score","Risk_Tier","Triggered_Rules",
-            "timestamp","user_id","action_type","record_id","record_type","role",
-            "comments","new_value",
-            "Rule_Rationale",
-            "Action_Required",
-            "score_temporal","score_velocity","score_privilege",
-            "score_record","score_del_recreate","score_gap",
-            "score_rule1_vague_rationale","score_rule2_burst",
-            "score_rule3_admin_conflict","score_rule4_drift",
-            "score_rule5_failed_login",
-            "AI_Justification","Reviewer_Disposition","Reviewer_Notes"]
+    ws2.sheet_view.showGridLines  = False
+
+    # Human-readable column definitions — NO internal score columns
+    reviewer_cols = [
+        ("No.",              "Rank",           6),
+        ("Risk Level",       "Risk_Tier",      12),
+        ("Date & Time",      "timestamp",      20),
+        ("User",             "user_id",        16),
+        ("Action Performed", "action_type",    18),
+        ("Record Type",      "record_type",    18),
+        ("Record ID",        "record_id",      16),
+        ("Change Reason\nRecorded", "comments", 30),
+        ("Issues Found",     "Triggered_Rules", 40),
+        ("Why It Matters",   "Rule_Rationale",  52),
+        ("Recommended Action","Action_Required", 52),
+        ("AI Summary",       "AI_Justification", 52),
+        ("Reviewer Decision\n(tick one)",
+                             "Reviewer_Disposition", 32),
+        ("Reviewer Notes",   "Reviewer_Notes",  30),
+    ]
+
     top_out = top_df.copy().reset_index(drop=True)
-    top_out.insert(0,"Rank",range(1,len(top_out)+1))
-    top_out["Reviewer_Disposition"] = "[ ] Justified  [ ] Escalate to CAPA  [ ] False Positive"
+    top_out.insert(0, "Rank", range(1, len(top_out)+1))
+    top_out["Reviewer_Disposition"] = "☐ Justified     ☐ Escalate to CAPA     ☐ False Positive"
     top_out["Reviewer_Notes"]       = ""
-    for ci,cn in enumerate(disp,1):
-        c = ws2.cell(row=1,column=ci,value=cn.replace("_"," "))
-        c.font=hdr_f; c.fill=hdr_fl; c.border=bdr
-        c.alignment=Alignment(horizontal="center",wrap_text=True)
-    for ri,(_, row) in enumerate(top_out.iterrows(),2):
-        tier = str(row.get("Risk_Tier","Low"))
-        bg,_ = TIER_COLORS.get(tier,(None,"FFFFFF"))
-        rf   = PatternFill("solid",fgColor=bg) if bg else None
-        for ci,cn in enumerate(disp,1):
-            val = row.get(cn,"")
-            if isinstance(val,float) and not pd.isnull(val):
-                val = round(val,2)
-            c = ws2.cell(row=ri,column=ci,value=val)
-            c.border=bdr; c.font=Font(color="FFFFFF",name="Calibri",size=9)
-            c.alignment=Alignment(vertical="top",wrap_text=True)
-            if rf and cn not in ("AI_Justification","Rule_Rationale",
-                                  "Action_Required","Reviewer_Disposition",
-                                  "Reviewer_Notes"):
-                c.fill=rf
-    col_widths = {"Rank":6,"Risk_Score":10,"Risk_Tier":12,
-                  "Triggered_Rules":45,
-                  "timestamp":20,"user_id":18,"action_type":18,
-                  "record_id":18,"record_type":18,"role":16,
-                  "comments":30,"new_value":18,
-                  "Rule_Rationale":60,
-                  "Action_Required":60,
-                  "score_temporal":11,"score_velocity":11,
-                  "score_privilege":11,"score_record":11,
-                  "score_del_recreate":14,"score_gap":11,
-                  "score_rule1_vague_rationale":14,"score_rule2_burst":12,
-                  "score_rule3_admin_conflict":14,"score_rule4_drift":12,
-                  "score_rule5_failed_login":14,
-                  "AI_Justification":60,
-                  "Reviewer_Disposition":40,"Reviewer_Notes":30}
-    for ci,cn in enumerate(disp,1):
-        ws2.column_dimensions[get_column_letter(ci)].width = col_widths.get(cn,15)
-    ws2.auto_filter.ref = ws2.dimensions
+
+    # Header row
+    for ci, (hdr_label, _, col_w) in enumerate(reviewer_cols, 1):
+        c = ws2.cell(row=1, column=ci, value=hdr_label)
+        c.font      = _hdr_font(size=10)
+        c.fill      = _fill(C_HEADER_BG)
+        c.border    = bdr
+        c.alignment = Alignment(horizontal="center", vertical="center",
+                                wrap_text=True)
+        ws2.column_dimensions[get_column_letter(ci)].width = col_w
+    ws2.row_dimensions[1].height = 30
+
+    # Data rows
+    for ri, (_, drow) in enumerate(top_out.iterrows(), 2):
+        tier    = str(drow.get("Risk_Tier", "Low"))
+        alt_bg  = C_ALT_ROW if ri % 2 == 0 else C_WHITE
+        for ci, (_, data_col, _) in enumerate(reviewer_cols, 1):
+            val = drow.get(data_col, "")
+            if pd.isnull(val):
+                val = ""
+            # Clean up Issues Found — remove score labels for readability
+            if data_col == "Triggered_Rules" and val:
+                val = str(val).replace(" [HIGH]","").replace(
+                    " [MEDIUM]","").replace(" [CRITICAL]","").replace(
+                    " [LOW]","")
+            # Shorten Why It Matters — keep first finding only
+            if data_col == "Rule_Rationale" and val:
+                parts = str(val).split(" | ")
+                val   = parts[0][:400] if parts else str(val)[:400]
+            if isinstance(val, float) and not pd.isnull(val):
+                val = round(val, 2)
+            c = ws2.cell(row=ri, column=ci, value=val)
+            c.border    = bdr
+            c.alignment = Alignment(vertical="top", wrap_text=True)
+
+            # Risk Level column gets tier colour; rest get alternating white/grey
+            if data_col == "Risk_Tier":
+                c.fill = _fill(TIER_BG.get(tier, C_WHITE))
+                c.font = Font(bold=True,
+                              color=TIER_FG.get(tier, C_VALUE_FG),
+                              name="Calibri", size=10)
+                c.alignment = Alignment(horizontal="center", vertical="center")
+            elif data_col in ("Reviewer_Disposition", "Reviewer_Notes"):
+                c.fill = _fill(C_ALT_ROW)
+                c.font = _body_font(color=C_LABEL_FG)
+            else:
+                c.fill = _fill(alt_bg)
+                c.font = _body_font(color=C_VALUE_FG,
+                                    bold=(data_col == "Rank"))
+        ws2.row_dimensions[ri].height = 60
+
+    ws2.auto_filter.ref = f"A1:{get_column_letter(len(reviewer_cols))}1"
     ws2.freeze_panes    = "A2"
 
-    # Sheet 3 — All scored
-    ws3 = wb.create_sheet("All_Events_Scored")
-    ws3.sheet_properties.tabColor = "1E3A5F"
-    all_cols = [c for c in scored_df.columns if not c.startswith("_")]
-    for ci,cn in enumerate(all_cols,1):
-        c = ws3.cell(row=1,column=ci,value=cn.replace("_"," "))
-        c.font=hdr_f; c.fill=hdr_fl; c.border=bdr
-    for ri,(_, row) in enumerate(scored_df[all_cols].iterrows(),2):
-        tier = str(row.get("Risk_Tier","Low"))
-        bg,_ = TIER_COLORS.get(tier,(None,"FFFFFF"))
-        rf   = PatternFill("solid",fgColor=bg) if (bg and tier in ("Critical","High")) else None
-        for ci,cn in enumerate(all_cols,1):
-            val = row.get(cn,"")
-            if isinstance(val,float) and not pd.isnull(val): val=round(val,2)
-            c = ws3.cell(row=ri,column=ci,value=val)
-            c.border=bdr; c.font=Font(color="FFFFFF",name="Calibri",size=9)
-            if rf: c.fill=rf
-    for ci in range(1,len(all_cols)+1):
-        ws3.column_dimensions[get_column_letter(ci)].width=18
-    ws3.auto_filter.ref=ws3.dimensions; ws3.freeze_panes="A2"
+    # ══════════════════════════════════════════════════════════════════════════
+    # SHEET 3 — Full Audit Log (all events, reviewer-friendly columns only)
+    # ══════════════════════════════════════════════════════════════════════════
+    ws3 = wb.create_sheet("Full Audit Log")
+    ws3.sheet_properties.tabColor = "374151"
+    ws3.sheet_view.showGridLines  = False
+
+    log_cols = [
+        ("Date & Time",      "timestamp",       20),
+        ("User",             "user_id",         16),
+        ("Action",           "action_type",     18),
+        ("Record Type",      "record_type",     18),
+        ("Record ID",        "record_id",       16),
+        ("Change Reason",    "comments",        30),
+        ("Risk Score",       "Risk_Score",      11),
+        ("Risk Level",       "Risk_Tier",       12),
+        ("Issues Found",     "Triggered_Rules", 40),
+    ]
+
+    # Strip internal columns — keep only the log_cols fields
+    keep_fields = [f for _, f, _ in log_cols]
+    log_df = scored_df[[c for c in keep_fields if c in scored_df.columns]].copy()
+
+    for ci, (hdr_label, _, col_w) in enumerate(log_cols, 1):
+        c = ws3.cell(row=1, column=ci, value=hdr_label)
+        c.font      = _hdr_font(size=10)
+        c.fill      = _fill(C_HEADER_BG)
+        c.border    = bdr
+        c.alignment = Alignment(horizontal="center", vertical="center")
+        ws3.column_dimensions[get_column_letter(ci)].width = col_w
+    ws3.row_dimensions[1].height = 24
+
+    for ri, (_, drow) in enumerate(log_df.iterrows(), 2):
+        tier   = str(drow.get("Risk_Tier", "Low"))
+        alt_bg = C_ALT_ROW if ri % 2 == 0 else C_WHITE
+        for ci, (_, data_col, _) in enumerate(log_cols, 1):
+            val = drow.get(data_col, "")
+            if pd.isnull(val):
+                val = ""
+            if data_col == "Triggered_Rules" and val:
+                val = str(val).replace(" [HIGH]","").replace(
+                    " [MEDIUM]","").replace(" [CRITICAL]","")
+            if isinstance(val, float) and not pd.isnull(val):
+                val = round(val, 2)
+            c = ws3.cell(row=ri, column=ci, value=val)
+            c.border    = bdr
+            c.alignment = Alignment(vertical="center", wrap_text=False)
+            c.font      = _body_font(color=C_VALUE_FG, size=9)
+            if data_col == "Risk_Tier" and tier in ("Critical","High"):
+                c.fill = _fill(TIER_BG.get(tier, C_WHITE))
+                c.font = Font(bold=True, color=TIER_FG.get(tier, C_VALUE_FG),
+                              name="Calibri", size=9)
+                c.alignment = Alignment(horizontal="center", vertical="center")
+            else:
+                c.fill = _fill(alt_bg)
+        ws3.row_dimensions[ri].height = 15
+
+    ws3.auto_filter.ref = f"A1:{get_column_letter(len(log_cols))}1"
+    ws3.freeze_panes    = "A2"
 
     wb.save(output)
     return output.getvalue()
@@ -5899,7 +6084,9 @@ match your system's export column names to the fields above — rename nothing i
 
                 st.write(f"⚡ Step 2: Scoring {len(scored):,} events across 6 dimensions...")
                 prog.progress(0.45)
-                top20  = scored.head(_AT_TOP_N).copy()
+                # Select Top 20 — deduplicated: burst events show only once
+                non_dup = scored[~scored.get("_is_burst_dup", pd.Series(False, index=scored.index))]
+                top20   = non_dup.head(_AT_TOP_N).copy()
 
                 st.write(f"🤖 Step 3: AI justifications for top {_AT_TOP_N} events...")
                 prog.progress(0.65)
@@ -6082,32 +6269,39 @@ match your system's export column names to the fields above — rename nothing i
 
         # Download
         st.markdown("---")
-        xlsx = at_build_excel(
-            top20, scored,
-            st.session_state.get("at_system_name","System"),
-            st.session_state.get("at_review_start",""),
-            st.session_state.get("at_review_end",""),
-            st.session_state.get("at_file_name",""),
-        )
-        dl_c, inf_c = st.columns([4,5])
-        with dl_c:
-            st.download_button(
-                "📥 Download Evidence Package (.xlsx)",
-                data=xlsx,
-                file_name=(f"AuditTrail_{st.session_state.get('at_system_name','System').replace(' ','_')}"
-                           f"_{datetime.date.today()}.xlsx"),
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                key="at_download_btn", use_container_width=True,
+        sys_name = st.session_state.get("at_system_name","").strip()
+        if not sys_name:
+            st.warning("⚠️ Please enter a **System Name** above before downloading. "
+                       "The system name is required for the evidence package header.")
+        else:
+            xlsx = at_build_excel(
+                top20, scored,
+                sys_name,
+                st.session_state.get("at_review_start","Not specified"),
+                st.session_state.get("at_review_end","Not specified"),
+                st.session_state.get("at_file_name",""),
             )
-        with inf_c:
-            st.markdown(
-                "<p style='color:#475569;font-size:0.8rem;padding-top:8px;'>"
-                "3-sheet workbook: <b style='color:#e2e8f0;'>Summary</b> · "
-                "<b style='color:#e2e8f0;'>Top_20_Escalated</b> (reviewer "
-                "disposition columns) · <b style='color:#e2e8f0;'>All_Events_Scored</b>"
-                "<br>Attach to Periodic Review Report Section 9.1.6 as Appendix.</p>",
-                unsafe_allow_html=True
-            )
+            dl_c, inf_c = st.columns([4,5])
+            with dl_c:
+                st.download_button(
+                    "📥 Download Evidence Package (.xlsx)",
+                    data=xlsx,
+                    file_name=(f"AuditTrail_{sys_name.replace(' ','_')}"
+                               f"_{datetime.date.today()}.xlsx"),
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    key="at_download_btn", use_container_width=True,
+                )
+            with inf_c:
+                st.markdown(
+                    "<p style='color:#475569;font-size:0.8rem;padding-top:8px;'>"
+                    "3 sheets: <b style='color:#e2e8f0;'>Summary</b> (cover page + "
+                    "reviewer sign-off) · "
+                    "<b style='color:#e2e8f0;'>Events for Review</b> (the "
+                    f"{n_esc} escalated findings) · "
+                    "<b style='color:#e2e8f0;'>Full Audit Log</b> (all records scored)"
+                    "<br>Attach to Periodic Review Report Section 9.1.6.</p>",
+                    unsafe_allow_html=True
+                )
 
         st.markdown(f"""
 <div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;
