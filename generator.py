@@ -9118,6 +9118,17 @@ def show_app():
     # Disable browser autocomplete / password-save on all password inputs (incl. admin panel)
     _inject_password_security()
 
+    # ── Centralised logout handler — checked BEFORE any widget renders ────────
+    # Button handlers only set this flag and call st.rerun(). The actual clear
+    # happens here on the very next run, before Streamlit draws a single widget.
+    # This guarantees a clean single-click logout with no mid-render state flush.
+    if st.session_state.get("_logout_requested"):
+        _logout_user = st.session_state.get("user_name", "unknown")
+        _logout_reason = st.session_state.get("_logout_reason", "User terminated session")
+        log_audit(_logout_user, "LOGOUT", "SESSION", reason=_logout_reason)
+        st.session_state.clear()
+        st.rerun()
+
     # Session timeout enforcement
     if not check_session_timeout():
         user = st.session_state.get("user_name", "unknown")
@@ -9170,8 +9181,8 @@ def show_app():
         st.markdown(f'<p class="sidebar-stats">Operator: {user} &nbsp;|&nbsp; Role: {role}</p>', unsafe_allow_html=True)
 
         if st.button("Terminate Session", key="terminate_sidebar", use_container_width=True):
-            log_audit(user, "LOGOUT", "SESSION")
-            st.session_state.clear()   # wipe everything — no stale results on re-login
+            st.session_state["_logout_requested"] = True
+            st.session_state["_logout_reason"]    = "User clicked Terminate Session"
             st.rerun()
 
         if role == "Admin":
@@ -9202,8 +9213,8 @@ def show_app():
     _es_space, _es_col = st.columns([11, 3])
     with _es_col:
         if st.button("⏹ End Session", key="terminate_hidden_trigger"):
-            log_audit(user, "LOGOUT", "SESSION", reason="Fixed top-right terminate button")
-            st.session_state.clear()
+            st.session_state["_logout_requested"] = True
+            st.session_state["_logout_reason"]    = "User clicked End Session (sticky button)"
             st.rerun()
 
     # ── Sticky End Session: only inject when page has results (scrollable) ──
