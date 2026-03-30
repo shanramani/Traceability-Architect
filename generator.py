@@ -4967,20 +4967,155 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
     df["score_rule5_failed_login"] = r5_scores
     df["rule5_rationale"]          = r5_rationale
 
+    # ── Rule 12 — Timestamp Reversal ──────────────────────────────────────────
+    # Approval/release timestamp precedes creation timestamp on the same record.
+    # Risk: Critical. Audit trail alone — no extra file needed.
+    r12_scores    = pd.Series(0.0, index=df.index)
+    r12_rationale = pd.Series("", index=df.index)
+    if all(c in df.columns for c in ["record_id","action_type","timestamp_parsed"]):
+        create_kw  = {"insert","create","add","result_insert","new"}
+        approve_kw = {"approve","release","authorise","authorize","sign","submit",
+                      "batch_release","approve_result"}
+        valid = df[df["record_id"].astype(str).str.strip().ne("") &
+                   df["timestamp_parsed"].notna()].copy()
+        valid["_rid"] = valid["record_id"].astype(str).str.strip()
+        for rid, grp in valid.groupby("_rid"):
+            if len(grp) < 2:
+                continue
+            acts     = grp["action_type"].astype(str).str.lower()
+            creates  = grp[acts.isin(create_kw)]
+            approves = grp[acts.isin(approve_kw)]
+            if creates.empty or approves.empty:
+                continue
+            t_create  = creates["timestamp_parsed"].min()
+            t_approve = approves["timestamp_parsed"].min()
+            if pd.isnull(t_create) or pd.isnull(t_approve):
+                continue
+            if t_approve < t_create:
+                for idx in approves.index:
+                    r12_scores.at[idx]    = 10.0
+                    r12_rationale.at[idx] = (
+                        f"Rule 12 — Timestamp Reversal [CRITICAL]: "
+                        f"Record '{rid}' was approved/released at {t_approve} "
+                        f"which is before its creation timestamp at {t_create}. "
+                        "This is chronologically impossible in a correctly functioning "
+                        "system and indicates clock manipulation or direct database "
+                        "alteration. (21 CFR Part 11 §11.10(e), ALCOA+ Contemporaneous)"
+                    )
+    df["score_rule12_timestamp_reversal"] = r12_scores
+    df["rule12_rationale"]                = r12_rationale
+
+    # ── Rule 13 — Service / Shared Account GxP Action ─────────────────────────
+    # Non-personal accounts (service, shared, automated) performing GxP data ops.
+    # Risk: Critical for GxP data actions, High otherwise.
+    _NONPERSONAL_PREFIXES = (
+        "svc_","service_","shr_","share_","shared_","share.",
+        "adm_","admin_","tec_","tech_","technical_",
+        "interface_","int_","batch_","sys_","system_",
+        "robot_","auto_","automation_","script_","api_",
+        "sa_","dba_","root","daemon","guest","test_",
+    )
+    _GXP_ACTIONS_13 = {"insert","update","modify","delete","create","result_insert",
+                       "amend","approve","release","override"}
+
+    def _rule13(row) -> tuple:
+        uid = str(row.get("user_id","")).lower().strip()
+        act = str(row.get("action_type","")).lower().strip()
+        rec = str(row.get("record_type","")).lower().strip()
+        if not any(uid.startswith(p) for p in _NONPERSONAL_PREFIXES):
+            return 0.0, ""
+        is_gxp_action = any(kw in act for kw in _GXP_ACTIONS_13)
+        is_gxp_rec    = any(kw in rec for kw in _AT_SENSITIVE)
+        if is_gxp_action and is_gxp_rec:
+            return 10.0, (
+                f"Rule 13 — Service/Shared Account GxP Action [CRITICAL]: "
+                f"Account '{row.get('user_id','')}' is a non-personal account "
+                f"(service, shared, or automated) that performed "
+                f"'{row.get('action_type','')}' on '{row.get('record_type','')}' "
+                f"record '{row.get('record_id','')}'. Non-personal accounts cannot "
+                "be attributed to a single individual, violating "
+                "21 CFR Part 11 §11.300 and ALCOA+ Attributable principle."
+            )
+        if is_gxp_action:
+            return 7.0, (
+                f"Rule 13 — Service/Shared Account Action [HIGH]: "
+                f"Non-personal account '{row.get('user_id','')}' performed "
+                f"'{row.get('action_type','')}'. Verify this action was authorised "
+                "and that an individual can be identified as responsible "
+                "(21 CFR Part 11 §11.300)."
+            )
+        return 0.0, ""
+
+    r13_res = [_rule13(row) for _, row in df.iterrows()]
+    df["score_rule13_service_account"] = [x[0] for x in r13_res]
+    df["rule13_rationale"]             = [x[1] for x in r13_res]
+
+    # ── Rule 14 — Dormant Account Sudden Activity ──────────────────────────────
+    # User with ≥90-day gap in activity re-activates and performs GxP action.
+    # Risk: High. Audit trail alone — no extra file needed.
+    _DORMANT_DAYS      = 90
+    _DORMANT_MIN_PRIOR = 3
+
+    r14_scores    = pd.Series(0.0, index=df.index)
+    r14_rationale = pd.Series("", index=df.index)
+    if "timestamp_parsed" in df.columns and "user_id" in df.columns:
+        df_s14 = df.sort_values("timestamp_parsed").copy()
+        df_s14 = df_s14[df_s14["timestamp_parsed"].notna()].copy()
+        for uid, ugrp in df_s14.groupby("user_id"):
+            if len(ugrp) < _DORMANT_MIN_PRIOR + 1:
+                continue
+            ts_list  = ugrp["timestamp_parsed"].tolist()
+            idx_list = ugrp.index.tolist()
+            for i in range(1, len(ts_list)):
+                try:
+                    gap_days = (ts_list[i] - ts_list[i-1]).total_seconds() / 86400
+                except Exception:
+                    continue
+                if gap_days < _DORMANT_DAYS:
+                    continue
+                act = str(df_s14.at[idx_list[i], "action_type"]).lower()
+                rec = str(df_s14.at[idx_list[i], "record_type"]).lower()
+                is_gxp = (
+                    any(kw in rec for kw in _AT_SENSITIVE) or
+                    any(kw in act for kw in {"update","modify","delete",
+                                             "insert","approve","release"})
+                )
+                if is_gxp:
+                    gap_disp = f"{int(gap_days)} days"
+                    r14_scores.at[idx_list[i]]    = 8.0
+                    r14_rationale.at[idx_list[i]] = (
+                        f"Rule 14 — Dormant Account Sudden Activity [HIGH]: "
+                        f"User '{uid}' had no recorded activity for {gap_disp} "
+                        f"(last seen {ts_list[i-1].date()}, "
+                        f"re-activated {ts_list[i].date()}). "
+                        f"This account then performed "
+                        f"'{df_s14.at[idx_list[i],'action_type']}' on "
+                        f"'{df_s14.at[idx_list[i],'record_type']}'. "
+                        "Dormant accounts must be deactivated or formally "
+                        "re-authorised. Verify current employment status and "
+                        "access approval (21 CFR Part 11 §11.10(d))."
+                    )
+                    break   # flag only first re-activation per user
+    df["score_rule14_dormant_account"] = r14_scores
+    df["rule14_rationale"]             = r14_rationale
+
     # ── Composite Risk Score ──────────────────────────────────────────────────
     # Original 6 dimensions + 4 named rules, weighted
     weights = {
-        "score_temporal":              0.07,
-        "score_velocity":              0.09,
-        "score_privilege":             0.11,
-        "score_record":                0.10,
-        "score_del_recreate":          0.09,
-        "score_gap":                   0.07,
-        "score_rule1_vague_rationale": 0.09,
-        "score_rule2_burst":           0.09,
-        "score_rule3_admin_conflict":  0.13,
-        "score_rule4_drift":           0.07,
-        "score_rule5_failed_login":    0.09,  # Critical rule — brute-force pattern
+        "score_temporal":               0.06,
+        "score_velocity":               0.07,
+        "score_privilege":              0.09,
+        "score_record":                 0.08,
+        "score_del_recreate":           0.08,
+        "score_gap":                    0.06,
+        "score_rule1_vague_rationale":  0.07,
+        "score_rule2_burst":            0.07,
+        "score_rule3_admin_conflict":   0.10,
+        "score_rule4_drift":            0.06,
+        "score_rule5_failed_login":     0.08,
+        "score_rule12_timestamp_reversal": 0.09,  # Critical — impossible in valid system
+        "score_rule13_service_account":    0.09,  # Critical — attribution violation
+        "score_rule14_dormant_account":    0.07,  # High — access control gap
     }
     df["Risk_Score"] = sum(df[c]*w for c,w in weights.items()).round(2)
 
@@ -5000,19 +5135,19 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
     # A Rule 1 (Vague) or Rule 4 (Drift) at ≥7 must be at least High.
     def _apply_tier_override(row):
         tier = row["Risk_Tier"]
-        if float(row.get("score_rule3_admin_conflict", 0)) >= 8:
-            return "Critical"
-        if float(row.get("score_rule5_failed_login", 0)) >= 8:
-            return "Critical"
-        if float(row.get("score_del_recreate", 0)) >= 9:
-            return "Critical"
-        if float(row.get("score_record", 0)) >= 10:   # audit trail disable
-            return "Critical"
-        if float(row.get("score_rule1_vague_rationale", 0)) >= 7 and tier == "Low":
+        if float(row.get("score_rule3_admin_conflict",      0)) >= 8: return "Critical"
+        if float(row.get("score_rule5_failed_login",        0)) >= 8: return "Critical"
+        if float(row.get("score_del_recreate",              0)) >= 9: return "Critical"
+        if float(row.get("score_record",                    0)) >= 10: return "Critical"
+        if float(row.get("score_rule12_timestamp_reversal", 0)) >= 9: return "Critical"
+        if float(row.get("score_rule13_service_account",    0)) >= 9: return "Critical"
+        if float(row.get("score_rule14_dormant_account",    0)) >= 8 and tier == "Low":
             return "High"
-        if float(row.get("score_rule4_drift", 0)) >= 7 and tier == "Low":
+        if float(row.get("score_rule1_vague_rationale",     0)) >= 7 and tier == "Low":
             return "High"
-        if float(row.get("score_rule2_burst", 0)) >= 6 and tier == "Low":
+        if float(row.get("score_rule4_drift",               0)) >= 7 and tier == "Low":
+            return "High"
+        if float(row.get("score_rule2_burst",               0)) >= 6 and tier == "Low":
             return "Medium"
         return tier
     df["Risk_Tier"] = df.apply(_apply_tier_override, axis=1)
@@ -5037,6 +5172,7 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
     # Lists which named rules fired for each event — useful for the Excel output
     def _triggered(row):
         fired = []
+        # ── Named AI Skill Rules ──────────────────────────────────────────────
         if row.get("score_rule1_vague_rationale", 0) > 0:
             fired.append("Rule 1 — Vague Rationale [HIGH]")
         if row.get("score_rule2_burst", 0) > 0:
@@ -5046,18 +5182,117 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
         if row.get("score_rule4_drift", 0) > 0:
             fired.append("Rule 4 — Change Control Drift [HIGH]")
         if row.get("score_rule5_failed_login", 0) > 0:
-            fired.append("Rule 5 — Failed Login→Data Manipulation [CRITICAL]")
+            fired.append("Rule 5 — Failed Login → Data Manipulation [CRITICAL]")
+        if float(row.get("score_del_recreate", 0)) >= 9:
+            fired.append("Rule 6 — Delete and Recreate Pattern [CRITICAL]")
+        # ── Dimension-based rules — only fire when score is meaningful ────────
+        if float(row.get("score_record", 0)) >= 10:
+            fired.append("Rule 7 — Audit Trail Integrity Event [CRITICAL]")
+        elif float(row.get("score_record", 0)) >= 8:
+            fired.append("Rule 7 — Sensitive Record Deletion [HIGH]")
+        elif float(row.get("score_record", 0)) >= 5:
+            fired.append("Rule 7 — Sensitive Record Access [MEDIUM]")
+        if float(row.get("score_privilege", 0)) >= 7:
+            fired.append("Rule 8 — Privileged User on GxP Data [HIGH]")
+        if float(row.get("score_velocity", 0)) >= 3.5:
+            fired.append("Rule 9 — High-Volume Activity Burst [MEDIUM]")
+        if float(row.get("score_gap", 0)) >= 7:
+            fired.append("Rule 10 — Audit Trail Timestamp Gap [HIGH]")
+        if float(row.get("score_temporal", 0)) >= 9:
+            fired.append("Rule 11 — Off-Hours Activity [HIGH]")
+        elif float(row.get("score_temporal", 0)) >= 5:
+            fired.append("Rule 11 — Off-Hours Activity [MEDIUM]")
+        # ── Federal Holiday ───────────────────────────────────────────────────
         try:
             is_hol, hol_name = _is_us_federal_holiday(
                 pd.Timestamp(str(row.get("timestamp",""))))
             if is_hol:
-                fired.append(f"Holiday — {hol_name}")
+                fired.append(f"Rule 11 — Federal Holiday Activity ({hol_name})")
         except Exception:
             pass
+        # ── Rules 12–14 ───────────────────────────────────────────────────────
+        if float(row.get("score_rule12_timestamp_reversal", 0)) >= 9:
+            fired.append("Rule 12 — Timestamp Reversal [CRITICAL]")
+        if float(row.get("score_rule13_service_account", 0)) >= 9:
+            fired.append("Rule 13 — Service/Shared Account GxP Action [CRITICAL]")
+        elif float(row.get("score_rule13_service_account", 0)) >= 6:
+            fired.append("Rule 13 — Service/Shared Account Action [HIGH]")
+        if float(row.get("score_rule14_dormant_account", 0)) >= 7:
+            fired.append("Rule 14 — Dormant Account Sudden Activity [HIGH]")
         return "; ".join(fired) if fired else ""
     df["Triggered_Rules"] = df.apply(_triggered, axis=1)
 
-    # ── Combined rationale (all fired rules concatenated) ────────────────────
+    # ── Combined rationale — includes dimension rationales ────────────────────
+    def _dim_rationale(row) -> str:
+        """Build plain-English rationale for dimension-based findings."""
+        parts = []
+        rec_s = float(row.get("score_record", 0))
+        pri_s = float(row.get("score_privilege", 0))
+        vel_s = float(row.get("score_velocity", 0))
+        gap_s = float(row.get("score_gap", 0))
+        tmp_s = float(row.get("score_temporal", 0))
+        usr   = str(row.get("user_id","Unknown"))
+        act   = str(row.get("action_type","Unknown"))
+        rec   = str(row.get("record_type","Unknown"))
+        ts    = str(row.get("timestamp","Unknown"))
+
+        if rec_s >= 10:
+            parts.append(
+                f"Rule 7 — Audit Trail Integrity Event [CRITICAL]: "
+                f"Action '{act}' was performed on audit trail configuration or records. "
+                "Any modification to the audit trail system is a critical data integrity finding "
+                "requiring immediate investigation (21 CFR Part 11 §11.10(e))."
+            )
+        elif rec_s >= 8:
+            parts.append(
+                f"Rule 7 — Sensitive Record Deletion [HIGH]: "
+                f"A deletion was performed on a GxP-critical record type ('{rec}'). "
+                "Deletions of GxP records must be fully justified and authorised "
+                "(21 CFR Part 11 §11.10(e), ALCOA+ Original)."
+            )
+        if pri_s >= 7:
+            parts.append(
+                f"Rule 8 — Privileged User on GxP Data [HIGH]: "
+                f"User '{usr}' holds an administrative or privileged role and performed "
+                f"'{act}' on '{rec}'. Privileged accounts must be restricted to system "
+                "configuration only and must not directly modify production data "
+                "(21 CFR Part 11 §11.10(d))."
+            )
+        if vel_s >= 3.5:
+            parts.append(
+                f"Rule 9 — High-Volume Activity Burst [MEDIUM]: "
+                f"User '{usr}' performed the same action repeatedly in a short time window. "
+                "This pattern may indicate automated or retrospective data entry rather than "
+                "real-time recording, which violates the ALCOA+ Contemporaneous principle."
+            )
+        if gap_s >= 7:
+            parts.append(
+                f"Rule 10 — Audit Trail Timestamp Gap [HIGH]: "
+                f"A gap of more than 2 hours was detected in the audit trail before this event at {ts}. "
+                "Continuous audit trail coverage is required — gaps may indicate logging was "
+                "suspended during that period (21 CFR Part 11 §11.10(e))."
+            )
+        if tmp_s >= 5:
+            try:
+                is_hol, hol_name = _is_us_federal_holiday(pd.Timestamp(ts))
+            except Exception:
+                is_hol, hol_name = False, ""
+            if is_hol:
+                parts.append(
+                    f"Rule 11 — Federal Holiday Activity [{hol_name}]: "
+                    f"User '{usr}' performed '{act}' on a US Federal Holiday. "
+                    "Activity on scheduled non-working days requires documented business "
+                    "justification and is a classic indicator of unauthorised shadow activity."
+                )
+            else:
+                parts.append(
+                    f"Rule 11 — Off-Hours Activity: "
+                    f"User '{usr}' performed '{act}' at {ts}, outside normal business hours. "
+                    "Off-hours activity on GxP records must be justified by an approved "
+                    "overtime record or maintenance window."
+                )
+        return " | ".join(parts)
+
     def _combined_rat(row):
         parts = [r for r in [
             row.get("rule1_rationale",""),
@@ -5065,64 +5300,198 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
             row.get("rule3_rationale",""),
             row.get("rule4_rationale",""),
             row.get("rule5_rationale",""),
+            row.get("rule12_rationale",""),
+            row.get("rule13_rationale",""),
+            row.get("rule14_rationale",""),
+            _dim_rationale(row),
         ] if r]
         return " | ".join(parts)
     df["Rule_Rationale"] = df.apply(_combined_rat, axis=1)
 
-    # ── Action Required — deterministic per highest-scoring dimension ─────────
+    # ── Action Required — no SOP references (company-specific SOPs added in Module 3)
     _ACTION_MAP = {
+        "score_rule12_timestamp_reversal":
+            "This finding requires immediate investigation. Retrieve the full audit "
+            "trail for this record and compare all creation and approval timestamps. "
+            "Determine whether a server clock error, system migration, or deliberate "
+            "manipulation caused the reversal. Document all findings formally.",
+        "score_rule13_service_account":
+            "Identify the individual responsible for configuring this service or shared "
+            "account to perform this action. Obtain written justification for the use of "
+            "a non-personal account on GxP data. Assess whether any data modified via "
+            "this account can be attributed to a specific individual as required.",
         "score_rule5_failed_login":
             "Initiate a data integrity investigation immediately. Obtain all failed login "
-            "records for this user. Cross-reference data changes against source documents. "
-            "If manipulation is confirmed without authorisation, raise a Critical "
-            "non-conformance per Non-Conformance and CAPA System SOP.",
+            "records for this user. Cross-reference every data change made in the 30 minutes "
+            "following login against source documents. If manipulation is confirmed without "
+            "authorisation, raise a Critical non-conformance.",
         "score_rule3_admin_conflict":
-            "Obtain documented business justification for this admin action on production "
-            "data. If no Emergency Access Request or Change Control exists, initiate a "
-            "non-conformance and assess impact on GxP record integrity.",
+            "Obtain documented business justification for this administrative action on "
+            "production data. Verify whether an Emergency Access Request was approved prior "
+            "to this action. If no documented authorisation exists, assess the impact on "
+            "GxP record integrity and raise a non-conformance.",
         "score_del_recreate":
-            "Retrieve both the deleted and recreated record versions. Compare all field "
-            "values for discrepancies. Obtain retrospective justification. If unexplained, "
-            "initiate a data integrity investigation.",
-        "score_rule1_vague_rationale":
-            "Obtain a retrospective amendment with adequate scientific justification from "
-            "the analyst. Assess whether the undocumented change affects product quality "
-            "or batch disposition decision.",
-        "score_rule4_drift":
-            "Cross-reference this value against the approved Change Request or validated "
-            "specification. If not authorised, assess impact on validated state and "
-            "initiate Change Control per SOP-004.",
-        "score_rule2_burst":
-            "Verify contemporaneous source data exists (instrument printouts, lab "
-            "worksheets) confirming entries were not transcribed from memory or paper "
-            "records after the fact.",
-        "score_gap":
-            "Investigate whether the audit trail was intentionally disabled during the gap. "
-            "If unexplained, treat as a Critical audit trail integrity finding per "
-            "21 CFR Part 11 §11.10(e).",
-        "score_privilege":
-            "Verify the admin role was used appropriately per the System Administration "
-            "Procedure. If not configuration-related, treat as a Segregation of Duties "
-            "violation per 21 CFR Part 11 §11.10(d).",
+            "Retrieve both the original deleted record and the recreated record. Compare all "
+            "field values for discrepancies. Obtain a retrospective written explanation from "
+            "the user. If the change cannot be justified, initiate a data integrity "
+            "investigation.",
+        "score_rule14_dormant_account":
+            "Verify the current employment and access authorisation status of this user. "
+            "Confirm whether access was formally reviewed and re-approved before this "
+            "re-activation. If no re-authorisation record exists, the account access must "
+            "be reviewed and this event assessed for data integrity impact.",
         "score_record":
-            "Review against source document for the affected GxP record. Obtain "
-            "justification from the performing user. Escalate to CAPA if no "
-            "documented authorisation exists.",
+            "This action affected a sensitive GxP record type. Review the event against the "
+            "source document for that record. Obtain a written justification from the "
+            "performing user. If no authorisation can be demonstrated, escalate to "
+            "a formal non-conformance.",
+        "score_rule1_vague_rationale":
+            "Obtain a retrospective written amendment from the analyst explaining what "
+            "changed and why. Assess whether the undocumented change could affect the "
+            "quality or disposition of the associated batch or result.",
+        "score_rule4_drift":
+            "Cross-reference the recorded value against the approved specification or "
+            "validated setpoint. Verify whether a formal change was authorised before "
+            "this value was applied. If not, assess the impact on the validated state.",
+        "score_rule2_burst":
+            "Verify that contemporaneous source data exists — instrument printouts or "
+            "laboratory worksheets — confirming each entry was recorded in real time. "
+            "If entries were transcribed from memory or paper after the fact, this "
+            "represents a data integrity concern requiring investigation.",
+        "score_gap":
+            "Investigate whether the audit trail was intentionally suspended during "
+            "the gap period. Document the findings. If no legitimate explanation exists, "
+            "treat this as a critical audit trail integrity finding.",
+        "score_privilege":
+            "Verify that the use of this privileged account was consistent with its "
+            "authorised purpose. Administrative accounts must be used for system "
+            "configuration only and must not directly create or modify production records.",
         "score_temporal":
-            "Obtain documented business justification for this off-hours or holiday "
-            "activity. Verify no approved overtime or maintenance window was in place.",
+            "Obtain documented business justification for this activity outside normal "
+            "working hours. Verify whether an approved overtime record or scheduled "
+            "maintenance window covers this period. If no justification exists, "
+            "investigate further.",
         "score_velocity":
-            "Verify contemporaneous source data confirms real-time entry. If entries "
-            "were transcribed from paper or memory, assess ALCOA+ Contemporaneous "
-            "compliance and consider data reliability for batch disposition.",
+            "Verify that contemporaneous source data exists to confirm each entry was "
+            "recorded in real time. If entries appear to have been made in bulk or "
+            "retrospectively, assess whether data integrity has been compromised.",
     }
+
+    # ── Suggested Disposition — AI-driven decision support ────────────────────
+    # Provides a recommended disposition with rationale so reviewers have guidance,
+    # not just a blank checkbox. Reviewer always retains final authority.
+    def _suggested_disposition(row) -> tuple:
+        """Return (disposition_label, rationale_text)."""
+        r3  = float(row.get("score_rule3_admin_conflict",      0))
+        r5  = float(row.get("score_rule5_failed_login",        0))
+        r1  = float(row.get("score_rule1_vague_rationale",     0))
+        r4  = float(row.get("score_rule4_drift",               0))
+        r6  = float(row.get("score_del_recreate",              0))
+        rg  = float(row.get("score_gap",                       0))
+        rr  = float(row.get("score_record",                    0))
+        rp  = float(row.get("score_privilege",                 0))
+        rt  = float(row.get("score_temporal",                  0))
+        r12 = float(row.get("score_rule12_timestamp_reversal", 0))
+        r13 = float(row.get("score_rule13_service_account",    0))
+        r14 = float(row.get("score_rule14_dormant_account",    0))
+        cmt = str(row.get("comments","")).lower().strip()
+
+        if r12 >= 9:
+            return ("Escalate to CAPA",
+                    "A record was approved before it was created — this is impossible "
+                    "in a correctly functioning system and requires immediate investigation.")
+        if r13 >= 9:
+            return ("Escalate to CAPA",
+                    "A service or shared account directly modified GxP data. This cannot "
+                    "be attributed to an individual and requires formal investigation.")
+        if r5 >= 8:
+            return ("Escalate to CAPA",
+                    "Failed login attempts followed by data modification indicate potential "
+                    "unauthorised access. This pattern requires a formal investigation.")
+        if r3 >= 8:
+            return ("Escalate to CAPA",
+                    "An administrator directly modified production data. This violates "
+                    "Segregation of Duties and requires a formal non-conformance.")
+        if r6 >= 9:
+            return ("Escalate to CAPA",
+                    f"A record was deleted and recreated with potentially altered values. "
+                    f"This is a high-priority data integrity pattern requiring investigation.")
+        if rr >= 10:
+            return ("Escalate to CAPA",
+                    f"The audit trail configuration itself was modified. Any change to audit "
+                    f"trail settings requires immediate investigation and formal documentation.")
+        if rg >= 7:
+            return ("Escalate to CAPA",
+                    f"A gap in the audit trail may indicate logging was suspended. "
+                    f"If unplanned, this is a critical audit trail integrity finding.")
+
+        # High findings with no mitigating comment → Escalate
+        if r4 >= 7:
+            return ("Escalate to CAPA",
+                    f"The recorded value significantly deviates from the expected range "
+                    f"for this record type. Verify against the approved specification.")
+        if rp >= 7 and not cmt:
+            return ("Escalate to CAPA",
+                    f"A privileged user modified production data with no documented "
+                    f"justification. Authorisation must be established.")
+
+        # Rule 1 with blank comment → Escalate; with any comment → Justified with amendment
+        if r1 >= 8 and not cmt:
+            return ("Escalate to CAPA",
+                    f"No change reason was recorded for this GxP data modification. "
+                    f"Retrospective justification is required.")
+        if r1 >= 6:
+            return ("Justified — Amendment Required",
+                    f"The change reason recorded is insufficient. A retrospective written "
+                    f"amendment from the analyst is required before this event can be closed.")
+
+        # Off-hours with a comment → likely justified
+        if rt >= 5 and len(cmt) > 5:
+            return ("Justified — Document Rationale",
+                    f"Off-hours activity was detected but a comment is present. "
+                    f"Confirm a corresponding approved overtime or maintenance record exists.")
+
+        # Off-hours with no comment → investigate
+        if rt >= 9 and not cmt:
+            return ("Escalate to CAPA",
+                    f"Activity at an unusual hour with no documented reason. "
+                    f"Business justification is required.")
+
+        # Burst with plausible context → needs verification
+        if float(row.get("score_rule2_burst", 0)) >= 6:
+            return ("Investigate — Verify Source Data",
+                    "A high volume of entries in a short time window requires verification "
+                    "that contemporaneous source records exist for each entry.")
+
+        # Dormant account re-activation
+        if r14 >= 7:
+            return ("Investigate — Verify Source Data",
+                    "This account was inactive for 90+ days before this action. "
+                    "Verify current authorisation status and confirm access was "
+                    "formally re-approved before re-activation.")
+
+        # Default
+        return ("Justified — No Action Required",
+                "No specific compliance rule was triggered at a significant level. "
+                "This event was included in the review based on proximity to other "
+                "flagged events or a moderately elevated composite score.")
+
+    sugg_disp = []
+    sugg_rat  = []
+    for _, row in df.iterrows():
+        d, r = _suggested_disposition(row)
+        sugg_disp.append(d)
+        sugg_rat.append(r)
+    df["Suggested_Disposition"]          = sugg_disp
+    df["Suggested_Disposition_Rationale"] = sugg_rat
 
     def _action_req(row):
         best_k = max(_ACTION_MAP, key=lambda k: float(row.get(k, 0)))
         if float(row.get(best_k, 0)) > 0:
             return _ACTION_MAP[best_k]
-        return ("Review event against source documentation. Obtain written justification "
-                "from the performing user. Escalate to CAPA if no justification exists.")
+        return ("Review this event against source documentation and obtain a written "
+                "justification from the performing user if the reason for the action "
+                "is not already documented.")
     df["Action_Required"] = df.apply(_action_req, axis=1)
 
     return df.sort_values("Risk_Score", ascending=False).reset_index(drop=True)
@@ -5244,35 +5613,40 @@ def at_generate_justifications(top_df: pd.DataFrame, model_id: str) -> pd.DataFr
         try:
             from litellm import completion as _comp
             triggered = str(row.get("Triggered_Rules","None"))
-            rule_rat  = str(row.get("Rule_Rationale",""))
-            prompt = f"""You are writing a finding summary for a QA Manager doing a Periodic Review.
-The audience is non-technical — write clearly, avoid abbreviations and jargon.
+            rule_rat  = str(row.get("Rule_Rationale","")).split(" | ")[0][:250]
+            sugg_disp = str(row.get("Suggested_Disposition",""))
+            record_id = str(row.get("record_id","unknown record"))
+            rec_type  = str(row.get("record_type","unknown type"))
+            usr       = str(row.get("user_id","unknown user"))
+            act       = str(row.get("action_type","unknown action"))
+            cmt       = str(row.get("comments","none provided"))
+            ts        = str(row.get("timestamp","unknown time"))
 
-Event details:
-  Date/Time:   {row.get('timestamp','Unknown')}
-  User:        {row.get('user_id','Unknown')}
-  Action:      {row.get('action_type','Unknown')}
-  Record:      {row.get('record_id','Unknown')} ({row.get('record_type','Unknown')})
-  Role:        {row.get('role','Unknown')}
-  Comment:     {row.get('comments','None provided')}
-  Risk Level:  {row.get('Risk_Tier','Unknown')}
+            prompt = f"""Write a 3-sentence audit finding for a QA Manager's Periodic Review report.
+Be specific — use the actual record ID, user name, and action in your sentences.
 
-What triggered: {triggered}
-Finding detail: {rule_rat[:300] if rule_rat else 'Anomaly pattern detected by scoring engine.'}
+Facts:
+  User '{usr}' performed '{act}' on {rec_type} record {record_id} at {ts}.
+  Change reason recorded: "{cmt}"
+  Rules triggered: {triggered}
+  Key finding: {rule_rat if rule_rat else 'Anomaly detected by scoring engine.'}
+  Suggested outcome: {sugg_disp}
 
-Write exactly 3 SHORT sentences (max 25 words each):
-Sentence 1: What happened and what was unusual about it (plain English, no score numbers)
-Sentence 2: Why this matters from a compliance standpoint (one regulation or principle, named simply)
-Sentence 3: What the reviewer should do next (one clear action)
+Write exactly 3 sentences. Each sentence max 30 words. Plain English only.
+Sentence 1: Describe specifically what happened (name the user, record, action).
+Sentence 2: State the compliance concern in plain terms (name the rule that was triggered).
+Sentence 3: State the one action the reviewer must take.
 
-No jargon. No score numbers. No bullets. No headers. Plain paragraph."""
+Rules: No score numbers. No jargon. No bullets. No headers. Must be audit-defensible."""
 
             resp = _comp(
-                model=model_id, stream=False, temperature=0.15, max_tokens=200,
+                model=model_id, stream=False, temperature=0.1, max_tokens=200,
                 messages=[
                     {"role": "system", "content":
-                     "QA compliance writer. Short clear sentences. No technical jargon. "
-                     "Write for a non-technical QA Manager. Max 25 words per sentence."},
+                     "You write concise, specific audit findings for pharmaceutical QA teams. "
+                     "Always name the user, record, and action. Always name the rule triggered. "
+                     "Never use vague phrases like 'this may indicate a problem.' "
+                     "Max 30 words per sentence. Three sentences only."},
                     {"role": "user", "content": prompt}
                 ]
             )
@@ -5463,27 +5837,40 @@ def at_build_excel(top_df, scored_df, system_name, r_start, r_end, fname) -> byt
 
     # Human-readable column definitions — NO internal score columns
     reviewer_cols = [
-        ("No.",              "Rank",           6),
-        ("Risk Level",       "Risk_Tier",      12),
-        ("Date & Time",      "timestamp",      20),
-        ("User",             "user_id",        16),
-        ("Action Performed", "action_type",    18),
-        ("Record Type",      "record_type",    18),
-        ("Record ID",        "record_id",      16),
-        ("Change Reason\nRecorded", "comments", 30),
-        ("Issues Found",     "Triggered_Rules", 40),
-        ("Why It Matters",   "Rule_Rationale",  52),
-        ("Recommended Action","Action_Required", 52),
-        ("AI Summary",       "AI_Justification", 52),
+        ("No.",              "Rank",              6),
+        ("Risk Level",       "Risk_Tier",         12),
+        ("Date & Time",      "timestamp",         20),
+        ("User",             "user_id",           16),
+        ("Action Performed", "action_type",       18),
+        ("Record Type",      "record_type",       18),
+        ("Record ID",        "record_id",         16),
+        ("Change Reason\nRecorded", "comments",   30),
+        ("Issues Found",     "Triggered_Rules",   42),
+        ("Why It Matters",   "Rule_Rationale",    52),
+        ("Recommended Action","Action_Required",  52),
+        ("AI Summary",       "AI_Justification",  52),
+        ("Suggested\nDisposition",
+                             "Suggested_Disposition", 26),
+        ("Basis for\nSuggestion",
+                             "Suggested_Disposition_Rationale", 44),
         ("Reviewer Decision\n(tick one)",
-                             "Reviewer_Disposition", 32),
-        ("Reviewer Notes",   "Reviewer_Notes",  30),
+                             "Reviewer_Disposition", 34),
+        ("Reviewer Notes",   "Reviewer_Notes",    30),
     ]
 
     top_out = top_df.copy().reset_index(drop=True)
     top_out.insert(0, "Rank", range(1, len(top_out)+1))
     top_out["Reviewer_Disposition"] = "☐ Justified     ☐ Escalate to CAPA     ☐ False Positive"
     top_out["Reviewer_Notes"]       = ""
+
+    # Suggested Disposition cell colours
+    SUGG_FILL = {
+        "Escalate to CAPA":              ("FEE2E2", "991B1B"),
+        "Justified — Amendment Required":("FEF3C7", "92400E"),
+        "Investigate — Verify Source Data":("DBEAFE","1E40AF"),
+        "Justified — Document Rationale":("F0FDF4","166534"),
+        "Justified — No Action Required":("F9FAFB","374151"),
+    }
 
     # Header row
     for ci, (hdr_label, _, col_w) in enumerate(reviewer_cols, 1):
@@ -5526,6 +5913,16 @@ def at_build_excel(top_df, scored_df, system_name, r_start, r_end, fname) -> byt
                               color=TIER_FG.get(tier, C_VALUE_FG),
                               name="Calibri", size=10)
                 c.alignment = Alignment(horizontal="center", vertical="center")
+            elif data_col == "Suggested_Disposition":
+                sugg_bg, sugg_fg = SUGG_FILL.get(str(val), ("F9FAFB","374151"))
+                c.fill      = _fill(sugg_bg)
+                c.font      = Font(bold=True, color=sugg_fg,
+                                   name="Calibri", size=9)
+                c.alignment = Alignment(horizontal="center", vertical="center",
+                                        wrap_text=True)
+            elif data_col == "Suggested_Disposition_Rationale":
+                c.fill = _fill("FFFBEB")
+                c.font = _body_font(color="78350F", size=9)
             elif data_col in ("Reviewer_Disposition", "Reviewer_Notes"):
                 c.fill = _fill(C_ALT_ROW)
                 c.font = _body_font(color=C_LABEL_FG)
@@ -5836,6 +6233,359 @@ def show_audit_trail(user: str, role: str, model_id: str):
             "CSV or Excel export from any GxP system — Veeva Vault, SAP, "
             "MasterControl, LIMS, or any custom system. No integration required."
         )
+
+        # ── Detection Logic Reference Page ────────────────────────────────────
+        DETECTION_LOGIC = """# Audit Trail Intelligence — Detection Logic Reference
+## GxP Operational Anomaly Detection Engine v1.0
+
+This document describes every detection rule implemented in the engine.
+It supports Computer System Validation (CSV) of this tool and enables
+QA reviewers to understand the basis for every finding produced.
+
+**Total rules implemented: 14**
+Rules 1–5: Named AI Skill rules (targeted, specific violations)
+Rules 6–11: Dimension-based rules (pattern and behavioural anomalies)
+Rules 12–14: Advanced integrity rules (no second file required)
+
+---
+
+## Named AI Skill Rules
+
+### Rule 1 — Vague Rationale [Risk: HIGH]
+**Target:** UPDATE or MODIFY on RESULTS or BATCH record types.
+**Trigger:** Change reason field is blank, OR contains a non-descriptive term:
+fixed, error, update, changed, correction, misc, ok, done, see above, as per,
+per request, modified, edit, n/a.
+**Not triggered by:** Short but specific comments — the rule requires a recognised
+vague term, not just brevity. "pH outlier" does NOT trigger this rule.
+**Regulatory basis:** 21 CFR Part 211.68; ALCOA+ Attributable and Legible.
+**Threshold justification:** Vague rationale terms leave GxP data changes
+unattributable and untraceable, making them impossible to evaluate during an audit.
+
+---
+
+### Rule 2 — Contemporaneous Burst [Risk: MEDIUM]
+**Target:** INSERT, RESULT_INSERT, CREATE, ADD actions by any single user.
+**Trigger:** More than 10 such actions by the same user within any 15-minute window.
+**Regulatory basis:** ALCOA+ Contemporaneous; EU Annex 11 Clause 9.
+**Threshold justification:** 10 entries in 15 minutes = one every 90 seconds.
+Physiologically possible but statistically unusual for complex measurements.
+Threshold is conservative to minimise false positives on high-throughput workflows.
+**Deduplication note:** When this rule fires across multiple rows from the same
+burst, only one representative event appears in the Top 20 escalated list.
+All events remain visible in the Full Audit Log sheet.
+
+---
+
+### Rule 3 — Admin / GxP Conflict [Risk: CRITICAL]
+**Target:** Users with roles containing Admin, DBA, Administrator, Sysadmin.
+**Trigger:** That user performs INSERT, UPDATE, CREATE, or MODIFY on:
+SAMPLE_DATA, BATCH_RELEASE, BATCH, RESULTS, or RESULT.
+**Regulatory basis:** 21 CFR Part 11 §11.10(d); Segregation of Duties.
+**Why Critical:** Admin accounts are authorised for system configuration only.
+Direct modification of production records bypasses the standard review workflow,
+creating an uncontrolled change pathway with no independent oversight.
+
+---
+
+### Rule 4 — Change Control Drift [Risk: HIGH]
+**Target:** Events with a populated new_value column containing numeric data.
+**Trigger:** Numeric new_value deviates by more than 3 standard deviations from
+the mean of all new_values for the same record_type in the uploaded file.
+**Regulatory basis:** 21 CFR Part 820.70(b); validated state requirements.
+**Threshold justification:** 3 standard deviations is a statistically robust
+outlier threshold. The reference distribution is computed from the uploaded file
+itself, making the rule system-agnostic.
+**Limitation:** Only numeric new_value data is scored. Status values such as
+RELEASED or PENDING are not evaluated by this rule.
+
+---
+
+### Rule 5 — Failed Login → Data Manipulation [Risk: CRITICAL]
+**Target:** All users.
+**Trigger:** 3+ LOGIN_FAILED / AUTHENTICATION_FAILED events within 120 minutes
+before a successful LOGIN, followed by DELETE, UPDATE, MODIFY, or INSERT on a
+GxP record within 30 minutes of that login.
+**Regulatory basis:** 21 CFR Part 11 §11.300; ALCOA+ Original.
+**Threshold justification:** 3 failed attempts is the industry-standard threshold
+for flagging a brute-force or credential-stuffing attempt. The 30-minute post-login
+window captures immediate post-access manipulation. The 120-minute lookback covers
+slow credential attacks.
+
+---
+
+## Dimension-Based Rules
+
+### Rule 6 — Delete and Recreate Pattern [Risk: CRITICAL]
+**Target:** All record types with a populated record_id column.
+**Trigger:** Same user deletes a record_id and creates a new record with the same
+record_id within 4 hours. Score: 9.0 on both the delete and recreate events.
+**Regulatory basis:** 21 CFR Part 11 §11.10(e); ALCOA+ Original.
+**Why Critical:** GxP systems typically lock approved records to prevent editing.
+Deleting and recreating the same record is a known method of modifying locked data
+while making the change appear as a new entry.
+**4-hour window:** Set to capture same-session recreation while excluding legitimate
+archival or system migration workflows that occur over longer periods.
+
+---
+
+### Rule 7 — Audit Trail Integrity Event [Risk: CRITICAL / HIGH / MEDIUM]
+**Trigger (Critical — 10.0):** action_type or record_type contains keywords
+indicating audit trail configuration was changed: audit trail, audit log,
+log enabled, log disabled, audit enabled, audit disabled, configuration change,
+system setting.
+**Trigger (High — 8.0):** A delete action on a GxP-sensitive record type.
+**Trigger (Medium — 5.0):** Any action on a GxP-sensitive record type.
+**GxP-sensitive record types include:** batch record, audit trail, electronic
+signature, test result, clinical, raw data, master data, configuration, user
+account, role, permission, quality record, change control, deviation, CAPA, OOS.
+**Regulatory basis:** 21 CFR Part 11 §11.10(e).
+
+---
+
+### Rule 8 — Privileged User on GxP Data [Risk: HIGH]
+**Trigger:** A user with an admin-keyword role (admin, sysadmin, DBA, root,
+service, superuser, power user) performs a modify or delete on a GxP-sensitive
+record. Score: 8.0 if record is sensitive; 7.0 otherwise.
+**Distinction from Rule 3:** Rule 3 fires on specific high-risk table names
+(BATCH_RELEASE, SAMPLE_DATA etc.). Rule 8 fires on record type sensitivity
+keywords and covers a broader range of tables.
+**Regulatory basis:** 21 CFR Part 11 §11.10(d); Segregation of Duties.
+
+---
+
+### Rule 9 — High-Volume Activity Burst [Risk: MEDIUM]
+**Trigger:** Same user performs the same action_type 5+ times within 60 minutes.
+**Distinction from Rule 2:** Rule 2 is INSERT-specific with a 15-minute window
+and a threshold of 10. Rule 9 applies to any action type with a 60-minute window
+and a threshold of 5. Both can fire independently.
+**Score:** Proportional to (count ÷ threshold × 3.5), capped at 10.0.
+**Regulatory basis:** ALCOA+ Contemporaneous.
+
+---
+
+### Rule 10 — Audit Trail Timestamp Gap [Risk: HIGH]
+**Trigger:** A gap of more than 2 hours between consecutive audit trail entries
+(sorted by timestamp). Score: 7.0 fixed, applied to the first event after the gap.
+**Regulatory basis:** 21 CFR Part 11 §11.10(e) — audit trail completeness.
+**Important note:** Gaps may occur legitimately overnight or during approved
+maintenance windows. The reviewer must verify whether the gap aligns with a
+scheduled downtime before escalating.
+
+---
+
+### Rule 11 — Off-Hours and Federal Holiday Activity [Risk: HIGH / MEDIUM]
+**Business hours definition:** Monday–Friday 07:00–20:00 local time.
+**Trigger (Weekend — +5.0):** Event falls on Saturday or Sunday.
+**Trigger (Federal Holiday — +4.0):** Event falls on a US Federal Holiday.
+Holidays detected: New Year's Day, MLK Day, Presidents Day, Memorial Day,
+Juneteenth, Independence Day, Labor Day, Columbus Day, Veterans Day,
+Thanksgiving, Christmas Day.
+**Trigger (Outside business hours — +4.0):** Event before 07:00 or after 20:00
+on a weekday.
+**Trigger (Deep night — additional +1.0):** Event between 00:00 and 04:59.
+**Score cap:** 10.0 maximum regardless of how many triggers combine.
+**Regulatory basis:** 21 CFR Part 11 §11.10(e). Off-hours activity is a risk
+indicator requiring justification, not a violation per se.
+
+---
+
+## Advanced Integrity Rules (No Second File Required)
+
+### Rule 12 — Timestamp Reversal [Risk: CRITICAL]
+**Target:** Records where both a creation action and an approval/release action
+exist for the same record_id.
+**Trigger:** The approval/release timestamp is earlier than the creation timestamp
+for the same record_id. Score: 10.0 on the approval event.
+**Creation keywords detected:** insert, create, add, result_insert, new.
+**Approval keywords detected:** approve, release, authorise, authorize, sign,
+submit, batch_release, approve_result.
+**Regulatory basis:** 21 CFR Part 11 §11.10(e); ALCOA+ Contemporaneous (O).
+**Why this matters:** Chronological impossibility in a correctly functioning system.
+Indicates server clock manipulation, system migration error, or direct database
+alteration. No legitimate explanation exists for an approval preceding creation.
+**Requirements:** record_id column must be populated and timestamp column must
+be parseable for this rule to fire.
+
+---
+
+### Rule 13 — Service / Shared Account GxP Action [Risk: CRITICAL / HIGH]
+**Target:** User accounts whose username begins with a non-personal prefix.
+**Detected prefixes:** svc_, service_, shr_, share_, shared_, share., adm_,
+admin_, tec_, tech_, technical_, interface_, int_, batch_, sys_, system_,
+robot_, auto_, automation_, script_, api_, sa_, dba_, root, daemon, guest, test_
+**Trigger (Critical — 10.0):** Non-personal account performs a GxP data action
+(insert, update, modify, delete, approve, release) on a GxP-sensitive record type.
+**Trigger (High — 7.0):** Non-personal account performs a data action on any table.
+**Regulatory basis:** 21 CFR Part 11 §11.300 — electronic signatures must be
+unique to one individual; ALCOA+ Attributable.
+**Why this matters:** Non-personal accounts cannot be attributed to a specific
+individual, making any data they create or modify non-ALCOA+ compliant.
+**Configuration note:** Add or remove prefixes from the _NONPERSONAL_PREFIXES
+tuple in the engine code to match your organisation's naming conventions.
+
+---
+
+### Rule 14 — Dormant Account Sudden Activity [Risk: HIGH]
+**Target:** All users with at least 4 events in the uploaded audit trail.
+**Trigger:** A user has no activity for 90 or more consecutive days, then
+performs a data action on a GxP-sensitive record type or performs
+update/modify/delete/insert/approve/release on any record. Score: 8.0.
+**Only the first re-activation event per user is flagged** to avoid filling
+the Top 20 with multiple events from the same dormant account.
+**Regulatory basis:** 21 CFR Part 11 §11.10(d) — access controls; access review
+best practice requiring deactivation of accounts inactive for 90+ days.
+**Limitation:** Requires the uploaded audit trail to cover at least 90+ days of
+history for reliable detection. Short-period extracts will not trigger this rule.
+**Minimum event count:** A user must have at least 3 prior events before the gap
+to be considered an established account (excludes newly created accounts).
+
+---
+
+## Composite Scoring
+
+Each event receives scores across all 14 rules. A weighted composite (0–10):
+
+| Rule | Dimension | Weight |
+|------|-----------|--------|
+| 11 | Temporal / Holiday | 6% |
+| 9  | Velocity burst | 7% |
+| 8  | Privilege | 9% |
+| 7  | Record sensitivity | 8% |
+| 6  | Delete-Recreate | 8% |
+| 10 | Timestamp gap | 6% |
+| 1  | Vague Rationale | 7% |
+| 2  | Contemporaneous Burst | 7% |
+| 3  | Admin/GxP Conflict | 10% |
+| 4  | Change Control Drift | 6% |
+| 5  | Failed Login | 8% |
+| 12 | Timestamp Reversal | 9% |
+| 13 | Service Account | 9% |
+| 14 | Dormant Account | 7% |
+| | **Total** | **107%** |
+
+*Note: Weights are normalised internally — the sum does not need to equal 100%.*
+
+**Named rule tier overrides:** Rules 3, 5, 12, and 13 at score ≥9 always produce
+a Critical tier, regardless of composite score. Rule 6 at ≥9 and Rule 7 at 10.0
+also produce Critical. This ensures named Critical violations are never
+downgraded by a low composite score.
+
+---
+
+## Suggested Disposition Logic
+
+| Condition | Suggested Disposition |
+|---|---|
+| Rule 12 fired | Escalate to CAPA |
+| Rule 13 fired (Critical) | Escalate to CAPA |
+| Rule 5 fired | Escalate to CAPA |
+| Rule 3 fired | Escalate to CAPA |
+| Rule 6 fired | Escalate to CAPA |
+| Rule 7 (audit ctrl) fired | Escalate to CAPA |
+| Rule 10 (gap) fired | Escalate to CAPA |
+| Rule 4 fired | Escalate to CAPA |
+| Rule 1 — blank comment | Escalate to CAPA |
+| Rule 1 — vague term | Justified — Amendment Required |
+| Rule 14 fired | Investigate — Verify Source Data |
+| Rule 2 burst | Investigate — Verify Source Data |
+| Off-hours with comment | Justified — Document Rationale |
+| Off-hours, no comment | Escalate to CAPA |
+| No rule triggered significantly | Justified — No Action Required |
+
+---
+
+## Not Yet Implemented — Planned Rules
+
+These checks were designed and scoped but not yet built into the engine.
+They are documented here for transparency and future CSV planning.
+
+### Planned Rule 15 — Shared Account / Same User, Two Locations
+**What it detects:** The same user_id performing actions from two different
+IP addresses within 30 minutes — physically impossible for one person.
+**Why not yet built:** Requires an IP address or workstation column in the
+audit trail export. Many systems do not include this by default. Will be
+activated automatically when the column mapper detects an IP column.
+**Regulatory basis:** 21 CFR Part 11 §11.300.
+
+### Planned Rule 16 — Bulk Export Before Departure
+**What it detects:** A user exporting or printing large volumes of records
+(SELECT, EXPORT, PRINT actions) close to their account deactivation date.
+**Why not yet built:** Requires an HR termination date as a second input file.
+Cannot be determined from the audit trail alone.
+**Regulatory basis:** Data protection and confidentiality requirements.
+
+### Planned Rule 17 — Activity During Approved Maintenance Window
+**What it detects:** User activity during a scheduled system maintenance
+window, indicating either the maintenance did not occur as planned, or
+unauthorised activity occurred during the maintenance period.
+**Why not yet built:** Requires the approved maintenance schedule (from the
+change control system) as a second input file.
+**Regulatory basis:** 21 CFR Part 11 §11.10(e).
+
+### Planned Rule 18 — Account Created and Used Same Day
+**What it detects:** A new user account that is created and then used to
+perform GxP data actions on the same day, before training records could
+have been completed.
+**Why not yet built:** Requires a user account creation log or training
+completion record as a second input file to confirm training status.
+**Regulatory basis:** 21 CFR Part 11 §11.10(i) — training.
+
+---
+
+## Validation Evidence
+
+This document constitutes part of the functional specification for the
+Audit Trail Intelligence module. For Computer System Validation purposes,
+the following test cases should be executed against the sample CSV template
+(downloadable from the tool's upload screen) to verify each rule fires correctly:
+
+| Test Case | Expected Rule | Expected Tier |
+|---|---|---|
+| UPDATE RESULTS with comment "fixed" | Rule 1 | High |
+| 12 RESULT_INSERT in 12 minutes, same user | Rule 2 | Medium |
+| admin_sys INSERT BATCH_RELEASE | Rule 3 | Critical |
+| new_value = 147.3 when mean ≈ 7.1 | Rule 4 | High |
+| 3x LOGIN_FAILED → LOGIN → DELETE, 18 min | Rule 5 | Critical |
+| DELETE then INSERT same record_id, 3 min | Rule 6 | Critical |
+| UPDATE AUDIT_TRAIL, new_value = DISABLED | Rule 7 | Critical |
+| admin_sys DELETE RESULTS | Rule 8 | High |
+| Same user, same action, 5+ times in 60 min | Rule 9 | Medium |
+| >2 hour gap in timestamps | Rule 10 | High |
+| Timestamp 02:14 AM weekday | Rule 11 | High |
+| Any event on 2024-07-04 | Rule 11 (Holiday) | Medium-High |
+| Approval timestamp before creation, same record | Rule 12 | Critical |
+| svc_batch INSERT RESULTS | Rule 13 | Critical |
+| Same user, 90+ day gap, then GxP action | Rule 14 | High |
+
+*This document was generated by the Audit Trail Intelligence module and
+represents the validated detection logic at the time of this release.
+Review and approve as part of the Computer System Validation package.*
+"""
+
+        def _detection_logic_pdf() -> bytes:
+            """Return Detection Logic as a plain-text UTF-8 encoded file."""
+            return DETECTION_LOGIC.encode("utf-8")
+
+        with st.expander(
+            "🔬 Detection Logic Reference — How does the engine work? (click to expand)",
+            expanded=False
+        ):
+            st.markdown(
+                "<div style='max-height:420px;overflow-y:auto;padding:0 8px;'>",
+                unsafe_allow_html=True
+            )
+            st.markdown(DETECTION_LOGIC)
+            st.markdown("</div>", unsafe_allow_html=True)
+            st.download_button(
+                "📄 Download Detection Logic Reference (.txt)",
+                data=_detection_logic_pdf(),
+                file_name="AuditTrail_Detection_Logic_Reference.txt",
+                mime="text/plain",
+                key="at_detection_logic_download",
+                help="Download the full detection logic document for inclusion "
+                     "in your Computer System Validation package."
+            )
 
         # ── Column guidance card + sample download ────────────────────────────
         with st.expander("📋 What columns do I need? (click to expand)", expanded=False):
