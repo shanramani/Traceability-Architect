@@ -6749,6 +6749,7 @@ def show_periodic_review(user: str, role: str, model_id: str):
             if st.button("← Back to Periodic Review", key="pr_back_btn"):
                 st.session_state["pr_active_module"] = None
                 st.rerun()
+        st.markdown("<br>", unsafe_allow_html=True)
         show_audit_trail(user, role, model_id)
         return
 
@@ -6758,6 +6759,7 @@ def show_periodic_review(user: str, role: str, model_id: str):
             if st.button("← Back to Periodic Review", key="pr_back_btn2"):
                 st.session_state["pr_active_module"] = None
                 st.rerun()
+        st.markdown("<br>", unsafe_allow_html=True)
         label = "User Access Review Intelligence" if active == "access_review" \
                 else "Periodic Review Report Drafter"
         st.title(f"🚧 {label}")
@@ -6910,14 +6912,41 @@ def show_audit_trail(user: str, role: str, model_id: str):
         st.session_state["at_system_name"] = st.text_input(
             "System Name", value=st.session_state.get("at_system_name",""),
             placeholder="e.g. DocuSign Part 11", key="at_sysname")
+
+    def _parse_date_input(key_date, key_str, label):
+        """
+        Render a date_input (calendar picker). Returns the formatted string
+        stored in session_state for use in report headers.
+        Also accepts a raw compact string like 01012011 or 2011-01-01 typed
+        into the session state externally and parses it gracefully.
+        """
+        import datetime as _dt
+        # Determine current value for the picker
+        stored = st.session_state.get(key_str, "")
+        default_val = None
+        if stored:
+            for fmt in ("%d-%b-%Y", "%Y-%m-%d", "%d/%m/%Y", "%d%m%Y", "%Y%m%d"):
+                try:
+                    default_val = _dt.datetime.strptime(stored.strip(), fmt).date()
+                    break
+                except ValueError:
+                    continue
+        picked = st.date_input(
+            label,
+            value=default_val,
+            format="DD-MMM-YYYY",
+            key=key_date,
+        )
+        if picked:
+            formatted = picked.strftime("%d-%b-%Y")
+            st.session_state[key_str] = formatted
+            return formatted
+        return stored
+
     with mc2:
-        st.session_state["at_review_start"] = st.text_input(
-            "Review Period Start", value=st.session_state.get("at_review_start",""),
-            placeholder="e.g. 01-Jan-2022", key="at_rstart")
+        _parse_date_input("at_rstart_picker", "at_review_start", "Review Period Start")
     with mc3:
-        st.session_state["at_review_end"] = st.text_input(
-            "Review Period End", value=st.session_state.get("at_review_end",""),
-            placeholder="e.g. 31-Dec-2024", key="at_rend")
+        _parse_date_input("at_rend_picker",   "at_review_end",   "Review Period End")
 
     st.markdown("---")
 
@@ -7454,43 +7483,47 @@ match your system's export column names to the fields above — rename nothing i
 
             wb = openpyxl.Workbook()
 
-            # ── Sheet 1: Usage ────────────────────────────────────────────────
+            # ── Sheet 1: Usage Instructions ───────────────────────────────────
             ws_usage = wb.active
-            ws_usage.title = "Usage"
+            ws_usage.title = "Usage Instructions"
 
-            hdr_fill  = PatternFill("solid", fgColor="0F172A")
-            hdr_font  = Font(bold=True, color="38BDF8", size=11)
-            sec_fill  = PatternFill("solid", fgColor="1E293B")
-            sec_font  = Font(bold=True, color="E2E8F0", size=10)
-            body_font = Font(color="CBD5E1", size=9)
-            thin      = Side(style="thin", color="334155")
-            border    = Border(bottom=thin)
+            # All white background, black text — clean and readable
+            white_fill = PatternFill("solid", fgColor="FFFFFF")
+            hdr_font   = Font(bold=True, color="000000", size=12)
+            sec_font   = Font(bold=True, color="000000", size=10)
+            body_font  = Font(color="000000", size=9)
+            key_font   = Font(bold=True, color="000000", size=9)
+            thin       = Side(style="thin", color="CCCCCC")
+            border     = Border(bottom=thin)
 
             def _uw(row_num, col_num, value, font=None, fill=None, wrap=False):
                 cell = ws_usage.cell(row=row_num, column=col_num, value=value)
+                cell.fill = white_fill
                 if font:  cell.font  = font
-                if fill:  cell.fill  = fill
                 cell.alignment = Alignment(wrap_text=wrap, vertical="top")
                 return cell
 
             ws_usage.column_dimensions["A"].width = 28
             ws_usage.column_dimensions["B"].width = 72
+            ws_usage.sheet_view.showGridLines = False
 
             r = 1
             _uw(r, 1, "VALINTEL.AI — Audit Trail Review Intelligence",
-                Font(bold=True, color="38BDF8", size=13), hdr_fill)
+                Font(bold=True, color="000000", size=13))
             ws_usage.merge_cells(f"A{r}:B{r}")
             ws_usage.row_dimensions[r].height = 26
             r += 1
 
-            _uw(r, 1, "Sample Audit Log Template — Usage Guide",
-                Font(italic=True, color="94A3B8", size=9), hdr_fill)
+            _uw(r, 1, "Sample Audit Log Template — Usage Instructions",
+                Font(italic=True, color="444444", size=9))
             ws_usage.merge_cells(f"A{r}:B{r}")
             r += 2
 
             # Column guide
-            _uw(r, 1, "COLUMN REFERENCE", sec_font, sec_fill)
-            _uw(r, 2, "Description & accepted values", sec_font, sec_fill)
+            _uw(r, 1, "COLUMN REFERENCE", sec_font)
+            _uw(r, 2, "Description & accepted values", sec_font)
+            ws_usage.cell(r, 1).border = Border(bottom=Side(style="medium", color="000000"))
+            ws_usage.cell(r, 2).border = Border(bottom=Side(style="medium", color="000000"))
             r += 1
 
             col_guide = [
@@ -7504,14 +7537,16 @@ match your system's export column names to the fields above — rename nothing i
                 ("new_value",    "Updated value after the change (numeric or text)"),
             ]
             for col, desc in col_guide:
-                _uw(r, 1, col,  Font(bold=True, color="7DD3FC", size=9), wrap=True)
+                _uw(r, 1, col,  key_font, wrap=True)
                 _uw(r, 2, desc, body_font, wrap=True)
                 ws_usage.row_dimensions[r].height = 18
                 r += 1
 
             r += 1
-            _uw(r, 1, "DETECTION SCENARIOS IN THIS TEMPLATE", sec_font, sec_fill)
-            _uw(r, 2, "Rule triggered · what to look for", sec_font, sec_fill)
+            _uw(r, 1, "DETECTION SCENARIOS IN THIS TEMPLATE", sec_font)
+            _uw(r, 2, "Rule triggered — what to look for", sec_font)
+            ws_usage.cell(r, 1).border = Border(bottom=Side(style="medium", color="000000"))
+            ws_usage.cell(r, 2).border = Border(bottom=Side(style="medium", color="000000"))
             r += 1
 
             scenarios = [
@@ -7550,14 +7585,15 @@ match your system's export column names to the fields above — rename nothing i
                  "Gaps > 2 hours during expected activity periods may indicate audit trail tampering."),
             ]
             for name, detail in scenarios:
-                _uw(r, 1, name,   Font(bold=True, color="FCD34D", size=9), wrap=True)
+                _uw(r, 1, name,   key_font, wrap=True)
                 _uw(r, 2, detail, body_font, wrap=True)
                 ws_usage.row_dimensions[r].height = 30
                 r += 1
 
             r += 1
-            _uw(r, 1, "HOW TO USE YOUR OWN DATA", sec_font, sec_fill)
+            _uw(r, 1, "HOW TO USE YOUR OWN DATA", sec_font)
             ws_usage.merge_cells(f"A{r}:B{r}")
+            ws_usage.cell(r, 1).border = Border(bottom=Side(style="medium", color="000000"))
             r += 1
             instructions = [
                 "1. Export your GxP system's audit trail as CSV or Excel.",
@@ -8640,7 +8676,25 @@ match your system's export column names to the fields above — rename nothing i
                     df = pd.read_csv(io.BytesIO(raw), dtype=str,
                                      low_memory=False).fillna("")
                 else:
-                    df = pd.read_excel(io.BytesIO(raw), dtype=str).fillna("")
+                    # Smart sheet selection: skip "Usage Instructions", prefer
+                    # "Audit Log" sheet if present, otherwise use first data sheet
+                    xl       = pd.ExcelFile(io.BytesIO(raw))
+                    sheets   = xl.sheet_names
+                    SKIP     = {"usage instructions", "usage", "instructions",
+                                "readme", "read me", "guide"}
+                    data_sheets = [s for s in sheets
+                                   if s.strip().lower() not in SKIP]
+                    # Prefer a sheet whose name contains "audit" or "log"
+                    preferred = [s for s in data_sheets
+                                 if any(kw in s.lower()
+                                        for kw in ("audit", "log", "data", "trail"))]
+                    sheet_to_use = (preferred or data_sheets or sheets)[0]
+                    df = pd.read_excel(io.BytesIO(raw), sheet_name=sheet_to_use,
+                                       dtype=str).fillna("")
+                    if len(sheets) > 1:
+                        st.caption(f"📋 Reading sheet: **{sheet_to_use}**"
+                                   + (f"  ·  skipped: {', '.join(s for s in sheets if s != sheet_to_use)}"
+                                      if len(sheets) > 1 else ""))
                 st.session_state["at_raw_df"]   = df
                 st.session_state["at_file_name"] = uploaded.name
                 st.success(f"✅ **{uploaded.name}** — "
