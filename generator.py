@@ -6823,73 +6823,66 @@ def show_periodic_review(user: str, role: str, model_id: str):
         },
     ]
 
-    col1, col2, col3 = st.columns(3)
-    _card_cols = [col1, col2, col3]
-
-    # Apple-style card CSS injected once
-    st.markdown("""
-<style>
-/* Force all three column wrappers in the PR card row to stretch equally */
-[data-testid="stHorizontalBlock"] > [data-testid="stColumn"] {
-    display: flex !important;
-    flex-direction: column !important;
-}
-.pr-card-wrap {
-    display: flex;
-    flex-direction: column;
-    flex: 1;
-    height: 100%;
-}
-.pr-card {
-    background: #ffffff;
-    border: 1px solid #d2d2d7;
-    border-radius: 14px;
-    padding: 24px 22px 20px 22px;
-    font-family: 'Inter', -apple-system, sans-serif;
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    box-shadow: 0 1px 4px rgba(0,0,0,0.06);
-    transition: box-shadow 0.18s ease;
-    min-height: 200px;
-}
-.pr-card:hover { box-shadow: 0 4px 16px rgba(0,0,0,0.10); }
-.pr-card-accent { height: 3px; border-radius: 2px; margin-bottom: 18px; }
-.pr-card-badge {
-    display: inline-block; font-size: 0.62rem; font-weight: 600;
-    letter-spacing: 1.5px; text-transform: uppercase;
-    padding: 2px 8px; border-radius: 20px; margin-bottom: 10px;
-}
-.pr-card-badge-live   { background: #e8f9f0; color: #1a7f4b; border: 1px solid #a3e4c1; }
-.pr-card-badge-soon   { background: #f5f5f7; color: #a1a1a6; border: 1px solid #d2d2d7; }
-.pr-card-title  { font-size: 1.05rem; font-weight: 700; color: #1d1d1f; margin: 0 0 4px 0; }
-.pr-card-ref    { font-size: 0.69rem; color: #a1a1a6; font-family: 'Courier New', monospace;
-                  margin: 0 0 12px 0; }
-.pr-card-desc   { font-size: 0.81rem; color: #3d3d3f; line-height: 1.55;
-                  margin: 0; flex: 1; }
-</style>
-""", unsafe_allow_html=True)
-
-    for idx, mod in enumerate(modules):
-        live = mod["status"] == "live"
+    # ── All 3 cards in one HTML grid — guarantees equal height ───────────────
+    cards_html = ""
+    for mod in modules:
+        live         = mod["status"] == "live"
         accent_color = mod["color"] if live else "#d2d2d7"
         badge_cls    = "pr-card-badge-live" if live else "pr-card-badge-soon"
         badge_text   = "Live" if live else "Coming Soon"
         title_color  = "#1d1d1f" if live else "#a1a1a6"
-
-        with _card_cols[idx]:
-            st.markdown(f"""
-<div class="pr-card-wrap">
+        desc_color   = "#3d3d3f" if live else "#a1a1a6"
+        cards_html += f"""
   <div class="pr-card">
     <div class="pr-card-accent" style="background:{accent_color};"></div>
     <span class="pr-card-badge {badge_cls}">{badge_text}</span>
     <p class="pr-card-title" style="color:{title_color};">{mod['title']}</p>
     <p class="pr-card-ref">{mod['section']}</p>
-    <p class="pr-card-desc">{mod['desc']}</p>
-  </div>
-</div>
+    <p class="pr-card-desc" style="color:{desc_color};">{mod['desc']}</p>
+  </div>"""
+
+    st.markdown(f"""
+<style>
+.pr-grid {{
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 12px;
+}}
+.pr-card {{
+    background: #ffffff;
+    border: 1px solid #d2d2d7;
+    border-radius: 14px;
+    padding: 24px 22px 20px 22px;
+    font-family: 'Inter', -apple-system, sans-serif;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+    transition: box-shadow 0.18s ease;
+}}
+.pr-card:hover {{ box-shadow: 0 4px 16px rgba(0,0,0,0.10); }}
+.pr-card-accent {{ height: 3px; border-radius: 2px; margin-bottom: 18px; flex-shrink:0; }}
+.pr-card-badge {{
+    display: inline-block; font-size: 0.62rem; font-weight: 600;
+    letter-spacing: 1.5px; text-transform: uppercase;
+    padding: 2px 8px; border-radius: 20px; margin-bottom: 10px;
+    flex-shrink: 0;
+}}
+.pr-card-badge-live {{ background: #e8f9f0; color: #1a7f4b; border: 1px solid #a3e4c1; }}
+.pr-card-badge-soon {{ background: #f5f5f7; color: #a1a1a6; border: 1px solid #d2d2d7; }}
+.pr-card-title {{ font-size: 1.05rem; font-weight: 700; margin: 0 0 4px 0; flex-shrink:0; }}
+.pr-card-ref   {{ font-size: 0.69rem; color: #a1a1a6; font-family: 'Courier New', monospace;
+                  margin: 0 0 12px 0; flex-shrink:0; }}
+.pr-card-desc  {{ font-size: 0.81rem; line-height: 1.55; margin: 0; flex: 1; }}
+</style>
+<div class="pr-grid">{cards_html}</div>
 """, unsafe_allow_html=True)
-            st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
+
+    # ── Button row — separate st.columns so Streamlit click handling works ───
+    btn_col1, btn_col2, btn_col3 = st.columns(3)
+    for btn_col, mod in zip([btn_col1, btn_col2, btn_col3], modules):
+        live = mod["status"] == "live"
+        with btn_col:
             if live:
                 if st.button(mod["btn_label"], key=f"pr_open_{mod['key']}",
                              type="primary", use_container_width=True):
@@ -9170,7 +9163,6 @@ def show_app():
         )
       
         # ── MANUAL EDIT v29-custom — DO NOT OVERWRITE ──────────────
-        st.sidebar.markdown("<br><br>", unsafe_allow_html=True)
         st.session_state.selected_model = engine_name
         # ── END MANUAL EDIT ────────────────────────────────────────
 
