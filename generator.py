@@ -5878,67 +5878,246 @@ match your system's export column names to the fields above — rename nothing i
         # ── Generate and offer sample CSV download ────────────────────────────
         def _build_sample_csv() -> bytes:
             """
-            30-row sample audit trail CSV covering all 8 columns and
-            deliberately including examples that trigger all 4 AI Skill rules
-            plus the 6 original detection dimensions.
-            Useful for onboarding and testing.
+            Generates a realistic 1,000-row GxP audit trail CSV covering all
+            8 columns. Background data is clean and realistic. Traps are
+            embedded at dynamically-calculated positions — changing TOTAL_ROWS
+            never causes an IndexError because all indices are derived, not
+            hardcoded.
+
+            Traps embedded:
+              • Rule 1  — Vague/missing rationale on RESULTS/BATCH UPDATEs
+              • Rule 2  — >10 RESULT_INSERT by same user within 15 min
+              • Rule 3  — Admin/DBA INSERT or UPDATE on production tables
+              • Rule 4  — Numeric outlier new_value (>3 std dev from mean)
+              • Rule 5  — 3+ LOGIN_FAILED → LOGIN → DELETE within 30 min
+              • Temporal — Off-hours and weekend events
+              • Holiday  — Event on US Federal Holiday (July 4)
+              • Gap      — >2-hour silence in the audit trail
+              • Del/Recreate — Same record deleted then recreated within 4 hrs
+              • Audit ctrl — Admin disabling audit trail config at 3 AM
             """
-            rows = [
-                # ── Clean / normal events (low risk) ──────────────────────────
-                ["2024-06-10 09:12:04","analyst_jones",  "LOGIN",         "USER_SESSION",   "Analyst",     "",           "Successful login from approved workstation",""],
-                ["2024-06-10 09:15:22","analyst_jones",  "INSERT",        "SAMPLE_DATA",    "Analyst",     "SMP-0441",   "New sample registered per SOP-112","SMP-0441"],
-                ["2024-06-10 09:22:11","analyst_jones",  "UPDATE",        "RESULTS",        "Analyst",     "RES-0991",   "Corrected transcription error identified during peer review per SOP-045 section 3.2","7.45"],
-                ["2024-06-10 10:05:44","analyst_brown",  "INSERT",        "BATCH",          "Analyst",     "BAT-2024-07","Batch initiated per manufacturing order MO-4421","PENDING"],
-                ["2024-06-10 10:18:30","supervisor_patel","UPDATE",       "BATCH",          "Supervisor",  "BAT-2024-07","QA review completed, all specifications met, batch released per SOP-089","RELEASED"],
-                ["2024-06-10 11:00:00","analyst_jones",  "SELECT",        "RESULTS",        "Analyst",     "RES-0991",   "",""],
-                ["2024-06-10 11:30:00","analyst_brown",  "INSERT",        "RESULTS",        "Analyst",     "RES-0992",   "pH measurement recorded per method SOP-031","6.82"],
-                ["2024-06-10 14:00:00","supervisor_patel","SELECT",       "AUDIT_TRAIL",    "Supervisor",  "",           "Periodic review activity per SOP-418",""],
+            import datetime as _dt, random as _rnd, math as _math, io as _io
 
-                # ── Rule 1: Vague Rationale — UPDATE on RESULTS/BATCH with bad comment ──
-                ["2024-06-11 10:44:17","analyst_jones",  "UPDATE",        "RESULTS",        "Analyst",     "RES-1002",   "fixed","8.12"],
-                ["2024-06-11 11:02:55","analyst_brown",  "UPDATE",        "BATCH",          "Analyst",     "BAT-2024-08","error","RELEASED"],
-                ["2024-06-12 09:15:33","analyst_jones",  "UPDATE",        "RESULTS",        "Analyst",     "RES-1008",   "update","7.99"],
-                ["2024-06-12 14:22:01","analyst_brown",  "UPDATE",        "RESULTS",        "Analyst",     "RES-1011",   "","6.55"],
+            TOTAL_ROWS   = 1000
+            HEADER       = ["timestamp","user_id","action_type","record_type",
+                            "role","record_id","comments","new_value"]
 
-                # ── Rule 2: Contemporaneous Burst — >10 inserts within 15 min ──
-                ["2024-06-13 14:00:01","analyst_jones",  "RESULT_INSERT", "RESULTS",        "Analyst",     "RES-2001",   "","7.1"],
-                ["2024-06-13 14:01:15","analyst_jones",  "RESULT_INSERT", "RESULTS",        "Analyst",     "RES-2002",   "","7.2"],
-                ["2024-06-13 14:02:30","analyst_jones",  "RESULT_INSERT", "RESULTS",        "Analyst",     "RES-2003",   "","7.1"],
-                ["2024-06-13 14:03:44","analyst_jones",  "RESULT_INSERT", "RESULTS",        "Analyst",     "RES-2004",   "","6.9"],
-                ["2024-06-13 14:04:58","analyst_jones",  "RESULT_INSERT", "RESULTS",        "Analyst",     "RES-2005",   "","7.3"],
-                ["2024-06-13 14:06:02","analyst_jones",  "RESULT_INSERT", "RESULTS",        "Analyst",     "RES-2006",   "","7.0"],
-                ["2024-06-13 14:07:17","analyst_jones",  "RESULT_INSERT", "RESULTS",        "Analyst",     "RES-2007",   "","7.2"],
-                ["2024-06-13 14:08:33","analyst_jones",  "RESULT_INSERT", "RESULTS",        "Analyst",     "RES-2008",   "","6.8"],
-                ["2024-06-13 14:09:50","analyst_jones",  "RESULT_INSERT", "RESULTS",        "Analyst",     "RES-2009",   "","7.4"],
-                ["2024-06-13 14:11:04","analyst_jones",  "RESULT_INSERT", "RESULTS",        "Analyst",     "RES-2010",   "","7.1"],
-                ["2024-06-13 14:12:19","analyst_jones",  "RESULT_INSERT", "RESULTS",        "Analyst",     "RES-2011",   "","7.0"],
+            # ── Actors ───────────────────────────────────────────────────────
+            ANALYSTS    = ["analyst_jones","analyst_brown","analyst_patel",
+                           "analyst_smith","analyst_lee"]
+            SUPERVISORS = ["supervisor_chen","supervisor_white"]
+            ADMINS      = ["admin_sys","dba_oracle"]
 
-                # ── Rule 3: Admin/GxP Conflict — Admin touching production data ──
-                ["2024-06-14 16:45:02","admin_sys",      "UPDATE",        "SAMPLE_DATA",    "Admin",       "SMP-0500",   "System maintenance","ACTIVE"],
-                ["2024-06-14 16:47:33","dba_oracle",     "INSERT",        "BATCH_RELEASE",  "DBA",         "BAT-2024-09","Direct DB insert","RELEASED"],
+            # ── Normal value distribution for RESULTS (mean ~7.1, sd ~0.3) ──
+            NORMAL_MEAN = 7.1
+            NORMAL_SD   = 0.3
 
-                # ── Off-hours / weekend anomalies ─────────────────────────────
-                ["2024-06-15 02:14:33","analyst_jones",  "DELETE",        "BATCH",          "Analyst",     "BAT-2024-05","",""],
-                ["2024-06-16 03:22:11","admin_sys",      "UPDATE",        "AUDIT_TRAIL",    "Admin",       "",           "Configuration update","DISABLED"],
+            # ── Date range (Mon–Fri business hours as baseline) ───────────
+            START_DATE  = _dt.date(2024, 1, 2)   # first working day of year
 
-                # ── Rule 4 + Delete/Recreate pattern ──────────────────────────
-                ["2024-06-17 11:05:00","analyst_brown",  "DELETE",        "RESULTS",        "Analyst",     "RES-1050",   "",""],
-                ["2024-06-17 11:08:22","analyst_brown",  "INSERT",        "RESULTS",        "Analyst",     "RES-1050",   "Re-entry after deletion","99.99"],
-                ["2024-06-18 09:30:00","analyst_jones",  "UPDATE",        "RESULTS",        "Analyst",     "RES-1060",   "Setpoint adjustment","147.3"],
-                ["2024-06-18 10:00:00","analyst_jones",  "UPDATE",        "RESULTS",        "Analyst",     "RES-1061",   "Routine update per SOP-031 batch review cycle complete","7.1"],
-                # ── Rule 5: Failed Login → Data Manipulation ───────────────────
-                ["2024-06-19 22:01:11","analyst_smith",  "LOGIN_FAILED",  "USER_SESSION",   "Analyst",     "",           "Invalid credentials",""],
-                ["2024-06-19 22:03:44","analyst_smith",  "LOGIN_FAILED",  "USER_SESSION",   "Analyst",     "",           "Invalid credentials",""],
-                ["2024-06-19 22:06:02","analyst_smith",  "LOGIN_FAILED",  "USER_SESSION",   "Analyst",     "",           "Invalid credentials",""],
-                ["2024-06-19 22:08:15","analyst_smith",  "LOGIN",         "USER_SESSION",   "Analyst",     "",           "Successful login",""],
-                ["2024-06-19 22:12:33","analyst_smith",  "DELETE",        "RESULTS",        "Analyst",     "RES-2099",   "",""],
+            def _workday_ts(day_offset: int, hour: int, minute: int,
+                            second: int = 0) -> str:
+                d = START_DATE + _dt.timedelta(days=day_offset)
+                return f"{d} {hour:02d}:{minute:02d}:{second:02d}"
+
+            def _good_comment(record_id: str, action: str) -> str:
+                templates = [
+                    f"Measurement recorded per SOP-031 section 4.2 for {record_id}",
+                    f"Value updated following supervisor review of {record_id}",
+                    f"Routine entry per batch manufacturing record MO-{record_id[-4:]}",
+                    f"Data entry per protocol REF-2024-{record_id[-3:]}",
+                    f"Corrected transcription error; source: bench sheet BS-{record_id[-3:]}",
+                    f"pH result recorded by analyst after instrument calibration check",
+                    f"Analyst entry per approved procedure SOP-045 section 3.1",
+                ]
+                return _rnd.choice(templates)
+
+            # ── Build background rows (clean, low-risk) ───────────────────
+            rows = []
+            day  = 0
+            hour = 8
+            minute_counter = 0
+
+            def _next_ts(delta_min: int = 3) -> str:
+                nonlocal day, hour, minute_counter
+                minute_counter += delta_min
+                if minute_counter >= 60:
+                    hour          += minute_counter // 60
+                    minute_counter = minute_counter % 60
+                if hour >= 17:          # end of business day
+                    day   += 1
+                    hour   = 8
+                    minute_counter = 0
+                    if (START_DATE + _dt.timedelta(days=day)).weekday() >= 5:
+                        day += 2       # skip weekend
+                return _workday_ts(day, hour, minute_counter,
+                                   _rnd.randint(0, 59))
+
+            rec_counter = 1000
+            batch_counter = 100
+
+            def _res_id() -> str:
+                nonlocal rec_counter
+                rec_counter += 1
+                return f"RES-{rec_counter}"
+
+            def _bat_id() -> str:
+                nonlocal batch_counter
+                batch_counter += 1
+                return f"BAT-2024-{batch_counter:03d}"
+
+            # Fill most rows with clean realistic data
+            while len(rows) < TOTAL_ROWS:
+                analyst = _rnd.choice(ANALYSTS)
+                val     = round(_rnd.gauss(NORMAL_MEAN, NORMAL_SD), 2)
+                rid     = _res_id()
+                rows.append([
+                    _next_ts(3), analyst, "UPDATE", "RESULTS",
+                    "Analyst", rid, _good_comment(rid, "UPDATE"),
+                    str(val)
+                ])
+
+            # ── Now surgically inject traps at distributed positions ───────
+            # All positions are calculated as fractions of TOTAL_ROWS so the
+            # generator never needs updating if TOTAL_ROWS changes.
+
+            def _pos(fraction: float, offset: int = 0) -> int:
+                """Return a safe row index = fraction × TOTAL_ROWS + offset."""
+                return max(0, min(TOTAL_ROWS - 1,
+                                  int(fraction * TOTAL_ROWS) + offset))
+
+            # ── Trap 1: RULE 1 — Vague rationale (scattered, 5 instances) ──
+            vague_comments = ["fixed", "error", "update", "", "changed"]
+            for i, vc in enumerate(vague_comments):
+                p = _pos(0.05 + i * 0.08)
+                rows[p] = [
+                    rows[p][0], _rnd.choice(ANALYSTS), "UPDATE", "RESULTS",
+                    "Analyst", _res_id(), vc,
+                    str(round(_rnd.gauss(NORMAL_MEAN, NORMAL_SD), 2))
+                ]
+
+            # ── Trap 2: RULE 2 — Contemporaneous burst (12 inserts, 12 min) ─
+            burst_start = _pos(0.30)
+            burst_user  = "analyst_jones"
+            burst_date  = _workday_ts(30, 14, 0, 0)  # fixed time for burst
+            burst_dt    = _dt.datetime(2024, 2, 5, 14, 0, 0)
+            for i in range(12):
+                t = (burst_dt + _dt.timedelta(minutes=i)).strftime(
+                    "%Y-%m-%d %H:%M:%S")
+                p = min(burst_start + i, TOTAL_ROWS - 1)
+                rows[p] = [
+                    t, burst_user, "RESULT_INSERT", "RESULTS",
+                    "Analyst", f"RES-B{i+1:03d}", "",
+                    str(round(_rnd.gauss(NORMAL_MEAN, NORMAL_SD), 2))
+                ]
+
+            # ── Trap 3: RULE 3 — Admin on production tables (2 instances) ──
+            p3a = _pos(0.50)
+            rows[p3a] = [
+                _workday_ts(50, 16, 45, 2), "admin_sys",
+                "UPDATE", "SAMPLE_DATA", "Admin",
+                "SMP-0500", "System maintenance", "ACTIVE"
+            ]
+            p3b = _pos(0.50, 2)
+            rows[p3b] = [
+                _workday_ts(50, 16, 47, 33), "dba_oracle",
+                "INSERT", "BATCH_RELEASE", "DBA",
+                _bat_id(), "Direct DB insert", "RELEASED"
             ]
 
-            header = ["timestamp","user_id","action_type","record_type",
-                      "role","record_id","comments","new_value"]
-            lines  = [",".join(header)]
+            # ── Trap 4: RULE 4 — Outlier new_value (>3 std dev from mean) ──
+            # Mean ~7.1, SD ~0.3  →  outlier needs to be > 8.0 or < 6.2 by 3×SD
+            # Use 147.3 as the classic demo outlier
+            p4 = _pos(0.62)
+            rows[p4] = [
+                _workday_ts(62, 10, 22, 5), _rnd.choice(ANALYSTS),
+                "UPDATE", "RESULTS", "Analyst", _res_id(),
+                "Setpoint adjustment", "147.3"
+            ]
+
+            # ── Trap 5: RULE 5 — Failed login → Data manipulation ──────────
+            p5 = _pos(0.72)
+            fail_user = "analyst_smith"
+            fail_dt   = _dt.datetime(2024, 3, 18, 22, 0, 0)  # 10 PM
+            # 3 failed logins
+            for i in range(3):
+                t = (fail_dt + _dt.timedelta(minutes=i*3)).strftime(
+                    "%Y-%m-%d %H:%M:%S")
+                rows[min(p5 + i, TOTAL_ROWS - 1)] = [
+                    t, fail_user, "LOGIN_FAILED", "USER_SESSION",
+                    "Analyst", "", "Invalid credentials", ""
+                ]
+            # Successful login
+            rows[min(p5 + 3, TOTAL_ROWS - 1)] = [
+                (fail_dt + _dt.timedelta(minutes=10)).strftime(
+                    "%Y-%m-%d %H:%M:%S"),
+                fail_user, "LOGIN", "USER_SESSION",
+                "Analyst", "", "Successful login", ""
+            ]
+            # DELETE within 30 min of login
+            rows[min(p5 + 4, TOTAL_ROWS - 1)] = [
+                (fail_dt + _dt.timedelta(minutes=18)).strftime(
+                    "%Y-%m-%d %H:%M:%S"),
+                fail_user, "DELETE", "RESULTS",
+                "Analyst", "RES-9999", "", ""
+            ]
+
+            # ── Trap 6: Off-hours activity (2:14 AM weekday) ────────────────
+            p6 = _pos(0.78)
+            rows[p6] = [
+                "2024-04-02 02:14:33", _rnd.choice(ANALYSTS),
+                "DELETE", "BATCH", "Analyst", _bat_id(), "", ""
+            ]
+
+            # ── Trap 7: US Federal Holiday (July 4, business hours) ─────────
+            p7 = _pos(0.82)
+            rows[p7] = [
+                "2024-07-04 11:00:00", _rnd.choice(ANALYSTS),
+                "UPDATE", "RESULTS", "Analyst", _res_id(),
+                "Routine entry", str(round(_rnd.gauss(NORMAL_MEAN, NORMAL_SD), 2))
+            ]
+
+            # ── Trap 8: Timestamp gap (>2 hours silence) ─────────────────────
+            # Place two rows far apart in time — the engine detects the gap
+            p8 = _pos(0.86)
+            rows[p8] = [
+                "2024-05-14 09:00:00", _rnd.choice(ANALYSTS),
+                "UPDATE", "RESULTS", "Analyst", _res_id(),
+                _good_comment("RES-GAP", "UPDATE"),
+                str(round(_rnd.gauss(NORMAL_MEAN, NORMAL_SD), 2))
+            ]
+            rows[min(p8 + 1, TOTAL_ROWS - 1)] = [
+                "2024-05-14 11:35:00", _rnd.choice(ANALYSTS),
+                "UPDATE", "RESULTS", "Analyst", _res_id(),
+                _good_comment("RES-GAP2", "UPDATE"),
+                str(round(_rnd.gauss(NORMAL_MEAN, NORMAL_SD), 2))
+            ]
+
+            # ── Trap 9: Delete → Recreate same record_id ─────────────────────
+            p9        = _pos(0.91)
+            dup_rec   = "RES-DUPE-001"
+            dup_user  = "analyst_brown"
+            rows[p9]  = [
+                "2024-06-03 11:05:00", dup_user, "DELETE",
+                "RESULTS", "Analyst", dup_rec, "", ""
+            ]
+            rows[min(p9 + 1, TOTAL_ROWS - 1)] = [
+                "2024-06-03 11:08:22", dup_user, "INSERT",
+                "RESULTS", "Analyst", dup_rec,
+                "Re-entry after deletion", "99.99"
+            ]
+
+            # ── Trap 10: Audit trail config change at 3 AM ───────────────────
+            p10 = _pos(0.97)
+            rows[p10] = [
+                "2024-06-16 03:22:11", "admin_sys",
+                "UPDATE", "AUDIT_TRAIL", "Admin",
+                "", "Configuration update", "DISABLED"
+            ]
+
+            # ── Serialise to CSV ──────────────────────────────────────────────
+            lines = [",".join(HEADER)]
             for r in rows:
-                # Quote fields that might contain commas
                 lines.append(",".join(
                     f'"{str(v)}"' if "," in str(v) else str(v)
                     for v in r
@@ -5953,21 +6132,26 @@ match your system's export column names to the fields above — rename nothing i
                 file_name="sample_audit_trail_template.csv",
                 mime="text/csv",
                 key="at_sample_download",
-                help="30-row sample with all 8 columns. Includes deliberate "
-                     "anomalies to demonstrate all 4 AI Skill detection rules.",
+                help=(
+                    "1,000-row realistic GxP audit trail. "
+                    "Clean background data with 10 deliberate traps embedded "
+                    "at dynamically-calculated positions. "
+                    "Covers all 5 named rules + off-hours, holiday, gap, "
+                    "delete-recreate, and audit trail disable scenarios."
+                ),
             )
         with sc2:
             st.markdown(
                 "<p style='color:#64748b;font-size:0.78rem;padding-top:8px;'>"
-                "30 rows · all 8 columns · anomalies included<br>"
-                "Open in Excel, replace with your data, re-upload.</p>",
+                "1,000 rows · all 8 columns · 10 traps embedded<br>"
+                "Replace with your own data to analyse real systems.</p>",
                 unsafe_allow_html=True
             )
         with sc3:
             st.markdown(
                 "<p style='color:#475569;font-size:0.78rem;padding-top:8px;'>"
-                "⚠️ Includes deliberate Rule 1–4 triggers<br>"
-                "for testing and client demos.</p>",
+                "Traps: Rules 1–5 · Off-hours · Holiday<br>"
+                "Gap · Delete-Recreate · Audit Trail disable</p>",
                 unsafe_allow_html=True
             )
 
