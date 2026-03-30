@@ -3216,6 +3216,7 @@ _defaults = {
     "at_review_end":        "",
     "at_key_n":             0,      # increment to reset uploaders
     "pr_active_module":     None,   # which PR sub-module is open (None = landing)
+    "at_detection_logic_text": "",  # cached detection logic for Excel sheet 4
     # ── Audit Trail risk tier thresholds (GAMP 5 calibrated defaults) ────────
     "at_thresh_critical":   7.0,    # score >= this = Critical
     "at_thresh_high":       5.0,    # score >= this = High
@@ -5099,6 +5100,235 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
     df["score_rule14_dormant_account"] = r14_scores
     df["rule14_rationale"]             = r14_rationale
 
+    # ── Rule 15 — Suspicious Action Sequence (UPDATE → DELETE → INSERT) ───────
+    # Detects the 3-step data manipulation pattern:
+    #   1. User UPDATEs a record (modification is logged)
+    #   2. User DELETEs the same record (removes the logged update)
+    #   3. User INSERTs the same record_id (recreates with altered values)
+    # All three steps by same user, same record_id, within 30 minutes.
+    # This extends Rule 6 (delete-recreate) by detecting the preceding UPDATE
+    # that motivates the deletion — the hallmark of deliberate log evasion.
+    # Risk: Critical. No extra file needed.
+    _SEQ_WINDOW_MINS = 30
+    r15_scores    = pd.Series(0.0, index=df.index)
+    r15_rationale = pd.Series("", index=df.index)
+    r15_chain_key = pd.Series("", index=df.index)  # for Event Chain ID
+    if all(c in df.columns for c in ["record_id","user_id","action_type",
+                                       "timestamp_parsed"]):
+        df_s15 = df.sort_values("timestamp_parsed").copy()
+        df_s15 = df_s15[df_s15["timestamp_parsed"].notna() &
+                        df_s15["record_id"].astype(str).str.strip().ne("")].copy()
+        df_s15["_rid"] = df_s15["record_id"].astype(str).str.strip()
+
+        chain_counter = [0]
+        for rid, grp in df_s15.groupby("_rid"):
+            if len(grp) < 3:
+                continue
+            events = grp.sort_values("timestamp_parsed")
+            acts   = events["action_type"].astype(str).str.upper().tolist()
+            tss    = events["timestamp_parsed"].tolist()
+            usrs   = events["user_id"].astype(str).tolist()
+            idxs   = events.index.tolist()
+
+            for i in range(len(events) - 2):
+                # Look for UPDATE/MODIFY → DELETE → INSERT in order
+                is_upd = any(k in acts[i] for k in
+                             ["UPDATE","MODIFY","EDIT","AMEND"])
+                is_del = any(k in acts[i+1] for k in
+                             ["DELETE","DEL","REMOVE","PURGE"])
+                is_ins = any(k in acts[i+2] for k in
+                             ["INSERT","CREATE","ADD","RESULT_INSERT"])
+                if not (is_upd and is_del and is_ins):
+                    continue
+                # Same user all three steps
+                if not (usrs[i] == usrs[i+1] == usrs[i+2]):
+                    continue
+                # Within time window
+                try:
+                    span = (tss[i+2] - tss[i]).total_seconds() / 60
+                except Exception:
+                    continue
+                if span > _SEQ_WINDOW_MINS:
+                    continue
+
+                chain_counter[0] += 1
+                chain_id = f"EC-{chain_counter[0]:03d}"
+                rationale = (
+                    f"Rule 15 — Suspicious Action Sequence [CRITICAL]: "
+                    f"User '{usrs[i]}' performed UPDATE → DELETE → INSERT on record "
+                    f"'{rid}' within {span:.0f} minutes "
+                    f"({tss[i].strftime('%H:%M')} to {tss[i+2].strftime('%H:%M')}). "
+                    "This three-step sequence — modify, delete, recreate — is the "
+                    "primary method for altering a locked GxP record while obscuring "
+                    "the original modification from the audit trail. "
+                    "(21 CFR Part 11 §11.10(e), ALCOA+ Original)"
+                )
+                for j, idx in enumerate([idxs[i], idxs[i+1], idxs[i+2]]):
+                    r15_scores.at[idx]    = 10.0
+                    r15_rationale.at[idx] = rationale
+                    r15_chain_key.at[idx] = chain_id
+                break   # one sequence per record is enough
+
+    df["score_rule15_suspicious_sequence"] = r15_scores
+    df["rule15_rationale"]                 = r15_rationale
+
+    # ── Rule 16 — First-Time Behavior Detection ────────────────────────────────
+    # Detects when a user performs an action_type they have never performed before
+    # in the uploaded audit trail history. High-prior-event users with a sudden
+    # new high-risk action are a meaningful insider risk signal.
+    #
+    # Scoring tiers:
+    #   ≥50 prior events + first-time DELETE/APPROVE on GxP table → 9.0
+    #   ≥20 prior events + first-time DELETE/APPROVE any table    → 8.0
+    #   ≥20 prior events + first-time any action                  → 6.0
+    #   ≥5  prior events + first-time high-risk action            → 5.0
+    #   <5  prior events (too little history — skip)              → 0.0
+    #
+    # Rationale always states prior event count so reviewer can judge
+    # whether "first time" is statistically meaningful.
+
+    _HIGH_RISK_FIRST_ACTIONS = {
+        "delete","del","remove","purge","void","cancel",
+        "approve","release","authorise","authorize","sign",
+        "override","batch_release","approve_result",
+    }
+    _MIN_PRIOR_EVENTS_16 = 5
+
+    r16_scores    = pd.Series(0.0, index=df.index)
+    r16_rationale = pd.Series("", index=df.index)
+
+    if "user_id" in df.columns and "action_type" in df.columns:
+        df_s16 = df.copy()
+        if "timestamp_parsed" in df_s16.columns:
+            df_s16 = df_s16.sort_values("timestamp_parsed").reset_index(drop=False)
+            orig_idx = df_s16["index"].tolist()
+        else:
+            df_s16 = df_s16.reset_index(drop=False)
+            orig_idx = df_s16["index"].tolist()
+
+        df_s16["_uid"] = df_s16["user_id"].astype(str)
+        df_s16["_act"] = df_s16["action_type"].astype(str).str.lower().str.strip()
+        df_s16["_rec"] = df_s16["record_type"].astype(str).str.lower() \
+                         if "record_type" in df_s16.columns \
+                         else pd.Series([""] * len(df_s16))
+
+        for uid, ugrp in df_s16.groupby("_uid"):
+            if len(ugrp) < _MIN_PRIOR_EVENTS_16 + 1:
+                continue
+
+            seen_acts: set = set()
+            for pos, (_, urow) in enumerate(ugrp.iterrows()):
+                orig = urow["index"]
+                act  = urow["_act"]
+                rec  = urow["_rec"]
+                raw_act = str(df.at[orig, "action_type"]) \
+                          if orig in df.index else act
+                raw_rec = str(df.at[orig, "record_type"]) \
+                          if ("record_type" in df.columns and orig in df.index) \
+                          else rec
+
+                if pos < _MIN_PRIOR_EVENTS_16:
+                    seen_acts.add(act)
+                    continue
+
+                prior = pos  # events seen before this position
+                is_new = act not in seen_acts
+
+                if not is_new:
+                    seen_acts.add(act)
+                    continue
+
+                is_gxp  = any(kw in rec for kw in _AT_SENSITIVE)
+                is_hira  = any(kw in act for kw in _HIGH_RISK_FIRST_ACTIONS)
+
+                score = 0.0
+                if prior >= 50 and is_hira and is_gxp:
+                    score = 9.0
+                elif prior >= 20 and is_hira:
+                    score = 8.0
+                elif prior >= 20:
+                    score = 6.0
+                elif prior >= _MIN_PRIOR_EVENTS_16 and is_hira:
+                    score = 5.0
+
+                if score > 0:
+                    conf = (
+                        "High confidence" if prior >= 50 else
+                        "Moderate confidence" if prior >= 20 else
+                        "Low confidence — limited prior history"
+                    )
+                    r16_scores.at[orig]    = score
+                    r16_rationale.at[orig] = (
+                        f"Rule 16 — First-Time Behavior [HIGH]: "
+                        f"User '{uid}' performed '{raw_act}' on '{raw_rec}' "
+                        f"for the first time after {prior} prior recorded events in "
+                        f"this audit trail. ({conf}) "
+                        "A sudden new action type from an established user is an "
+                        "insider risk signal — especially high-risk actions like "
+                        "delete or approve that were never performed before. "
+                        "Verify this was authorised and intentional "
+                        "(21 CFR Part 11 §11.10(d), ALCOA+ Attributable)."
+                    )
+
+                seen_acts.add(act)
+
+    df["score_rule16_first_time_behavior"] = r16_scores
+    df["rule16_rationale"]                 = r16_rationale
+
+    # ── Event Chain ID — group related events from Rules 5, 6, 15 ─────────────
+    # Gives reviewer a shared identifier to filter and see complete event stories.
+    # Format: EC-NNN where NNN increments per chain found in the dataset.
+    chain_id_col = pd.Series("", index=df.index)
+    chain_id_col[r15_chain_key != ""] = r15_chain_key[r15_chain_key != ""]
+
+    # Rule 5 chains — LOGIN_FAILED sequence → same user → DELETE/UPDATE
+    # Assign chain IDs to the login and manipulation events together
+    if "score_rule5_failed_login" in df.columns:
+        r5_flagged = df[df["score_rule5_failed_login"] >= 8].copy()
+        for uid, ugrp in r5_flagged.groupby("user_id"):
+            if len(ugrp) == 0:
+                continue
+            chain_counter[0] += 1
+            cid = f"EC-{chain_counter[0]:03d}"
+            # Also flag the LOGIN_FAILED rows for same user within 2hr window
+            if "timestamp_parsed" in df.columns:
+                for idx in ugrp.index:
+                    t_flag = df.at[idx, "timestamp_parsed"]
+                    if pd.isnull(t_flag):
+                        continue
+                    related = df[
+                        (df["user_id"].astype(str) == str(uid)) &
+                        (df["timestamp_parsed"].notna()) &
+                        ((df["timestamp_parsed"] - t_flag).abs() <=
+                         pd.Timedelta(hours=2))
+                    ].index
+                    for ridx in related:
+                        if chain_id_col.at[ridx] == "":
+                            chain_id_col.at[ridx] = cid
+
+    # Rule 6 chains — DELETE → INSERT same record
+    if "score_del_recreate" in df.columns:
+        r6_flagged = df[df["score_del_recreate"] >= 9].copy()
+        if not r6_flagged.empty and "record_id" in df.columns:
+            for rid in r6_flagged["record_id"].astype(str).unique():
+                related_idx = df[
+                    (df["record_id"].astype(str) == rid) &
+                    (df["score_del_recreate"] >= 9)
+                ].index
+                if len(related_idx) > 0:
+                    existing = chain_id_col.loc[related_idx]
+                    existing_ids = existing[existing != ""].tolist()
+                    if existing_ids:
+                        cid = existing_ids[0]
+                    else:
+                        chain_counter[0] += 1
+                        cid = f"EC-{chain_counter[0]:03d}"
+                    for idx in related_idx:
+                        if chain_id_col.at[idx] == "":
+                            chain_id_col.at[idx] = cid
+
+    df["Event_Chain_ID"] = chain_id_col
+
     # ── Composite Risk Score ──────────────────────────────────────────────────
     # Original 6 dimensions + 4 named rules, weighted
     weights = {
@@ -5116,6 +5346,8 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
         "score_rule12_timestamp_reversal": 0.09,  # Critical — impossible in valid system
         "score_rule13_service_account":    0.09,  # Critical — attribution violation
         "score_rule14_dormant_account":    0.07,  # High — access control gap
+        "score_rule15_suspicious_sequence":0.09,  # Critical — deliberate log evasion
+        "score_rule16_first_time_behavior": 0.07,  # High — insider risk signal
     }
     df["Risk_Score"] = sum(df[c]*w for c,w in weights.items()).round(2)
 
@@ -5141,6 +5373,9 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
         if float(row.get("score_record",                    0)) >= 10: return "Critical"
         if float(row.get("score_rule12_timestamp_reversal", 0)) >= 9: return "Critical"
         if float(row.get("score_rule13_service_account",    0)) >= 9: return "Critical"
+        if float(row.get("score_rule15_suspicious_sequence",0)) >= 9: return "Critical"
+        if float(row.get("score_rule16_first_time_behavior", 0)) >= 8 \
+                and tier == "Low": return "High"
         if float(row.get("score_rule14_dormant_account",    0)) >= 8 and tier == "Low":
             return "High"
         if float(row.get("score_rule1_vague_rationale",     0)) >= 7 and tier == "Low":
@@ -5219,6 +5454,10 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
             fired.append("Rule 13 — Service/Shared Account Action [HIGH]")
         if float(row.get("score_rule14_dormant_account", 0)) >= 7:
             fired.append("Rule 14 — Dormant Account Sudden Activity [HIGH]")
+        if float(row.get("score_rule15_suspicious_sequence", 0)) >= 9:
+            fired.append("Rule 15 — Suspicious Action Sequence [CRITICAL]")
+        if float(row.get("score_rule16_first_time_behavior", 0)) >= 5:
+            fired.append("Rule 16 — First-Time Behavior [HIGH]")
         return "; ".join(fired) if fired else ""
     df["Triggered_Rules"] = df.apply(_triggered, axis=1)
 
@@ -5303,6 +5542,8 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
             row.get("rule12_rationale",""),
             row.get("rule13_rationale",""),
             row.get("rule14_rationale",""),
+            row.get("rule15_rationale",""),
+            row.get("rule16_rationale",""),
             _dim_rationale(row),
         ] if r]
         return " | ".join(parts)
@@ -5310,6 +5551,17 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
 
     # ── Action Required — no SOP references (company-specific SOPs added in Module 3)
     _ACTION_MAP = {
+        "score_rule15_suspicious_sequence":
+            "Retrieve all three events in this sequence — the UPDATE, DELETE, and "
+            "INSERT on the same record. Compare the values before and after to identify "
+            "what changed. Obtain a written explanation from the user for each step. "
+            "If the deletion was used to circumvent the locked record workflow, "
+            "this is a Critical data integrity finding requiring formal investigation.",
+        "score_rule16_first_time_behavior":
+            "Verify this action was intentional and authorised. Obtain written confirmation "
+            "from the user's supervisor that this action type was within their approved role "
+            "at the time it was performed. If the user was not authorised to perform this "
+            "action, assess all records affected and raise a non-conformance.",
         "score_rule12_timestamp_reversal":
             "This finding requires immediate investigation. Retrieve the full audit "
             "trail for this record and compare all creation and approval timestamps. "
@@ -5391,11 +5643,18 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
         rr  = float(row.get("score_record",                    0))
         rp  = float(row.get("score_privilege",                 0))
         rt  = float(row.get("score_temporal",                  0))
-        r12 = float(row.get("score_rule12_timestamp_reversal", 0))
-        r13 = float(row.get("score_rule13_service_account",    0))
-        r14 = float(row.get("score_rule14_dormant_account",    0))
+        r12 = float(row.get("score_rule12_timestamp_reversal",  0))
+        r13 = float(row.get("score_rule13_service_account",     0))
+        r14 = float(row.get("score_rule14_dormant_account",       0))
+        r15 = float(row.get("score_rule15_suspicious_sequence",   0))
+        r16 = float(row.get("score_rule16_first_time_behavior",   0))
         cmt = str(row.get("comments","")).lower().strip()
 
+        if r15 >= 9:
+            return ("Escalate to CAPA",
+                    "A three-step manipulation sequence (Update → Delete → Insert) was "
+                    "detected on the same record. This pattern is used to alter locked "
+                    "GxP records while obscuring the original modification.")
         if r12 >= 9:
             return ("Escalate to CAPA",
                     "A record was approved before it was created — this is impossible "
@@ -5470,11 +5729,30 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
                     "Verify current authorisation status and confirm access was "
                     "formally re-approved before re-activation.")
 
-        # Default
+        # First-time behavior by established user
+        if r16 >= 8:
+            return ("Investigate — Verify Source Data",
+                    "This user performed an action type they have never done before "
+                    "in their recorded history. Verify this was authorised and "
+                    "consistent with their current role at the time of the action.")
+
+        # ── Hard enforcement gate — named rules must never get "No Action" ────
+        named_max = max(
+            r16, r15, r12, r13, r5, r3, r6, rg, rr, r4, r1,
+            float(row.get("score_rule2_burst", 0)),
+            float(row.get("score_privilege",   0)),
+        )
+        if named_max >= 7.0:
+            return ("Investigate — Verify Source Data",
+                    "A named compliance rule fired at High or Critical level. "
+                    "Even without a specific escalation trigger, events with active "
+                    "rule findings require documented reviewer investigation.")
+
+        # Default — no named rule fired significantly
         return ("Justified — No Action Required",
-                "No specific compliance rule was triggered at a significant level. "
-                "This event was included in the review based on proximity to other "
-                "flagged events or a moderately elevated composite score.")
+                "No named compliance rule was triggered at a significant level. "
+                "This event was included in the review based on a moderately elevated "
+                "composite score. Review briefly and document disposition.")
 
     sugg_disp = []
     sugg_rat  = []
@@ -5622,36 +5900,54 @@ def at_generate_justifications(top_df: pd.DataFrame, model_id: str) -> pd.DataFr
             cmt       = str(row.get("comments","none provided"))
             ts        = str(row.get("timestamp","unknown time"))
 
-            prompt = f"""Write a 3-sentence audit finding for a QA Manager's Periodic Review report.
-Be specific — use the actual record ID, user name, and action in your sentences.
+            chain_id = str(row.get("Event_Chain_ID",""))
+            chain_ctx = (f"  Part of event chain: {chain_id}\n"
+                         if chain_id else "")
 
-Facts:
-  User '{usr}' performed '{act}' on {rec_type} record {record_id} at {ts}.
-  Change reason recorded: "{cmt}"
-  Rules triggered: {triggered}
-  Key finding: {rule_rat if rule_rat else 'Anomaly detected by scoring engine.'}
+            prompt = f"""You are writing the AI Summary column for one row in a QA audit review table.
+
+The table already has these columns the reviewer can see:
+- "Issues Found": {triggered}
+- "Why It Matters": (the rule rationale — already shown)
+- "Recommended Action": (the action — already shown)
+
+Your job is the AI Summary — a SHORT synthesis that adds insight BEYOND what those
+columns already say. Do NOT repeat the rule name, do NOT repeat the action.
+
+Event:
+  User '{usr}' performed '{act}' on {rec_type} {record_id} at {ts}.
+  Change reason on file: "{cmt}"
   Suggested outcome: {sugg_disp}
+{chain_ctx}
+Write exactly 2 sentences. Max 20 words each.
+Sentence 1: What the COMBINATION of facts tells you about this specific event
+            (go beyond the rule — what does the timing, user, record, and comment
+            together suggest about what actually happened?)
+Sentence 2: The data integrity implication — what could be wrong with the
+            underlying GxP record if this is not explained?
 
-Write exactly 3 sentences. Each sentence max 30 words. Plain English only.
-Sentence 1: Describe specifically what happened (name the user, record, action).
-Sentence 2: State the compliance concern in plain terms (name the rule that was triggered).
-Sentence 3: State the one action the reviewer must take.
+Example of good output:
+"An analyst modified a batch result at 2am with a one-word comment, immediately
+before batch release. If the value change was not scientifically justified,
+the batch disposition may be based on unreliable data."
 
-Rules: No score numbers. No jargon. No bullets. No headers. Must be audit-defensible."""
+Do NOT write: "This matters for FDA compliance" — that adds zero value.
+Do NOT name the rule — it is already in the Issues Found column.
+Plain English. Specific. Adds insight. Two sentences only."""
 
             resp = _comp(
-                model=model_id, stream=False, temperature=0.1, max_tokens=200,
+                model=model_id, stream=False, temperature=0.2, max_tokens=150,
                 messages=[
                     {"role": "system", "content":
-                     "You write concise, specific audit findings for pharmaceutical QA teams. "
-                     "Always name the user, record, and action. Always name the rule triggered. "
-                     "Never use vague phrases like 'this may indicate a problem.' "
-                     "Max 30 words per sentence. Three sentences only."},
+                     "You write concise analytical summaries for pharmaceutical QA audit tables. "
+                     "Never state the obvious. Never repeat what other columns already say. "
+                     "Synthesise — what does the combination of facts imply about data integrity? "
+                     "Two sentences maximum. Be specific to the actual event."},
                     {"role": "user", "content": prompt}
                 ]
             )
             candidate = resp.choices[0].message.content.strip()
-            if len(candidate) > 60 and "error" not in candidate.lower()[:30]:
+            if len(candidate) > 40 and "error" not in candidate.lower()[:30]:
                 text = candidate
 
         except Exception:
@@ -5805,6 +6101,243 @@ def at_build_excel(top_df, scored_df, system_name, r_start, r_end, fname) -> byt
     _summary_row("Low level",       f"Score < {t_med}")
     row += 1
 
+    # ── Review Narrative — human-readable story of findings ───────────────────
+    def _build_narrative(top_df: pd.DataFrame, scored_df: pd.DataFrame,
+                         sys_name: str, r_start: str, r_end: str,
+                         n_crit: int, n_high: int, n_med: int,
+                         n_esc: int, total: int) -> str:
+        """
+        Build a 4–6 sentence narrative summary of the audit trail findings.
+        Written in plain English, suitable for a QA Manager or auditor to read
+        without opening any other sheet.
+        """
+        sentences = []
+
+        # ── Sentence 1: Period and volume ─────────────────────────────────────
+        _missing = "(review period dates not specified)"
+        period_str = (
+            f"from {r_start} to {r_end}"
+            if r_start and r_end
+               and r_start != _missing and r_end != _missing
+            else _missing
+        )
+        if n_crit == 0 and n_high == 0:
+            sentences.append(
+                f"The audit trail for {sys_name} was reviewed {period_str}. "
+                f"Of {total:,} recorded events, {n_esc} were escalated for review. "
+                "No critical or high-risk events were identified."
+            )
+        else:
+            risk_parts = []
+            if n_crit > 0:
+                risk_parts.append(
+                    f"{n_crit} critical event{'s' if n_crit > 1 else ''}")
+            if n_high > 0:
+                risk_parts.append(
+                    f"{n_high} high-risk event{'s' if n_high > 1 else ''}")
+            if n_med > 0:
+                risk_parts.append(
+                    f"{n_med} medium-risk event{'s' if n_med > 1 else ''}")
+            risk_str = " and ".join(
+                [", ".join(risk_parts[:-1])] + risk_parts[-1:]
+                if len(risk_parts) > 1 else risk_parts
+            )
+            sentences.append(
+                f"During the review period {period_str}, {total:,} audit trail "
+                f"events were analysed for {sys_name}. "
+                f"{risk_str.capitalize()} were identified out of "
+                f"{n_esc} events escalated for review."
+            )
+
+        # ── Sentences 2–4: Describe the most significant findings ─────────────
+        if top_df.empty:
+            sentences.append("No significant findings were detected.")
+        else:
+            # Group by rule type to avoid repeating same finding
+            rule_groups: dict = {}
+            for _, ev in top_df.iterrows():
+                triggered = str(ev.get("Triggered_Rules",""))
+                tier      = str(ev.get("Risk_Tier",""))
+                if tier not in ("Critical","High"):
+                    continue
+                for part in triggered.split(";"):
+                    part = part.strip()
+                    if not part:
+                        continue
+                    key = part.split("—")[0].strip() if "—" in part else part
+                    if key not in rule_groups:
+                        rule_groups[key] = []
+                    rule_groups[key].append(ev)
+
+            # Build one sentence per unique finding type (max 4)
+            finding_sentences = []
+            seen_rules = set()
+
+            for _, ev in top_df.iterrows():
+                if len(finding_sentences) >= 4:
+                    break
+                triggered = str(ev.get("Triggered_Rules",""))
+                tier      = str(ev.get("Risk_Tier","Low"))
+                rat       = str(ev.get("Rule_Rationale",""))
+                usr       = str(ev.get("user_id","an unidentified user"))
+                act       = str(ev.get("action_type","an action"))
+                rec_id    = str(ev.get("record_id",""))
+                rec_type  = str(ev.get("record_type","a record"))
+                chain_id  = str(ev.get("Event_Chain_ID",""))
+
+                # Pick the primary rule for this event
+                primary_rule = ""
+                for part in triggered.split(";"):
+                    p = part.strip()
+                    if p and p not in seen_rules:
+                        primary_rule = p
+                        break
+                if not primary_rule or primary_rule in seen_rules:
+                    continue
+                seen_rules.add(primary_rule)
+
+                rec_ref = (f" on record {rec_id}" if rec_id and
+                           rec_id not in ("","nan","—") else "")
+                chain_ref = (f" (event chain {chain_id})" if chain_id else "")
+
+                # Map rule to narrative sentence template
+                r = primary_rule.lower()
+                if "rule 3" in r or "admin" in r and "conflict" in r:
+                    finding_sentences.append(
+                        f"A system administrator ({usr}) directly modified "
+                        f"production {rec_type} data{rec_ref}, violating "
+                        "Segregation of Duties controls."
+                    )
+                elif "rule 5" in r or "failed login" in r:
+                    finding_sentences.append(
+                        f"A potential unauthorised access event was detected — "
+                        f"user '{usr}' had repeated failed login attempts followed "
+                        f"by a data modification{rec_ref}{chain_ref}."
+                    )
+                elif "rule 15" in r or "suspicious" in r and "sequence" in r:
+                    finding_sentences.append(
+                        f"A data manipulation sequence was detected: "
+                        f"user '{usr}' modified, deleted, then recreated "
+                        f"record {rec_id}{chain_ref}, suggesting an attempt "
+                        "to alter a locked GxP record."
+                    )
+                elif "rule 12" in r or "timestamp reversal" in r:
+                    finding_sentences.append(
+                        f"A chronological impossibility was detected — "
+                        f"record {rec_id} shows an approval timestamp "
+                        "before its creation, indicating clock manipulation "
+                        "or direct database alteration."
+                    )
+                elif "rule 13" in r or "service" in r and "account" in r:
+                    finding_sentences.append(
+                        f"Non-personal account '{usr}' performed a "
+                        f"{act} action on {rec_type}{rec_ref}. "
+                        "This action cannot be attributed to a specific individual."
+                    )
+                elif "rule 1" in r or "vague" in r:
+                    # Count total Rule 1 findings
+                    r1_count = sum(
+                        1 for _, e in top_df.iterrows()
+                        if "Rule 1" in str(e.get("Triggered_Rules",""))
+                    )
+                    if r1_count > 1:
+                        finding_sentences.append(
+                            f"{r1_count} instances of missing or inadequate change "
+                            "rationale were observed across multiple records, "
+                            "indicating deficiencies in data attribution practices."
+                        )
+                    else:
+                        finding_sentences.append(
+                            f"One instance of missing or inadequate change rationale "
+                            f"was observed on {rec_type}{rec_ref}."
+                        )
+                elif "rule 6" in r or "delete and recreate" in r:
+                    finding_sentences.append(
+                        f"A delete-and-recreate pattern was identified on "
+                        f"record {rec_id} by user '{usr}', a known method "
+                        "for circumventing locked record controls."
+                    )
+                elif "rule 16" in r or "first-time" in r:
+                    finding_sentences.append(
+                        f"User '{usr}' performed a '{act}' action for the "
+                        "first time in their recorded history, representing "
+                        "an unexpected behaviour change requiring investigation."
+                    )
+                elif "rule 2" in r or "burst" in r or "contemporaneous" in r:
+                    r2_count = sum(
+                        1 for _, e in top_df.iterrows()
+                        if "Rule 2" in str(e.get("Triggered_Rules",""))
+                    )
+                    finding_sentences.append(
+                        f"{r2_count if r2_count > 1 else 'An'} instance"
+                        f"{'s' if r2_count > 1 else ''} of high-volume "
+                        "data entry in a short time window were detected, "
+                        "raising concerns about contemporaneous recording practices."
+                    )
+                elif "off-hours" in r or "rule 11" in r or "holiday" in r:
+                    finding_sentences.append(
+                        f"Activity outside normal business hours was detected "
+                        f"by user '{usr}' on {rec_type}{rec_ref}, "
+                        "with no documented business justification on file."
+                    )
+                else:
+                    continue
+
+            sentences.extend(finding_sentences)
+
+        # ── Final sentence: Overall risk assessment ───────────────────────────
+        if n_crit >= 2:
+            overall = (
+                "Overall, the system presents a high risk to data integrity "
+                "and requires immediate corrective actions, particularly in "
+                "access control and audit trail integrity."
+            )
+        elif n_crit == 1:
+            overall = (
+                "Overall, the system presents a moderate-to-high risk to data "
+                "integrity. The critical finding identified requires prompt "
+                "investigation and formal non-conformance documentation."
+            )
+        elif n_high >= 3:
+            overall = (
+                "Overall, the system presents a moderate risk to data integrity. "
+                "Multiple high-risk findings indicate systemic issues in "
+                "documentation practices and access control that require "
+                "corrective action."
+            )
+        elif n_high >= 1 or n_med >= 3:
+            overall = (
+                "Overall, the system presents a low-to-moderate risk to data "
+                "integrity. The findings identified are manageable but require "
+                "documented review and corrective action where applicable."
+            )
+        else:
+            overall = (
+                "Overall, the system presents a low risk to data integrity "
+                "for the review period. No critical or high-risk findings "
+                "were identified that require immediate action."
+            )
+        sentences.append(overall)
+
+        return "\n\n".join(sentences)
+
+    narrative = _build_narrative(
+        top_df, scored_df, sys_name or "the reviewed system",
+        r_start, r_end, n_crit, n_high, n_med, n_esc, total
+    )
+
+    _summary_row("REVIEW NARRATIVE", "", section=True)
+    ws.merge_cells(f"A{row}:B{row}")
+    narr_cell = ws.cell(row=row, column=1, value=narrative)
+    narr_cell.font      = _body_font(color=C_VALUE_FG)
+    narr_cell.fill      = _fill("EFF6FF")   # very light blue — distinct from white
+    narr_cell.border    = bdr
+    narr_cell.alignment = Alignment(vertical="top", wrap_text=True)
+    # Height scales with content — approx 18pt per sentence, min 90
+    n_sentences = narrative.count("\n\n") + 1
+    ws.row_dimensions[row].height = max(90, n_sentences * 22)
+    row += 2
+
     _summary_row("REVIEWER STATEMENT", "", section=True)
     ws.merge_cells(f"A{row}:B{row}")
     stmt = ws.cell(row=row, column=1, value=(
@@ -5846,6 +6379,7 @@ def at_build_excel(top_df, scored_df, system_name, r_start, r_end, fname) -> byt
         ("Record ID",        "record_id",         16),
         ("Change Reason\nRecorded", "comments",   30),
         ("Issues Found",     "Triggered_Rules",   42),
+        ("Event\nChain ID",  "Event_Chain_ID",    12),
         ("Why It Matters",   "Rule_Rationale",    52),
         ("Recommended Action","Action_Required",  52),
         ("AI Summary",       "AI_Justification",  52),
@@ -5952,6 +6486,7 @@ def at_build_excel(top_df, scored_df, system_name, r_start, r_end, fname) -> byt
         ("Risk Score",       "Risk_Score",      11),
         ("Risk Level",       "Risk_Tier",       12),
         ("Issues Found",     "Triggered_Rules", 40),
+        ("Event Chain ID",   "Event_Chain_ID",  12),
     ]
 
     # Strip internal columns — keep only the log_cols fields
@@ -5994,6 +6529,55 @@ def at_build_excel(top_df, scored_df, system_name, r_start, r_end, fname) -> byt
 
     ws3.auto_filter.ref = f"A1:{get_column_letter(len(log_cols))}1"
     ws3.freeze_panes    = "A2"
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # SHEET 4 — Detection Logic Reference (full 14-rule specification)
+    # ══════════════════════════════════════════════════════════════════════════
+    ws4 = wb.create_sheet("Detection Logic")
+    ws4.sheet_properties.tabColor = "374151"
+    ws4.sheet_view.showGridLines  = False
+    ws4.column_dimensions["A"].width = 120
+
+    # Pull the detection logic text from the session — built in show_audit_trail
+    detection_text = st.session_state.get("at_detection_logic_text", "")
+    if not detection_text:
+        detection_text = (
+            "Detection Logic Reference not available. "
+            "Please re-run the analysis to populate this sheet."
+        )
+
+    # Title row
+    t4 = ws4.cell(row=1, column=1,
+                  value="Audit Trail Intelligence — Detection Logic Reference")
+    t4.font      = Font(bold=True, color="FFFFFF", name="Calibri", size=13)
+    t4.fill      = _fill(C_HEADER_BG)
+    t4.alignment = Alignment(horizontal="left", vertical="center")
+    ws4.row_dimensions[1].height = 26
+
+    # Write each line of the detection logic as a row
+    row_num = 2
+    for line in detection_text.split("\n"):
+        c = ws4.cell(row=row_num, column=1, value=line)
+        # Style headings (lines starting with ##)
+        if line.startswith("## ") or line.startswith("### "):
+            c.font = Font(bold=True, color=C_HEADER_BG, name="Calibri", size=11)
+            c.fill = _fill(C_SECTION_BG)
+            ws4.row_dimensions[row_num].height = 18
+        elif line.startswith("# "):
+            c.font = Font(bold=True, color="FFFFFF", name="Calibri", size=12)
+            c.fill = _fill(C_HEADER_BG)
+            ws4.row_dimensions[row_num].height = 20
+        elif line.startswith("---"):
+            c.font = Font(color="D1D5DB", name="Calibri", size=9)
+            ws4.row_dimensions[row_num].height = 8
+        elif line.startswith("**") or line.startswith("| "):
+            c.font = Font(bold=True, color=C_VALUE_FG, name="Calibri", size=10)
+            ws4.row_dimensions[row_num].height = 15
+        else:
+            c.font = Font(color=C_LABEL_FG, name="Calibri", size=10)
+            ws4.row_dimensions[row_num].height = 15
+        c.alignment = Alignment(horizontal="left", vertical="top", wrap_text=True)
+        row_num += 1
 
     wb.save(output)
     return output.getvalue()
@@ -6242,10 +6826,10 @@ This document describes every detection rule implemented in the engine.
 It supports Computer System Validation (CSV) of this tool and enables
 QA reviewers to understand the basis for every finding produced.
 
-**Total rules implemented: 14**
+**Total rules implemented: 16**
 Rules 1–5: Named AI Skill rules (targeted, specific violations)
 Rules 6–11: Dimension-based rules (pattern and behavioural anomalies)
-Rules 12–14: Advanced integrity rules (no second file required)
+Rules 12–16: Advanced integrity rules (no second file required)
 
 ---
 
@@ -6426,6 +7010,82 @@ tuple in the engine code to match your organisation's naming conventions.
 
 ---
 
+
+
+---
+
+### Rule 15 — Suspicious Action Sequence: UPDATE → DELETE → INSERT [Risk: CRITICAL]
+**Target:** All record types with a populated record_id column.
+**Trigger:** Same user performs UPDATE (or MODIFY/EDIT/AMEND), then DELETE,
+then INSERT/CREATE on the same record_id, all within 30 minutes.
+Score: 10.0 on all three events. An Event Chain ID (EC-NNN) links all three rows.
+**Regulatory basis:** 21 CFR Part 11 §11.10(e); ALCOA+ Original.
+**Why Critical:** GxP systems lock approved records to prevent direct editing.
+This three-step sequence — modify, delete, recreate — is the primary method
+for altering a locked record while making the change appear as a new entry,
+obscuring the original modification from the audit trail.
+**Distinction from Rule 6 (Delete-Recreate):** Rule 6 detects DELETE → INSERT
+(two steps). Rule 15 detects UPDATE → DELETE → INSERT (three steps), which is
+more specific — it indicates the user first tried to modify the locked record,
+then switched to the delete-recreate method.
+**30-minute window:** Captures same-session sequences while excluding coincidental
+patterns across different working sessions.
+
+---
+
+## Event Chain IDs
+
+When multiple events are causally linked, the engine assigns a shared Event Chain
+ID (format: EC-001, EC-002 etc.) to all related events. This allows reviewers to
+filter the Full Audit Log by chain ID and read the complete event story in sequence.
+
+Chains are assigned for:
+- **Rule 15** (UPDATE → DELETE → INSERT): all three steps share one chain ID
+- **Rule 5** (Failed Login → Manipulation): all login attempts and the triggering
+  data action share one chain ID
+- **Rule 6** (Delete → Recreate): both events share one chain ID
+
+The Event_Chain_ID column appears in both the Events for Review sheet and the
+Full Audit Log sheet in the Excel output.
+
+
+---
+
+### Rule 16 — First-Time Behavior Detection [Risk: HIGH]
+**Target:** All users with at least 5 prior recorded events in the uploaded file.
+**Trigger:** A user performs an action_type they have never performed before
+in their recorded audit trail history. Score varies by prior history and action risk:
+
+| Prior events | Action type | Score |
+|---|---|---|
+| ≥50 | First-time DELETE/APPROVE on GxP table | 9.0 |
+| ≥20 | First-time DELETE/APPROVE on any table | 8.0 |
+| ≥20 | First-time any action | 6.0 |
+| ≥5  | First-time high-risk action | 5.0 |
+| <5  | (not enough history — skipped) | 0.0 |
+
+**High-risk action types detected:** delete, del, remove, purge, void, cancel,
+approve, release, authorise, authorize, sign, override, batch_release, approve_result.
+**Regulatory basis:** 21 CFR Part 11 §11.10(d) access controls; ALCOA+ Attributable.
+**Why this matters:** An established user who suddenly performs an action they
+have never done before — especially a high-risk action like delete or approve —
+is a meaningful insider risk signal. This pattern may indicate:
+- Unauthorised escalation of access or responsibilities
+- Credential sharing (someone else used the account)
+- A data integrity incident being covered up
+
+**Confidence labelling:** The rationale always states the number of prior events
+observed, so the reviewer can judge statistical significance. A user with 200 prior
+events performing their first-ever delete is far more anomalous than a user with 6.
+
+**Important limitation:** This rule requires sufficient history in the uploaded file.
+Short-period exports (under 30 days) will produce many "first-time" flags that
+are simply normal activity not captured in the window. For reliable detection,
+upload audit trails covering at least 3 months.
+
+**Minimum prior events:** 5. Users with fewer than 5 recorded events are skipped
+to exclude newly created accounts where any action is technically a "first time."
+
 ### Rule 14 — Dormant Account Sudden Activity [Risk: HIGH]
 **Target:** All users with at least 4 events in the uploaded audit trail.
 **Trigger:** A user has no activity for 90 or more consecutive days, then
@@ -6462,7 +7122,9 @@ Each event receives scores across all 14 rules. A weighted composite (0–10):
 | 12 | Timestamp Reversal | 9% |
 | 13 | Service Account | 9% |
 | 14 | Dormant Account | 7% |
-| | **Total** | **107%** |
+| 15 | Suspicious Sequence | 9% |
+| 16 | First-Time Behavior | 7% |
+| | **Total** | **123%** |
 
 *Note: Weights are normalised internally — the sum does not need to equal 100%.*
 
@@ -6495,12 +7157,37 @@ downgraded by a low composite score.
 
 ---
 
+## Review Narrative (Summary Sheet)
+
+Following the detection analysis, the Summary sheet includes a **Review Narrative**
+section — a plain-English paragraph summarising the key findings of the review.
+This section is generated deterministically from the scored data with no LLM
+involvement, making it fully reproducible.
+
+The narrative covers:
+1. **Volume statement** — total events reviewed, period covered, events escalated
+2. **Key findings** — one sentence per significant rule triggered (max 4 findings),
+   naming the user, record, and action type involved
+3. **Overall risk assessment** — concludes with one of five risk levels:
+   - High risk — 2+ Critical findings
+   - Moderate-to-high risk — 1 Critical finding
+   - Moderate risk — 3+ High findings
+   - Low-to-moderate risk — 1–2 High findings
+   - Low risk — no Critical or High findings
+
+The narrative is intended to be copied into the introduction of the Periodic Review
+Report Section 9.1.6 or used as a management summary.
+
+---
+
+---
+
 ## Not Yet Implemented — Planned Rules
 
 These checks were designed and scoped but not yet built into the engine.
 They are documented here for transparency and future CSV planning.
 
-### Planned Rule 15 — Shared Account / Same User, Two Locations
+### Planned Rule 16 — Shared Account / Same User, Two Locations
 **What it detects:** The same user_id performing actions from two different
 IP addresses within 30 minutes — physically impossible for one person.
 **Why not yet built:** Requires an IP address or workstation column in the
@@ -6508,14 +7195,14 @@ audit trail export. Many systems do not include this by default. Will be
 activated automatically when the column mapper detects an IP column.
 **Regulatory basis:** 21 CFR Part 11 §11.300.
 
-### Planned Rule 16 — Bulk Export Before Departure
+### Planned Rule 17 — Bulk Export Before Departure
 **What it detects:** A user exporting or printing large volumes of records
 (SELECT, EXPORT, PRINT actions) close to their account deactivation date.
 **Why not yet built:** Requires an HR termination date as a second input file.
 Cannot be determined from the audit trail alone.
 **Regulatory basis:** Data protection and confidentiality requirements.
 
-### Planned Rule 17 — Activity During Approved Maintenance Window
+### Planned Rule 18 — Activity During Approved Maintenance Window
 **What it detects:** User activity during a scheduled system maintenance
 window, indicating either the maintenance did not occur as planned, or
 unauthorised activity occurred during the maintenance period.
@@ -6523,7 +7210,7 @@ unauthorised activity occurred during the maintenance period.
 change control system) as a second input file.
 **Regulatory basis:** 21 CFR Part 11 §11.10(e).
 
-### Planned Rule 18 — Account Created and Used Same Day
+### Planned Rule 19 — Account Created and Used Same Day
 **What it detects:** A new user account that is created and then used to
 perform GxP data actions on the same day, before training records could
 have been completed.
@@ -6557,6 +7244,7 @@ the following test cases should be executed against the sample CSV template
 | Approval timestamp before creation, same record | Rule 12 | Critical |
 | svc_batch INSERT RESULTS | Rule 13 | Critical |
 | Same user, 90+ day gap, then GxP action | Rule 14 | High |
+| User with 50+ events performs first-ever DELETE | Rule 16 | High |
 
 *This document was generated by the Audit Trail Intelligence module and
 represents the validated detection logic at the time of this release.
@@ -6565,6 +7253,7 @@ Review and approve as part of the Computer System Validation package.*
 
         def _detection_logic_pdf() -> bytes:
             """Return Detection Logic as a plain-text UTF-8 encoded file."""
+            st.session_state["at_detection_logic_text"] = DETECTION_LOGIC
             return DETECTION_LOGIC.encode("utf-8")
 
         with st.expander(
@@ -6575,6 +7264,7 @@ Review and approve as part of the Computer System Validation package.*
                 "<div style='max-height:420px;overflow-y:auto;padding:0 8px;'>",
                 unsafe_allow_html=True
             )
+            st.session_state["at_detection_logic_text"] = DETECTION_LOGIC
             st.markdown(DETECTION_LOGIC)
             st.markdown("</div>", unsafe_allow_html=True)
             st.download_button(
@@ -7018,9 +7708,48 @@ match your system's export column names to the fields above — rename nothing i
 
                 st.write(f"⚡ Step 2: Scoring {len(scored):,} events across 6 dimensions...")
                 prog.progress(0.45)
-                # Select Top 20 — deduplicated: burst events show only once
-                non_dup = scored[~scored.get("_is_burst_dup", pd.Series(False, index=scored.index))]
-                top20   = non_dup.head(_AT_TOP_N).copy()
+                # ── Select Top 20 with two filters ────────────────────────────
+                # Filter 1: Remove burst duplicates (already built)
+                # Filter 2: Named rule gate — events only enter Top 20 if at
+                #   least one named rule (Rules 1–15) fired above minimum score.
+                #   Pure dimension-score events with no named rule are noise
+                #   and erode reviewer trust in the tool.
+                _NAMED_RULE_COLS = [
+                    "score_rule1_vague_rationale",
+                    "score_rule2_burst",
+                    "score_rule3_admin_conflict",
+                    "score_rule4_drift",
+                    "score_rule5_failed_login",
+                    "score_del_recreate",               # Rule 6
+                    "score_record",                     # Rule 7 (audit trail ctrl)
+                    "score_privilege",                  # Rule 8
+                    "score_rule12_timestamp_reversal",
+                    "score_rule13_service_account",
+                    "score_rule14_dormant_account",
+                    "score_rule15_suspicious_sequence",
+                    "score_rule16_first_time_behavior",
+                ]
+                _GATE_THRESHOLD = 5.0  # minimum score for any named rule to qualify
+
+                def _has_named_rule(row):
+                    return any(
+                        float(row.get(c, 0)) >= _GATE_THRESHOLD
+                        for c in _NAMED_RULE_COLS
+                        if c in row.index
+                    )
+
+                non_dup     = scored[~scored.get("_is_burst_dup",
+                              pd.Series(False, index=scored.index))]
+                has_rule    = non_dup.apply(_has_named_rule, axis=1)
+                qualified   = non_dup[has_rule]
+                # If fewer than TOP_N qualified events, fill remaining slots
+                # with highest-scoring unqualified events so report is never empty
+                if len(qualified) < _AT_TOP_N:
+                    remainder = non_dup[~has_rule].head(
+                        _AT_TOP_N - len(qualified))
+                    qualified = pd.concat([qualified, remainder],
+                                          ignore_index=True)
+                top20 = qualified.head(_AT_TOP_N).copy()
 
                 st.write(f"🤖 Step 3: AI justifications for top {_AT_TOP_N} events...")
                 prog.progress(0.65)
@@ -7150,6 +7879,14 @@ match your system's export column names to the fields above — rename nothing i
                     )
 
             action_req = str(row.get("Action_Required",""))
+            chain_id   = str(row.get("Event_Chain_ID",""))
+            chain_badge = (
+                f'&nbsp;<span style="background:#1e1b4b;color:#a5b4fc;'
+                f'border:1px solid #6366f144;padding:2px 8px;border-radius:4px;'
+                f'font-size:0.68rem;font-family:\'IBM Plex Mono\',monospace;">'
+                f'⛓ {chain_id}</span>'
+                if chain_id else ""
+            )
 
             st.markdown(f"""
 <div style="background:#0f172a;border-left:3px solid {bc};border-radius:6px;
@@ -7158,7 +7895,7 @@ match your system's export column names to the fields above — rename nothing i
     <span style="color:{bc};font-weight:700;">Event #{rank}
       <span style="background:{bc}22;border:1px solid {bc}44;color:{bc};
              padding:2px 8px;border-radius:4px;font-size:0.7rem;margin-left:8px;">
-        {tier} · {score:.1f}/10</span></span>
+        {tier} · {score:.1f}/10</span>{chain_badge}</span>
     <span style="color:#334155;font-size:0.72rem;">
       {str(row.get('timestamp',''))}</span>
   </div>
@@ -7203,16 +7940,26 @@ match your system's export column names to the fields above — rename nothing i
 
         # Download
         st.markdown("---")
-        sys_name = st.session_state.get("at_system_name","").strip()
+        sys_name    = st.session_state.get("at_system_name","").strip()
+        r_start     = st.session_state.get("at_review_start","").strip()
+        r_end       = st.session_state.get("at_review_end","").strip()
+
         if not sys_name:
             st.warning("⚠️ Please enter a **System Name** above before downloading. "
                        "The system name is required for the evidence package header.")
         else:
+            if not r_start or not r_end:
+                st.warning(
+                    "⚠️ **Review Period dates not entered.** "
+                    "The narrative in the Summary sheet will read "
+                    "*'(review period dates not specified)'* instead of actual dates. "
+                    "Enter Start and End dates above to include them in the report."
+                )
             xlsx = at_build_excel(
                 top20, scored,
                 sys_name,
-                st.session_state.get("at_review_start","Not specified"),
-                st.session_state.get("at_review_end","Not specified"),
+                r_start  or "(review period dates not specified)",
+                r_end    or "(review period dates not specified)",
                 st.session_state.get("at_file_name",""),
             )
             dl_c, inf_c = st.columns([4,5])
@@ -7228,11 +7975,10 @@ match your system's export column names to the fields above — rename nothing i
             with inf_c:
                 st.markdown(
                     "<p style='color:#475569;font-size:0.8rem;padding-top:8px;'>"
-                    "3 sheets: <b style='color:#e2e8f0;'>Summary</b> (cover page + "
-                    "reviewer sign-off) · "
-                    "<b style='color:#e2e8f0;'>Events for Review</b> (the "
-                    f"{n_esc} escalated findings) · "
-                    "<b style='color:#e2e8f0;'>Full Audit Log</b> (all records scored)"
+                    "4 sheets: <b style='color:#e2e8f0;'>Summary</b> · "
+                    "<b style='color:#e2e8f0;'>Events for Review</b> · "
+                    "<b style='color:#e2e8f0;'>Full Audit Log</b> · "
+                    "<b style='color:#e2e8f0;'>Detection Logic</b>"
                     "<br>Attach to Periodic Review Report Section 9.1.6.</p>",
                     unsafe_allow_html=True
                 )
