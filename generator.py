@@ -76,7 +76,14 @@ ROLES = ["Admin", "QA", "Validator"]
 # language without touching Python, and gives prompt changes their own git history.
 
 def _load_prompt(filename: str) -> str:
-    """Load a prompt template from the prompts/ directory next to this file."""
+    """
+    Load a prompt template from the prompts/ directory next to this file.
+    Supports subdirectory paths e.g. 'change_impact/pass3_justification.md'.
+    Skills are organised by mode:
+      prompts/                        ← shared gateway prompts
+      prompts/new_validation/         ← New Validation mode
+      prompts/change_impact/          ← Change Impact Analysis mode
+    """
     prompt_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "prompts")
     path       = os.path.join(prompt_dir, filename)
     try:
@@ -89,12 +96,19 @@ def _load_prompt(filename: str) -> str:
         return ""
 
 # Load all prompt templates at module level — single I/O hit at startup
-_PROMPT_SYSTEM_RAW          = _load_prompt("system_prompt.md")
-_PROMPT_PREFLIGHT_RAW       = _load_prompt("preflight_classifier.md")
-_PROMPT_PASS1_RAW           = _load_prompt("pass1_urs_extraction.md")
-_PROMPT_PASS2_RAW           = _load_prompt("pass2_frs_oq_gap.md")
-_PROMPT_CIA_PASS1_RAW       = _load_prompt("cia_pass1_change_extraction.md")
-_PROMPT_CIA_PASS2_RAW       = _load_prompt("cia_pass2_impact_mapping.md")
+#
+# Shared gateway prompts (root level — used across all modes)
+_PROMPT_SYSTEM_RAW     = _load_prompt("system_prompt.md")
+_PROMPT_PREFLIGHT_RAW  = _load_prompt("preflight_classifier.md")
+#
+# New Validation mode prompts
+_PROMPT_PASS1_RAW      = _load_prompt("new_validation/pass1_urs_extraction.md")
+_PROMPT_PASS2_RAW      = _load_prompt("new_validation/pass2_frs_oq_gap.md")
+#
+# Change Impact Analysis mode prompts
+_PROMPT_CIA_PASS1_RAW  = _load_prompt("change_impact/pass1_change_extraction.md")
+_PROMPT_CIA_PASS2_RAW  = _load_prompt("change_impact/pass2_impact_mapping.md")
+_PROMPT_CIA_PASS3_RAW  = _load_prompt("change_impact/pass3_justification.md")
 
 # =============================================================================
 # 1b. SECURITY HELPERS
@@ -3710,6 +3724,52 @@ def build_cia_pass2_prompt(
     )
 
 
+def build_cia_pass3_prompt(
+    frs_impact_df: pd.DataFrame,
+    oq_impact_df:  pd.DataFrame,
+    change_spec_text: str,
+) -> str:
+    """
+    Build the Pass 3 justification prompt.
+    Only feeds Must_Update, New_Required, and Obsolete rows — the three statuses
+    that require Change Control justification strings. Needs_Review rows are
+    excluded because they do not trigger Change Control actions.
+    """
+    action_statuses = {"Must_Update", "New_Required", "Obsolete"}
+
+    frs_rows = pd.DataFrame()
+    if not frs_impact_df.empty and "Impact_Status" in frs_impact_df.columns:
+        frs_rows = frs_impact_df[
+            frs_impact_df["Impact_Status"].astype(str).isin(action_statuses)
+        ].copy()
+        frs_rows["Document_Type"] = "FRS"
+        # Rename FRS_ID → Document_ID for the unified prompt
+        if "FRS_ID" in frs_rows.columns:
+            frs_rows = frs_rows.rename(columns={"FRS_ID": "Document_ID"})
+
+    oq_rows = pd.DataFrame()
+    if not oq_impact_df.empty and "Impact_Status" in oq_impact_df.columns:
+        oq_rows = oq_impact_df[
+            oq_impact_df["Impact_Status"].astype(str).isin(action_statuses)
+        ].copy()
+        oq_rows["Document_Type"] = "OQ"
+        if "OQ_ID" in oq_rows.columns:
+            oq_rows = oq_rows.rename(columns={"OQ_ID": "Document_ID"})
+
+    # Combine and select only the columns the prompt needs
+    keep_cols = ["Document_ID", "Document_Type", "Impact_Status",
+                 "Change_Driver", "Rationale"]
+    combined  = pd.concat([frs_rows, oq_rows], ignore_index=True)
+    avail     = [c for c in keep_cols if c in combined.columns]
+    impacted_csv = combined[avail].to_csv(index=False) if not combined.empty else "No actionable rows."
+
+    return _PROMPT_CIA_PASS3_RAW.format(
+        impacted_csv      = impacted_csv,
+        change_spec_text  = change_spec_text[:4000],
+    )
+
+
+
 def run_cia_analysis(
     change_spec_bytes: bytes,
     frs_bytes: bytes,
@@ -3721,7 +3781,8 @@ def run_cia_analysis(
 ) -> dict:
     """
     Full Change Impact Analysis pipeline.
-    Returns dict with keys: chg_df, frs_impact_df, oq_impact_df, summary
+    Returns dict with keys: chg_df, frs_impact_df, oq_impact_df,
+    justification_df, cia_gap_df, summary
     """
     from litellm import completion as _completion
 
@@ -3924,6 +3985,46 @@ def run_cia_analysis(
                         f"{len(propagated) - len(new_rows)} existing rows upgraded."
                     )
 
+    # ── Pass 3 — GxP Justification String Generation ─────────────────────────
+    # Runs after Python trace propagation so the complete, final impact tables
+    # (including all trace-propagated rows) feed into the justification prompt.
+    # Only Must_Update, New_Required, and Obsolete rows are processed —
+    # these are the only statuses that require Change Control justifications.
+    justification_df = pd.DataFrame(
+        columns=["Document_ID", "Document_Type", "Impact_Status", "Justification_String"]
+    )
+    try:
+        status_widget.text("✍️ Pass 3 — Generating GxP justification strings for Change Control...")
+        progress_widget.progress(0.85)
+
+        p3_resp = _completion(
+            model=model_id, stream=False, temperature=0.1,  # lower temp for deterministic phrasing
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user",   "content": build_cia_pass3_prompt(
+                    frs_impact_df, oq_impact_df, chg_text
+                )}
+            ]
+        )
+        raw_p3 = p3_resp.choices[0].message.content or ""
+        raw_p3 = re.sub(r'^```[a-zA-Z]*\n?', '', raw_p3, flags=re.MULTILINE)
+        raw_p3 = re.sub(r'```\s*$', '', raw_p3, flags=re.MULTILINE).strip()
+        justification_df = _csv_to_df(raw_p3)
+
+        # Validate expected columns came back — if not, create an empty shell
+        expected = {"Document_ID", "Document_Type", "Impact_Status", "Justification_String"}
+        if not expected.issubset(set(justification_df.columns)):
+            justification_df = pd.DataFrame(columns=list(expected))
+
+        status_widget.text(
+            f"✅ Pass 3 complete — "
+            f"{len(justification_df)} justification string(s) generated."
+        )
+    except Exception as p3_err:
+        # Pass 3 failure is non-fatal — triage output still stands
+        import warnings
+        warnings.warn(f"Pass 3 justification generation failed: {p3_err}")
+
     # ── Trace Coverage Verification ───────────────────────────────────────────
     # Compute what % of OQ tests in the uploaded OQ file appear in the trace matrix.
     # Orphan OQ tests (in OQ file but not in trace) indicate broken traceability.
@@ -3996,11 +4097,12 @@ def run_cia_analysis(
     }
 
     return {
-        "chg_df":        chg_df,
-        "frs_impact_df": frs_impact_df,
-        "oq_impact_df":  oq_impact_df,
-        "cia_gap_df":    cia_gap_df,
-        "summary":       summary,
+        "chg_df":           chg_df,
+        "frs_impact_df":    frs_impact_df,
+        "oq_impact_df":     oq_impact_df,
+        "cia_gap_df":       cia_gap_df,
+        "justification_df": justification_df,
+        "summary":          summary,
     }
 
 
@@ -4022,7 +4124,19 @@ def build_cia_excel(result: dict, user: str, file_name: str, model_name: str) ->
         result["frs_impact_df"].to_excel(writer, sheet_name="FRS_Impact", index=False)
         # Sheet 3 — OQ Impact
         result["oq_impact_df"].to_excel(writer, sheet_name="OQ_Impact", index=False)
-        # Sheet 4 — Gaps (New_Required items with no test coverage)
+        # Sheet 4 — GxP Justification Strings (Change Control ready)
+        just_df = result.get("justification_df", pd.DataFrame())
+        if not just_df.empty:
+            # Add watermark column — regulatory artefact notice
+            just_df = just_df.copy()
+            just_df["Review_Status"] = "AI-PROPOSED — Human review and attestation required"
+            just_df.to_excel(writer, sheet_name="Justifications", index=False)
+        else:
+            pd.DataFrame({
+                "Note": ["Pass 3 justification generation produced no output. "
+                         "Re-run the analysis or draft justifications manually."]
+            }).to_excel(writer, sheet_name="Justifications", index=False)
+        # Sheet 5 — Gaps (New_Required items with no test coverage)
         cia_gap_df = result.get("cia_gap_df", pd.DataFrame())
         if not cia_gap_df.empty:
             cia_gap_df.to_excel(writer, sheet_name="Gaps", index=False)
@@ -4032,7 +4146,7 @@ def build_cia_excel(result: dict, user: str, file_name: str, model_name: str) ->
 
         wb = writer.book
 
-        for sheet_name in ["Changes", "FRS_Impact", "OQ_Impact", "Gaps"]:
+        for sheet_name in ["Changes", "FRS_Impact", "OQ_Impact", "Justifications", "Gaps"]:
             if sheet_name not in wb.sheetnames:
                 continue
             ws  = wb[sheet_name]
@@ -4064,18 +4178,26 @@ def build_cia_excel(result: dict, user: str, file_name: str, model_name: str) ->
             ws.auto_filter.ref = ws.dimensions
             ws.freeze_panes    = "A2"
             ws.sheet_properties.tabColor = (
-                "DC2626" if sheet_name == "FRS_Impact" else
-                "D97706" if sheet_name == "OQ_Impact"  else
-                "EA580C" if sheet_name == "Gaps"        else "1E3A5F"
+                "DC2626" if sheet_name == "FRS_Impact"    else
+                "D97706" if sheet_name == "OQ_Impact"     else
+                "EA580C" if sheet_name == "Gaps"          else
+                "7C3AED" if sheet_name == "Justifications" else "1E3A5F"
             )
             for col in range(1, ws.max_column + 1):
                 cl = get_column_letter(col)
-                ws.column_dimensions[cl].width = min(
-                    max(14, max(
-                        (len(str(ws.cell(r, col).value or "")) for r in range(1, ws.max_row + 1)),
-                        default=14
-                    ) + 4), 60
-                )
+                hdr_val = str(ws.cell(1, col).value or "")
+                # Justification_String needs extra width for long sentences
+                if hdr_val == "Justification_String":
+                    ws.column_dimensions[cl].width = 90
+                elif hdr_val == "Review_Status":
+                    ws.column_dimensions[cl].width = 50
+                else:
+                    ws.column_dimensions[cl].width = min(
+                        max(14, max(
+                            (len(str(ws.cell(r, col).value or "")) for r in range(1, ws.max_row + 1)),
+                            default=14
+                        ) + 4), 60
+                    )
 
         # Summary sheet
         s = result["summary"]
@@ -4125,9 +4247,9 @@ def build_cia_excel(result: dict, user: str, file_name: str, model_name: str) ->
             "Action": [
                 "Review full change table",
                 "Update before next validation cycle", "Human review required",
-                "Mark retired in document register",   "Generate new FRS rows",
+                "Mark retired in document register",   "Generate new FRS rows — see Justifications sheet",
                 "Re-execute tests after update",       "Re-verify before sign-off",
-                "Retire from test suite",              "Generate new OQ tests",
+                "Retire from test suite",              "Generate new OQ tests — see Justifications sheet",
                 "", "", "",                # Trace Coverage section (3 rows)
                 "", "", "", "",            # Confidence Guide section (4 rows)
                 "", "", "", "", "",        # Risk Category section (5 rows: header + 4 values)
@@ -4473,6 +4595,70 @@ def show_change_impact(user: str, role: str, model_id: str):
                 st.dataframe(cia_gap_df, use_container_width=True)
             else:
                 st.success("✅ No gaps detected — all changes have existing test coverage.")
+
+        # ── Pass 3: GxP Justification Strings ────────────────────────────────
+        just_df = cia_res.get("justification_df", pd.DataFrame())
+        n_just  = len(just_df) if not just_df.empty else 0
+        with st.expander(
+            f"✍️ Change Control Justification Strings ({n_just} item(s))",
+            expanded=n_just > 0
+        ):
+            if just_df.empty or n_just == 0:
+                st.info("No justification strings were generated. "
+                        "Re-run the analysis or draft manually.")
+            else:
+                # Watermark banner
+                st.markdown("""
+<div style="background:#1e1b4b;border:2px solid #7c3aed;border-radius:8px;
+            padding:12px 18px;margin-bottom:16px;">
+  <p style="margin:0;color:#c4b5fd;font-size:0.8rem;font-weight:600;">
+    ⚠️ AI-PROPOSED DRAFT — Human review and attestation required before use in any
+    regulatory submission, Change Control record, or Impact Assessment.
+    The Validation Engineer is responsible for verifying the accuracy of each
+    string against the source documents before copying to a Change Control form.
+  </p>
+</div>""", unsafe_allow_html=True)
+
+                # Acknowledgement checkbox — creates an implicit review record
+                ack = st.checkbox(
+                    "I have reviewed these justification strings against the source "
+                    "Change Specification and FRS/OQ documents and confirm they are "
+                    "accurate before use.",
+                    key="cia_just_ack"
+                )
+
+                st.markdown("<br>", unsafe_allow_html=True)
+
+                # Display each justification as a copy-friendly card
+                for _, jrow in just_df.iterrows():
+                    doc_id    = str(jrow.get("Document_ID",        "—"))
+                    doc_type  = str(jrow.get("Document_Type",      "—"))
+                    status    = str(jrow.get("Impact_Status",      "—"))
+                    just_str  = str(jrow.get("Justification_String",""))
+
+                    status_color = {
+                        "Must_Update":  "#dc2626",
+                        "New_Required": "#2563eb",
+                        "Obsolete":     "#6b7280",
+                    }.get(status, "#d97706")
+
+                    st.markdown(f"""
+<div style="background:#0f172a;border-left:3px solid {status_color};
+            border-radius:6px;padding:14px 18px;margin-bottom:10px;">
+  <div style="display:flex;gap:10px;align-items:center;margin-bottom:8px;">
+    <span style="background:{status_color}22;border:1px solid {status_color}66;
+           color:{status_color};padding:2px 8px;border-radius:4px;
+           font-size:0.72rem;font-weight:600;">{doc_type} · {doc_id}</span>
+    <span style="background:#1e293b;color:#94a3b8;padding:2px 8px;border-radius:4px;
+           font-size:0.72rem;">{status}</span>
+  </div>
+  <p style="margin:0;color:#e2e8f0;font-size:0.88rem;line-height:1.6;
+            font-style:italic;">"{just_str}"</p>
+</div>""", unsafe_allow_html=True)
+
+                if not ack:
+                    st.caption("☝️ Check the box above to confirm review before using "
+                               "these strings in any formal document.")
 
         # Download
         st.markdown("---")
@@ -4857,7 +5043,7 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
                     f"Rule 2 — Contemporaneous Burst [MEDIUM]: {count+1} INSERT actions "
                     f"by user '{us_arr[i]}' within 15 minutes. Exceeds the 10-action "
                     "threshold indicating batch processing from memory or paper scraps "
-                    "rather than real-time entry. Violates ALCOA+ Contemporaneous principle."
+                    "rather than real-time entry, which is inconsistent with the ALCOA+ Contemporaneous principle (FDA Data Integrity Guidance, 2018)."
                 )
     df["score_rule2_burst"]    = r2_scores
     df["rule2_rationale"]      = r2_rationale
@@ -4878,8 +5064,7 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
                 f"Rule 3 — Admin/GxP Conflict [CRITICAL]: Role '{row.get('role','')}' "
                 f"performed {row.get('action_type','')} on production GxP table "
                 f"'{row.get('record_type','')}'. Admins must maintain system configuration "
-                "only — modifying production data violates Segregation of Duties and "
-                "21 CFR Part 11 §11.10(d) access controls."
+                "only — direct modification of production data by an administrative account may indicate a Segregation of Duties gap inconsistent with data integrity expectations under 21 CFR Part 11 §11.10(d) and FDA Data Integrity Guidance (2018)."
             )
         return 0.0, ""
 
@@ -5011,8 +5196,7 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
                         f"Within 30 minutes of login, action '{df_s['action_type'].iloc[k]}' "
                         f"was performed on '{df_s['record_type'].iloc[k] if 'record_type' in df_s.columns else 'GxP record'}'. "
                         f"This sequence indicates potential brute-force access followed by "
-                        f"unauthorised data manipulation, violating 21 CFR Part 11 §11.300 "
-                        f"and ALCOA+ Original data integrity requirements."
+                        f"This sequence may indicate unauthorised data access and manipulation, raising concerns regarding data originality and attributability inconsistent with 21 CFR Part 11 §11.300 and FDA Data Integrity Guidance (2018)."
                     )
                     r5_scores.at[ix_lst[i]] = 10.0
                     r5_scores.at[ix_lst[k]] = 10.0
@@ -5555,7 +5739,7 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
                 f"Rule 9 — High-Volume Activity Burst [MEDIUM]: "
                 f"User '{usr}' performed the same action repeatedly in a short time window. "
                 "This pattern may indicate automated or retrospective data entry rather than "
-                "real-time recording, which violates the ALCOA+ Contemporaneous principle."
+                "real-time recording, which may be inconsistent with the ALCOA+ Contemporaneous principle as described in FDA Data Integrity Guidance (2018)."
             )
         if gap_s >= 7:
             parts.append(
@@ -5722,8 +5906,7 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
                     "unauthorised access. This pattern requires a formal investigation.")
         if r3 >= 8:
             return ("Escalate to CAPA",
-                    "An administrator directly modified production data. This violates "
-                    "Segregation of Duties and requires a formal non-conformance.")
+                    "An administrator directly modified production data, which may indicate a Segregation of Duties gap requiring documented justification and formal review.")
         if r6 >= 9:
             return ("Escalate to CAPA",
                     f"A record was deleted and recreated with potentially altered values. "
@@ -5881,17 +6064,17 @@ def _at_deterministic_justification(row: dict) -> str:
 
     # Regulatory citation mapping
     reg_map = {
-        "Rule 1 — Vague Rationale":       "21 CFR Part 211.68 and ALCOA+ Attributable/Legible principles",
-        "Rule 2 — Contemporaneous Burst":  "ALCOA+ Contemporaneous principle",
-        "Rule 3 — Admin/GxP Conflict":     "21 CFR Part 11 §11.10(d) access controls and Segregation of Duties",
-        "Rule 4 — Change Control Drift":   "21 CFR Part 820.70(b) validated state requirements",
-        "Rule 5 — Failed Login→Data Manipulation": "21 CFR Part 11 §11.300 and ALCOA+ Original data integrity",
-        "Temporal anomaly":                "21 CFR Part 11 §11.10(e) audit trail review requirements",
-        "Velocity burst":                  "ALCOA+ Contemporaneous principle",
-        "Privilege conflict":              "21 CFR Part 11 §11.10(d) access controls",
-        "Record sensitivity":              "21 CFR Part 11 §11.10(e) and EU Annex 11 Clause 9",
-        "Delete-recreate pattern":         "21 CFR Part 11 §11.10(e) and ALCOA+ Original data integrity",
-        "Timestamp gap":                   "21 CFR Part 11 §11.10(e) — audit trail completeness",
+        "Rule 1 — Vague Rationale":       "data integrity expectations under FDA Data Integrity Guidance (2018) and ALCOA+ Attributable/Legible principles",
+        "Rule 2 — Contemporaneous Burst":  "the ALCOA+ Contemporaneous principle (FDA Data Integrity Guidance, 2018)",
+        "Rule 3 — Admin/GxP Conflict":     "data integrity expectations under 21 CFR Part 11 §11.10(d) and FDA Guidance on Computerised Systems (2003)",
+        "Rule 4 — Change Control Drift":   "validated state expectations under 21 CFR Part 820.70(b) and FDA Data Integrity Guidance (2018)",
+        "Rule 5 — Failed Login→Data Manipulation": "data originality and attributability expectations under ALCOA+ principles and FDA Data Integrity Guidance (2018)",
+        "Temporal anomaly":                "audit trail review expectations under 21 CFR Part 11 §11.10(e) and FDA Data Integrity Guidance (2018)",
+        "Velocity burst":                  "the ALCOA+ Contemporaneous principle (FDA Data Integrity Guidance, 2018)",
+        "Privilege conflict":              "access control expectations under 21 CFR Part 11 §11.10(d)",
+        "Record sensitivity":              "audit trail integrity expectations under 21 CFR Part 11 §11.10(e) and EU Annex 11 Clause 9",
+        "Delete-recreate pattern":         "data originality expectations under 21 CFR Part 11 §11.10(e) and ALCOA+ Original principle",
+        "Timestamp gap":                   "audit trail completeness expectations under 21 CFR Part 11 §11.10(e)",
     }
     reg_cite = reg_map.get(top_dim, "21 CFR Part 11 §11.10(e) and EU Annex 11 Clause 9")
 
@@ -5936,8 +6119,8 @@ def _at_deterministic_justification(row: dict) -> str:
         )
 
     sentence2 = (
-        f"The compliance risk relates to {reg_cite}, which requires all GxP data "
-        f"modifications to be attributable, justified, and reviewable during periodic review."
+        f"This pattern may indicate a data integrity risk inconsistent with {reg_cite}, "
+        f"which describes expectations for attributable, contemporaneous, and auditable GxP records."
     )
 
     sentence3 = action_req
@@ -6031,7 +6214,7 @@ Plain English. Specific. Adds insight. Two sentences only."""
         justifications.append(text)
 
     top_df = top_df.copy()
-    top_df["AI_Justification"] = justifications
+    top_df["AI_Justification"] = justifications  # internal key unchanged for compatibility
     return top_df
 
 
@@ -6535,7 +6718,7 @@ def at_build_excel(top_df, scored_df, system_name, r_start, r_end, fname) -> byt
         ("Event\nChain ID",  "Event_Chain_ID",    12),
         ("Why It Matters",   "Rule_Rationale",    52),
         ("Recommended Action","Action_Required",  52),
-        ("AI Summary",       "AI_Justification",  52),
+        ("System Narrative", "AI_Justification",  52),
         ("Suggested\nDisposition",
                              "Suggested_Disposition", 26),
         ("Basis for\nSuggestion",
@@ -8849,7 +9032,7 @@ match your system's export column names to the fields above — rename nothing i
                                           ignore_index=True)
                 top20 = qualified.head(_AT_TOP_N).copy()
 
-                st.write(f"🤖 Step 3: AI justifications for top {_AT_TOP_N} events...")
+                st.write(f"✍️ Step 3: Generating system narratives for top {_AT_TOP_N} events...")
                 prog.progress(0.65)
                 top20  = at_generate_justifications(top20, model_id)
 
@@ -8888,19 +9071,23 @@ match your system's export column names to the fields above — rename nothing i
         # ── Hero banner ───────────────────────────────────────────────────────
         st.markdown(f"""
 <div style="background:#0f172a;border:2px solid #38bdf8;border-radius:10px;
-            padding:18px 24px;margin-bottom:18px;">
+            padding:18px 24px;margin-bottom:12px;">
   <p style="margin:0;color:#475569;font-size:0.68rem;letter-spacing:3px;
             text-transform:uppercase;font-family:'Inter',sans-serif;">
-    Analysis Complete — {st.session_state.get('at_system_name','System')}</p>
-  <p style="margin:6px 0 4px;font-size:2.2rem;font-weight:800;color:#38bdf8;
-            line-height:1;font-family:'Inter',sans-serif;">
-    {n_total:,} events analysed</p>
-  <p style="margin:0;font-size:0.88rem;color:#64748b;">
-    <span style="color:#4ade80;font-weight:700;">{pct_clr}% auto-cleared</span>
-    &nbsp;·&nbsp;
-    <span style="color:#fca5a5;font-weight:700;">{n_esc} escalated for review</span>
-    &nbsp;·&nbsp;
-    <span style="color:#94a3b8;">{st.session_state.get('at_file_name','')}</span>
+    Audit Trail Review Complete — {st.session_state.get('at_system_name','System')}</p>
+  <div style="display:flex;align-items:baseline;gap:20px;margin:8px 0 4px;">
+    <p style="margin:0;font-size:2.4rem;font-weight:800;color:#4ade80;
+              line-height:1;font-family:'Inter',sans-serif;">{pct_clr}%
+      <span style="font-size:1rem;font-weight:500;color:#4ade80;"> auto-cleared</span>
+    </p>
+    <p style="margin:0;font-size:1.1rem;font-weight:600;color:#38bdf8;">
+      {n_esc} of {n_total:,} events escalated for human review
+    </p>
+  </div>
+  <p style="margin:4px 0 0;font-size:0.8rem;color:#475569;font-style:italic;">
+    Only events where a named detection rule fired above threshold are escalated —
+    dimension scores alone cannot trigger an escalation.
+    &nbsp;·&nbsp; {st.session_state.get('at_file_name','')}
   </p>
 </div>""", unsafe_allow_html=True)
 
@@ -9081,17 +9268,26 @@ match your system's export column names to the fields above — rename nothing i
                     if chain_id else ""
                 )
 
+                sugg_disp = str(row.get("Suggested_Disposition",""))
+                sugg_rat  = str(row.get("Suggested_Disposition_Rationale",""))
+                disp_color = {
+                    "Escalate to CAPA":               "#dc2626",
+                    "Investigate — Verify Source Data":"#2563eb",
+                    "Justified — Amendment Required":  "#d97706",
+                    "Justified — Document Rationale":  "#16a34a",
+                    "Justified — No Action Required":  "#475569",
+                }.get(sugg_disp, "#475569")
+
                 st.markdown(f"""
 <div style="background:#0f172a;border-left:3px solid {bc};border-radius:6px;
             padding:14px 18px;">
-  <div style="display:flex;justify-content:space-between;margin-bottom:8px;">
+  <div style="display:flex;justify-content:space-between;margin-bottom:10px;">
     <span style="color:{bc};font-weight:700;">Event #{rank}
       <span style="background:{bc}22;border:1px solid {bc}44;color:{bc};
              padding:2px 8px;border-radius:4px;font-size:0.7rem;margin-left:8px;">
         {tier} · {score:.1f}/10</span>{chain_badge}</span>
     <span style="color:#334155;font-size:0.72rem;">{str(row.get('timestamp',''))}</span>
   </div>
-  {f'<div style="margin-bottom:8px;">{badges_html}</div>' if badges_html else ''}
   <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;
               font-size:0.8rem;margin-bottom:10px;">
     <div><span style="color:#475569;">User: </span>
@@ -9105,19 +9301,42 @@ match your system's export column names to the fields above — rename nothing i
     <div><span style="color:#475569;">Record Type: </span>
          <span style="color:#e2e8f0;">{row.get('record_type','—')}</span></div>
     <div><span style="color:#475569;">Comment: </span>
-         <span style="color:{'#fbbf24' if row.get('score_rule1_vague_rationale',0)>0 else '#e2e8f0'};">
+         <span style="color="{'#fbbf24' if row.get('score_rule1_vague_rationale',0)>0 else '#e2e8f0'}">
            {str(row.get('comments','—'))[:60]}</span></div>
   </div>
-  {f'<div style="background:#1a0f2e;border:1px solid #7c3aed44;border-radius:4px;padding:8px 12px;margin-bottom:8px;"><p style="color:#475569;font-size:0.67rem;text-transform:uppercase;letter-spacing:1px;margin:0 0 4px;">Rule Rationale</p><p style="color:#c4b5fd;font-size:0.79rem;line-height:1.4;margin:0;">{rule_rat[:300]}</p></div>' if rule_rat else ''}
-  {f'<div style="background:#0f1f12;border:1px solid #16a34a44;border-radius:4px;padding:8px 12px;margin-bottom:8px;"><p style="color:#475569;font-size:0.67rem;text-transform:uppercase;letter-spacing:1px;margin:0 0 4px;">Recommended Action</p><p style="color:#86efac;font-size:0.79rem;line-height:1.4;margin:0;">{action_req}</p></div>' if action_req else ''}
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
-    <div><p style="color:#475569;font-size:0.67rem;text-transform:uppercase;
-             letter-spacing:1px;margin:0 0 5px;">Dimension Scores</p>
-         {dim_html}</div>
-    <div><p style="color:#475569;font-size:0.67rem;text-transform:uppercase;
-             letter-spacing:1px;margin:0 0 5px;">AI Justification</p>
-         <p style="color:#cbd5e1;font-size:0.81rem;line-height:1.5;margin:0;">
-           {str(row.get('AI_Justification',''))}</p></div>
+  {f'<div style="margin-bottom:8px;">{badges_html}</div>' if badges_html else ''}
+  {f'''<div style="background:#1a0f2e;border:1px solid #7c3aed44;border-radius:4px;
+              padding:10px 14px;margin-bottom:8px;">
+    <p style="color:#7c3aed;font-size:0.67rem;text-transform:uppercase;
+              letter-spacing:1px;margin:0 0 5px;font-weight:700;">&#9312; Why Flagged &mdash; Risk Indicator</p>
+    <p style="color:#c4b5fd;font-size:0.81rem;line-height:1.5;margin:0;">{rule_rat[:350]}</p>
+  </div>''' if rule_rat else ''}
+  {f'''<div style="background:#0c1a2e;border:1px solid {disp_color}44;border-radius:4px;
+              padding:10px 14px;margin-bottom:8px;">
+    <p style="color:{disp_color};font-size:0.67rem;text-transform:uppercase;
+              letter-spacing:1px;margin:0 0 5px;font-weight:700;">&#9313; Suggested Disposition &mdash; {sugg_disp}</p>
+    <p style="color:#94a3b8;font-size:0.79rem;line-height:1.4;margin:0;">{sugg_rat}</p>
+  </div>''' if sugg_disp else ''}
+  {f'''<div style="background:#0f1f12;border:1px solid #16a34a44;border-radius:4px;
+              padding:10px 14px;margin-bottom:8px;">
+    <p style="color:#16a34a;font-size:0.67rem;text-transform:uppercase;
+              letter-spacing:1px;margin:0 0 5px;font-weight:700;">&#9314; Action Required</p>
+    <p style="color:#86efac;font-size:0.79rem;line-height:1.4;margin:0;">{action_req}</p>
+  </div>''' if action_req else ''}
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:4px;">
+    <div>
+      <p style="color:#334155;font-size:0.67rem;text-transform:uppercase;
+               letter-spacing:1px;margin:0 0 5px;">&#9315; Dimension Scores</p>
+      {dim_html}
+    </div>
+    <div>
+      <p style="color:#334155;font-size:0.67rem;text-transform:uppercase;
+               letter-spacing:1px;margin:0 0 5px;">&#9316; System-generated Narrative</p>
+      <p style="color:#475569;font-size:0.73rem;font-style:italic;margin:0 0 4px;">
+        Derived from triggered rule findings. Reviewer must verify before use.</p>
+      <p style="color:#cbd5e1;font-size:0.79rem;line-height:1.5;margin:0;">
+        {str(row.get('AI_Justification',''))}</p>
+    </div>
   </div>
 </div>""", unsafe_allow_html=True)
 
