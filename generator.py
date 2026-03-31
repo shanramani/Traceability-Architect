@@ -8785,6 +8785,17 @@ match your system's export column names to the fields above — rename nothing i
                 type="primary", use_container_width=True, key="at_run_btn"
             )
 
+        st.markdown("<br>", unsafe_allow_html=True)
+        _, na2_col, _ = st.columns([3, 4, 3])
+        with na2_col:
+            if st.button("🔄 Start New Analysis", key="at_reset_btn_pre",
+                         use_container_width=True):
+                for k in ["at_raw_df","at_mapped_df","at_scored_df","at_top20_df",
+                          "at_file_name","at_mapping_done","at_analysis_done","at_total_events"]:
+                    st.session_state[k] = _defaults.get(k)
+                st.session_state["at_key_n"] = st.session_state.get("at_key_n",0) + 1
+                st.rerun()
+
         if run:
             prog   = st.progress(0)
             status = st.empty()
