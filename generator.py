@@ -5427,7 +5427,7 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
     # whether "first time" is statistically meaningful.
 
     _HIGH_RISK_FIRST_ACTIONS = {
-        "delete","del","remove","purge","void","cancel",
+        "delete","del","purge",
         "approve","release","authorise","authorize","sign",
         "override","batch_release","approve_result",
     }
@@ -5485,10 +5485,11 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
                     score = 9.0
                 elif prior >= 20 and is_hira:
                     score = 8.0
-                elif prior >= 20:
-                    score = 6.0
                 elif prior >= _MIN_PRIOR_EVENTS_16 and is_hira:
                     score = 5.0
+                # Note: first-time non-high-risk actions (SELECT, VIEW, READ, etc.)
+                # do not score independently — they require is_hira to fire.
+                # This prevents alert fatigue from routine read operations.
 
                 if score > 0:
                     conf = (
@@ -5836,7 +5837,123 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
         return " | ".join(parts)
     df["Rule_Rationale"] = df.apply(_combined_rat, axis=1)
 
-    # ── Action Required — no SOP references (company-specific SOPs added in Module 3)
+    # ── Regulatory_Basis — one-sentence citation per event ───────────────────
+    # Distinct from Rule_Rationale (which is the full technical description).
+    # This field feeds the "Why It Matters" column in the Excel output — a
+    # single sentence anchored to the data integrity expectation, not the event.
+    _REG_BASIS_MAP = {
+        "score_rule15_suspicious_sequence":
+            "May be inconsistent with data originality expectations under ALCOA+ "
+            "Original principle and FDA Data Integrity Guidance (2018), which require "
+            "GxP records to reflect what was originally observed.",
+        "score_rule12_timestamp_reversal":
+            "May indicate audit trail manipulation inconsistent with chronological "
+            "integrity expectations under 21 CFR Part 11 §11.10(e) and FDA Data "
+            "Integrity Guidance (2018).",
+        "score_rule13_service_account":
+            "May be inconsistent with individual attributability expectations under "
+            "21 CFR Part 11 §11.300 and ALCOA+ Attributable principle — each GxP "
+            "action must be traceable to a named individual.",
+        "score_rule5_failed_login":
+            "Raises a concern regarding data originality under ALCOA+ Original "
+            "principle and FDA Data Integrity Guidance (2018) — GxP data must be "
+            "accessed only by authorised individuals.",
+        "score_rule3_admin_conflict":
+            "May be inconsistent with Segregation of Duties expectations under "
+            "21 CFR Part 11 §11.10(d) — administrative accounts should be restricted "
+            "to system configuration and not directly modify GxP production records.",
+        "score_del_recreate":
+            "Raises a concern regarding data originality under ALCOA+ Original "
+            "principle — deletion and recreation of the same record may obscure "
+            "the original content of a GxP entry.",
+        "score_record":
+            "May be inconsistent with audit trail integrity expectations under "
+            "21 CFR Part 11 §11.10(e) and EU Annex 11 Clause 9.",
+        "score_rule4_drift":
+            "Warrants verification against validated state expectations under "
+            "21 CFR Part 820.70(b) and FDA Data Integrity Guidance (2018).",
+        "score_rule1_vague_rationale":
+            "May be inconsistent with ALCOA+ Attributable and Legible principles "
+            "under FDA Data Integrity Guidance (2018) — GxP data changes require "
+            "a specific, documented rationale.",
+        "score_rule14_dormant_account":
+            "Warrants verification of access control compliance under "
+            "21 CFR Part 11 §11.10(d) — user access must be formally reviewed "
+            "and re-authorised following periods of inactivity.",
+        "score_rule16_first_time_behavior":
+            "Warrants verification of role-based access compliance under "
+            "21 CFR Part 11 §11.10(d) and ALCOA+ Attributable principle.",
+        "score_rule2_burst":
+            "May be inconsistent with the ALCOA+ Contemporaneous principle under "
+            "FDA Data Integrity Guidance (2018) — GxP entries must be recorded "
+            "at the time of the activity.",
+        "score_privilege":
+            "May be inconsistent with access control expectations under "
+            "21 CFR Part 11 §11.10(d) — privileged accounts must not directly "
+            "modify GxP production records.",
+        "score_gap":
+            "May indicate incomplete audit trail coverage inconsistent with "
+            "21 CFR Part 11 §11.10(e) — audit trails must be computer-generated "
+            "and continuous.",
+        "score_temporal":
+            "Warrants verification against documented business justification — "
+            "off-hours and holiday activity on GxP systems should be covered "
+            "by an approved maintenance window or overtime record.",
+        "score_velocity":
+            "May be inconsistent with the ALCOA+ Contemporaneous principle — "
+            "high-volume activity in a short window warrants verification that "
+            "contemporaneous source records exist for each entry.",
+    }
+    _REG_PRIORITY_ORDER = [
+        "score_rule15_suspicious_sequence", "score_rule12_timestamp_reversal",
+        "score_rule13_service_account",     "score_rule5_failed_login",
+        "score_rule3_admin_conflict",       "score_del_recreate",
+        "score_record",                     "score_rule4_drift",
+        "score_rule1_vague_rationale",      "score_rule14_dormant_account",
+        "score_rule16_first_time_behavior", "score_rule2_burst",
+        "score_privilege",                  "score_gap",
+        "score_temporal",                   "score_velocity",
+    ]
+
+    def _reg_basis(row):
+        for col in _REG_PRIORITY_ORDER:
+            if float(row.get(col, 0)) > 0:
+                return _REG_BASIS_MAP.get(col, "")
+        return "No named data integrity risk indicator detected at a significant level."
+
+    df["Regulatory_Basis"] = df.apply(_reg_basis, axis=1)
+
+    # ── Evidence_Strength — how directly the data supports the finding ────────
+    # High  = data directly shows the pattern; no inference required
+    # Medium = pattern is clear but context may explain it
+    # Low   = statistical/behavioural signal; requires investigation to confirm
+    _EVIDENCE_MAP = {
+        "score_rule15_suspicious_sequence": "High",
+        "score_rule12_timestamp_reversal":  "High",
+        "score_rule13_service_account":     "High",
+        "score_rule5_failed_login":         "High",
+        "score_rule3_admin_conflict":       "High",
+        "score_del_recreate":               "High",
+        "score_record":                     "High",
+        "score_rule4_drift":                "Medium",
+        "score_rule1_vague_rationale":      "Medium",
+        "score_privilege":                  "Medium",
+        "score_rule14_dormant_account":     "Medium",
+        "score_rule2_burst":                "Low",
+        "score_gap":                        "Low",
+        "score_temporal":                   "Low",
+        "score_velocity":                   "Low",
+        "score_rule16_first_time_behavior": "Low",
+    }
+
+    def _evidence_strength(row):
+        # Use same priority order — primary rule determines evidence level
+        for col in _REG_PRIORITY_ORDER:
+            if float(row.get(col, 0)) > 0:
+                return _EVIDENCE_MAP.get(col, "Low")
+        return "Low"
+
+    df["Evidence_Strength"] = df.apply(_evidence_strength, axis=1)
     _ACTION_MAP = {
         "score_rule15_suspicious_sequence":
             "Retrieve all three events in this sequence — the UPDATE, DELETE, and "
@@ -5920,7 +6037,34 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
     # Provides a recommended disposition with rationale so reviewers have guidance,
     # not just a blank checkbox. Reviewer always retains final authority.
     def _suggested_disposition(row) -> tuple:
-        """Return (disposition_label, rationale_text)."""
+        """
+        Return (disposition_label, rationale_text) using a strict decision table.
+
+        Decision rules in priority order:
+        ┌─────────────────────────────────────────────┬──────────────────────────────┐
+        │ Condition                                   │ Disposition                  │
+        ├─────────────────────────────────────────────┼──────────────────────────────┤
+        │ Impossible system state (reversal, sequence)│ Escalate to CAPA             │
+        │ Attribution cannot be established           │ Escalate to CAPA             │
+        │ Audit trail integrity modified              │ Escalate to CAPA             │
+        │ Destructive action + attribution failure    │ Escalate to CAPA             │
+        │ Destructive action + no documentation       │ Escalate to CAPA             │
+        │ High-risk pattern + no documentation        │ Escalate to CAPA             │
+        │ Gap during business hours                   │ Escalate to CAPA             │
+        │ Documentation gap only (no destruction)     │ Amendment Required           │
+        │ Pattern-based signal (statistical)          │ Investigate                  │
+        │ Temporal/off-hours with documentation       │ Document Rationale           │
+        │ No named rule fired significantly           │ No Action Required           │
+        └─────────────────────────────────────────────┴──────────────────────────────┘
+
+        Escalate/Investigate threshold:
+          ESCALATE = definitive pattern OR destructive/attribution-breaking action
+                     with no documented justification.
+          INVESTIGATE = statistical or behavioural signal requiring context to confirm.
+          The presence of a comment downgrades Escalate → Investigate only for
+          documentation-gap rules (Rule 1, Rule 8, off-hours). It never downgrades
+          structural findings (deletion, manipulation sequences, attribution failures).
+        """
         r3  = float(row.get("score_rule3_admin_conflict",      0))
         r5  = float(row.get("score_rule5_failed_login",        0))
         r1  = float(row.get("score_rule1_vague_rationale",     0))
@@ -5932,131 +6076,160 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
         rt  = float(row.get("score_temporal",                  0))
         r12 = float(row.get("score_rule12_timestamp_reversal",  0))
         r13 = float(row.get("score_rule13_service_account",     0))
-        r14 = float(row.get("score_rule14_dormant_account",       0))
-        r15 = float(row.get("score_rule15_suspicious_sequence",   0))
-        r16 = float(row.get("score_rule16_first_time_behavior",   0))
+        r14 = float(row.get("score_rule14_dormant_account",     0))
+        r15 = float(row.get("score_rule15_suspicious_sequence", 0))
+        r16 = float(row.get("score_rule16_first_time_behavior", 0))
+        r2  = float(row.get("score_rule2_burst",                0))
         cmt = str(row.get("comments","")).lower().strip()
+        has_cmt = bool(cmt and cmt not in ("nan","none","-","—",""))
+
+        # ── TIER 1: ESCALATE — Impossible states and attribution failures ─────
+        # These are structural findings. A comment does NOT downgrade them.
 
         if r15 >= 9:
             return ("Escalate to CAPA",
-                    "A three-step manipulation sequence (Update → Delete → Insert) was "
-                    "detected on the same record. This pattern is used to alter locked "
-                    "GxP records while obscuring the original modification.")
+                    "Suspicious three-step sequence (Update → Delete → Insert) detected "
+                    "on the same record. This is the primary method for altering locked "
+                    "GxP records while obscuring the original entry.")
+
         if r12 >= 9:
             return ("Escalate to CAPA",
-                    "A record was approved before it was created — this is impossible "
-                    "in a correctly functioning system and requires immediate investigation.")
+                    "Record approved or released before its creation timestamp — "
+                    "chronologically impossible in a correctly functioning system.")
+
         if r13 >= 9:
             return ("Escalate to CAPA",
-                    "A service or shared account directly modified GxP data. This cannot "
-                    "be attributed to an individual and requires formal investigation.")
+                    "Service or shared account modified GxP data directly. "
+                    "Attribution to a named individual cannot be established.")
+
         if r5 >= 8:
             return ("Escalate to CAPA",
-                    "Failed login attempts followed by data modification indicate potential "
-                    "unauthorised access. This pattern requires a formal investigation.")
+                    "Failed login attempts preceded a GxP data modification within "
+                    "the detection window. Potential unauthorised access requires "
+                    "formal investigation.")
+
         if r3 >= 8:
             return ("Escalate to CAPA",
-                    "An administrator directly modified production data, which may indicate a Segregation of Duties gap requiring documented justification and formal review.")
+                    "Administrator account directly modified production GxP data. "
+                    "Segregation of Duties gap requires documented justification.")
+
         if r6 >= 9:
             return ("Escalate to CAPA",
-                    f"A record was deleted and recreated with potentially altered values. "
-                    f"This is a high-priority data integrity pattern requiring investigation.")
+                    "Record deleted and recreated — a data deletion combined with "
+                    "recreation of the same record ID is a high-priority integrity finding.")
+
         if rr >= 10:
             return ("Escalate to CAPA",
-                    f"The audit trail configuration itself was modified. Any change to audit "
-                    f"trail settings requires immediate investigation and formal documentation.")
-        if rg >= 7:
-            # Check whether the gap event falls during business hours —
-            # a gap during working hours is more suspicious than an overnight gap
-            try:
-                gap_ts  = pd.Timestamp(str(row.get("timestamp","")))
-                gap_hour = gap_ts.hour if not pd.isnull(gap_ts) else -1
-                gap_wd   = gap_ts.weekday() if not pd.isnull(gap_ts) else -1
-                is_biz   = (gap_wd < 5 and
-                            _AT_BIZ_START <= gap_hour < _AT_BIZ_END)
-            except Exception:
-                is_biz = True  # assume business hours if can't parse
+                    "Audit trail configuration or logging settings were modified. "
+                    "Any change to the audit trail system requires immediate investigation.")
 
+        # ── TIER 2: ESCALATE — Destructive or high-risk + no documentation ───
+        # Comment presence downgrades these to Investigate.
+
+        if rr >= 8:     # GxP-sensitive record deletion
+            if has_cmt:
+                return ("Investigate — Verify Source Data",
+                        "Deletion of a GxP-sensitive record with a comment on file. "
+                        "Verify the comment constitutes adequate justification and "
+                        "the deletion was formally authorised.")
+            return ("Escalate to CAPA",
+                    "Deletion of a GxP-sensitive record with no documented justification. "
+                    "Authorisation must be established before this event can be closed.")
+
+        if rg >= 7:     # Audit trail gap
+            try:
+                gap_ts   = pd.Timestamp(str(row.get("timestamp","")))
+                is_biz   = (gap_ts.weekday() < 5 and
+                            _AT_BIZ_START <= gap_ts.hour < _AT_BIZ_END)
+            except Exception:
+                is_biz = True
             if is_biz:
                 return ("Escalate to CAPA",
-                        "A gap in the audit trail occurred during business hours. "
-                        "An unexplained pause in logging during working hours is a "
-                        "critical audit trail integrity finding requiring investigation.")
-            else:
-                return ("Investigate — Verify Source Data",
-                        "A gap in the audit trail was detected outside business hours. "
-                        "Verify whether this aligns with an approved maintenance window "
-                        "or scheduled system downtime before escalating.")
-
-        # High findings with no mitigating comment → Escalate
-        if r4 >= 7:
-            return ("Escalate to CAPA",
-                    f"The recorded value significantly deviates from the expected range "
-                    f"for this record type. Verify against the approved specification.")
-        if rp >= 7 and not cmt:
-            return ("Escalate to CAPA",
-                    f"A privileged user modified production data with no documented "
-                    f"justification. Authorisation must be established.")
-
-        # Rule 1 with blank comment → Escalate; with any comment → Justified with amendment
-        if r1 >= 8 and not cmt:
-            return ("Escalate to CAPA",
-                    f"No change reason was recorded for this GxP data modification. "
-                    f"Retrospective justification is required.")
-        if r1 >= 6:
-            return ("Justified — Amendment Required",
-                    f"The change reason recorded is insufficient. A retrospective written "
-                    f"amendment from the analyst is required before this event can be closed.")
-
-        # Off-hours with a comment → likely justified
-        if rt >= 5 and len(cmt) > 5:
-            return ("Justified — Document Rationale",
-                    f"Off-hours activity was detected but a comment is present. "
-                    f"Confirm a corresponding approved overtime or maintenance record exists.")
-
-        # Off-hours with no comment → investigate
-        if rt >= 9 and not cmt:
-            return ("Escalate to CAPA",
-                    f"Activity at an unusual hour with no documented reason. "
-                    f"Business justification is required.")
-
-        # Burst with plausible context → needs verification
-        if float(row.get("score_rule2_burst", 0)) >= 6:
+                        "Audit trail gap occurred during business hours — "
+                        "an unexplained pause in logging during working hours "
+                        "is a critical integrity finding.")
             return ("Investigate — Verify Source Data",
-                    "A high volume of entries in a short time window requires verification "
-                    "that contemporaneous source records exist for each entry.")
+                    "Audit trail gap outside business hours. Verify whether this "
+                    "aligns with an approved maintenance window or scheduled downtime.")
 
-        # Dormant account re-activation
+        if r4 >= 7:     # Value drift
+            if has_cmt:
+                return ("Investigate — Verify Source Data",
+                        "Numeric value significantly outside expected range, with a "
+                        "comment on file. Verify the comment references an approved "
+                        "Change Control or specification amendment.")
+            return ("Escalate to CAPA",
+                    "Numeric value significantly outside expected range with no "
+                    "documented justification. Verify against the approved specification.")
+
+        if rp >= 7:     # Privileged user on GxP data
+            if has_cmt:
+                return ("Investigate — Verify Source Data",
+                        "Privileged user acted on GxP data with a comment on file. "
+                        "Verify the comment constitutes adequate business justification "
+                        "and an Emergency Access Request was approved if required.")
+            return ("Escalate to CAPA",
+                    "Privileged user modified GxP production data with no documented "
+                    "justification. Authorisation must be established.")
+
+        # ── TIER 3: AMENDMENT — Documentation gap, no destructive action ──────
+        if r1 >= 8 and not has_cmt:
+            return ("Escalate to CAPA",
+                    "GxP data modification recorded with no change reason. "
+                    "Retrospective justification is required.")
+        if r1 >= 6:
+            return ("Amendment Required",
+                    "Change reason recorded is insufficient or uses non-descriptive "
+                    "language. A retrospective written amendment from the analyst "
+                    "is required before this finding can be closed.")
+
+        # ── TIER 4: INVESTIGATE — Pattern-based statistical signals ───────────
+        if r2 >= 6:
+            return ("Investigate — Verify Source Data",
+                    "High volume of entries in a short window. Verify contemporaneous "
+                    "source records exist for each entry.")
+
         if r14 >= 7:
             return ("Investigate — Verify Source Data",
-                    "This account was inactive for 90+ days before this action. "
-                    "Verify current authorisation status and confirm access was "
-                    "formally re-approved before re-activation.")
+                    "Account inactive for 90+ days re-activated and performed a GxP action. "
+                    "Verify current employment and access re-authorisation status.")
 
-        # First-time behavior by established user
         if r16 >= 8:
             return ("Investigate — Verify Source Data",
-                    "This user performed an action type they have never done before "
-                    "in their recorded history. Verify this was authorised and "
-                    "consistent with their current role at the time of the action.")
+                    "Established user performed a high-risk action type for the first time "
+                    "in their recorded history. Verify this was within their approved role.")
 
-        # ── Hard enforcement gate — named rules must never get "No Action" ────
-        named_max = max(
-            r16, r15, r12, r13, r5, r3, r6, rg, rr, r4, r1,
-            float(row.get("score_rule2_burst", 0)),
-            float(row.get("score_privilege",   0)),
-        )
-        if named_max >= 7.0:
+        if r16 >= 5:
             return ("Investigate — Verify Source Data",
-                    "A named compliance rule fired at High or Critical level. "
-                    "Even without a specific escalation trigger, events with active "
-                    "rule findings require documented reviewer investigation.")
+                    "User performed a first-time high-risk action with limited prior history. "
+                    "Verify this action was within their authorised access rights.")
 
-        # Default — no named rule fired significantly
-        return ("Justified — No Action Required",
-                "No named compliance rule was triggered at a significant level. "
-                "This event was included in the review based on a moderately elevated "
-                "composite score. Review briefly and document disposition.")
+        # ── TIER 5: DOCUMENT — Temporal signals with existing documentation ───
+        if rt >= 5 and has_cmt:
+            return ("Document Rationale",
+                    "Off-hours or holiday activity detected with a comment on file. "
+                    "Confirm a corresponding approved overtime record or maintenance "
+                    "window covers this period.")
+
+        if rt >= 9 and not has_cmt:
+            return ("Investigate — Verify Source Data",
+                    "Activity at an unusual hour or holiday with no documented reason. "
+                    "Obtain business justification before closing this finding.")
+
+        # ── TIER 6: HARD GATE — any named rule must get at minimum Investigate ─
+        named_max = max(
+            r16, r15, r12, r13, r5, r3, r6, rg, rr, r4, r1, r2, rp, rt, r14
+        )
+        if named_max >= 5.0:
+            return ("Investigate — Verify Source Data",
+                    "A named risk indicator fired above minimum threshold. "
+                    "Review and document disposition even if the finding appears low-risk.")
+
+        # ── DEFAULT: No significant named rule fired ───────────────────────────
+        return ("No Action Required",
+                "No named risk indicator was triggered at a significant level. "
+                "Event included based on composite score — brief review and "
+                "documented disposition is sufficient.")
 
     sugg_disp = []
     sugg_rat  = []
@@ -6771,6 +6944,7 @@ def at_build_excel(top_df, scored_df, system_name, r_start, r_end, fname) -> byt
     reviewer_cols = [
         ("No.",                  "Rank",              6),
         ("Risk Level",           "Risk_Tier",         12),
+        ("Evidence\nStrength",   "Evidence_Strength", 10),
         ("Date & Time",          "timestamp",         20),
         ("User",                 "user_id",           16),
         ("Action Performed",     "action_type",       18),
@@ -6780,12 +6954,12 @@ def at_build_excel(top_df, scored_df, system_name, r_start, r_end, fname) -> byt
         ("Primary Rule\n(Classification Driver)", "Primary_Rule", 36),
         ("Supporting\nSignals",  "Supporting_Signals",30),
         ("Event\nChain ID",      "Event_Chain_ID",    12),
-        ("Why It Matters",       "Rule_Rationale",    52),
+        ("Why It Matters\n(Regulatory Basis)", "Regulatory_Basis", 52),
         ("Recommended Action",   "Action_Required",   52),
-        ("System Narrative",     "AI_Justification",  52),
+        ("System Narrative\n(What happened)", "AI_Justification", 52),
         ("Suggested\nDisposition",
                                  "Suggested_Disposition", 26),
-        ("Basis for\nSuggestion",
+        ("Basis for\nSuggestion\n(Decision logic)",
                                  "Suggested_Disposition_Rationale", 44),
         ("Reviewer Decision\n(tick one)",
                                  "Reviewer_Disposition", 34),
@@ -6830,10 +7004,9 @@ def at_build_excel(top_df, scored_df, system_name, r_start, r_end, fname) -> byt
                 val = str(val).replace(" [HIGH]","").replace(
                     " [MEDIUM]","").replace(" [CRITICAL]","").replace(
                     " [LOW]","")
-            # Shorten Why It Matters — keep first finding only
-            if data_col == "Rule_Rationale" and val:
-                parts = str(val).split(" | ")
-                val   = parts[0][:400] if parts else str(val)[:400]
+            # Regulatory_Basis is already one sentence — truncate only as safety net
+            if data_col == "Regulatory_Basis" and val:
+                val = str(val)[:500]
             if isinstance(val, float) and not pd.isnull(val):
                 val = round(val, 2)
             c = ws2.cell(row=ri, column=ci, value=val)
@@ -9383,25 +9556,25 @@ match your system's export column names to the fields above — rename nothing i
           else:
             # individual event
             _, rank, row = item
-            tier    = str(row.get("Risk_Tier","Medium"))
-            score   = float(row.get("Risk_Score",0))
-            bc      = tier_colors.get(tier,"#d97706")
-            icon    = tier_icons.get(tier,"🟡")
-            user_id = str(row.get("user_id","—"))
-            action  = str(row.get("action_type","—"))
-            triggered  = str(row.get("Triggered_Rules",""))
-            rule_rat   = str(row.get("Rule_Rationale",""))
-            action_req = str(row.get("Action_Required",""))
-            chain_id   = str(row.get("Event_Chain_ID",""))
-            primary_r  = str(row.get("Primary_Rule","")).replace(" [CRITICAL]","").replace(" [HIGH]","").replace(" [MEDIUM]","")
-            supporting = str(row.get("Supporting_Signals",""))
+            tier         = str(row.get("Risk_Tier","Medium"))
+            score        = float(row.get("Risk_Score",0))
+            bc           = tier_colors.get(tier,"#d97706")
+            icon         = tier_icons.get(tier,"🟡")
+            user_id      = str(row.get("user_id","—"))
+            action       = str(row.get("action_type","—"))
+            triggered    = str(row.get("Triggered_Rules",""))
+            rule_rat     = str(row.get("Rule_Rationale",""))
+            reg_basis    = str(row.get("Regulatory_Basis",""))
+            action_req   = str(row.get("Action_Required",""))
+            chain_id     = str(row.get("Event_Chain_ID",""))
+            primary_r    = str(row.get("Primary_Rule","")).replace(" [CRITICAL]","").replace(" [HIGH]","").replace(" [MEDIUM]","")
+            supporting   = str(row.get("Supporting_Signals",""))
+            evidence_str = str(row.get("Evidence_Strength","Low"))
+            ev_color     = {"High":"#16a34a","Medium":"#d97706","Low":"#475569"}.get(evidence_str,"#475569")
 
-            # For sequence-chain events (LOGIN, DELETE in Rule 5/6/15 chains),
-            # the risk is in the sequence — surface the chain ID prominently
-            # so reviewers don't read a plain LOGIN as independently Critical
             chain_suffix = f"  ·  Part of Event Chain {chain_id}" if chain_id and chain_id != "None" else ""
             expander_label = (
-                f"{icon} Event #{rank} · {tier} · {score:.1f}/10"
+                f"{icon} Event #{rank} · {tier} · {score:.1f}/10 · {evidence_str} Evidence"
                 f"  |  {user_id}  ·  {action}  ·  {primary_r}{chain_suffix}"
             )
 
@@ -9476,7 +9649,10 @@ match your system's export column names to the fields above — rename nothing i
     <span style="color:{bc};font-weight:700;">Event #{rank}
       <span style="background:{bc}22;border:1px solid {bc}44;color:{bc};
              padding:2px 8px;border-radius:4px;font-size:0.7rem;margin-left:8px;">
-        {tier} · {score:.1f}/10</span>{chain_badge}</span>
+        {tier} · {score:.1f}/10</span>
+      <span style="background:{ev_color}22;border:1px solid {ev_color}44;color:{ev_color};
+             padding:2px 8px;border-radius:4px;font-size:0.68rem;margin-left:6px;">
+        {evidence_str} Evidence</span>{chain_badge}</span>
     <span style="color:#334155;font-size:0.72rem;">{str(row.get('timestamp',''))}</span>
   </div>
   <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;
@@ -9507,9 +9683,11 @@ match your system's export column names to the fields above — rename nothing i
   {f'''<div style="background:#1a0f2e;border:1px solid #7c3aed44;border-radius:4px;
               padding:10px 14px;margin-bottom:8px;">
     <p style="color:#7c3aed;font-size:0.67rem;text-transform:uppercase;
-              letter-spacing:1px;margin:0 0 5px;font-weight:700;">&#9312; Why Flagged &mdash; Risk Indicator</p>
-    <p style="color:#c4b5fd;font-size:0.81rem;line-height:1.5;margin:0;">{rule_rat[:350]}</p>
-  </div>''' if rule_rat else ''}
+              letter-spacing:1px;margin:0 0 5px;font-weight:700;">&#9312; Why It Matters &mdash; Regulatory Risk</p>
+    <p style="color:#c4b5fd;font-size:0.81rem;line-height:1.5;margin:0 0 6px;">{reg_basis}</p>
+    <details style="margin:0;"><summary style="color:#475569;font-size:0.7rem;cursor:pointer;">Full technical detail &#9658;</summary>
+      <p style="color:#94a3b8;font-size:0.77rem;line-height:1.4;margin:6px 0 0;">{rule_rat[:400]}</p></details>
+  </div>''' if reg_basis or rule_rat else ''}
   {f'''<div style="background:#0c1a2e;border:1px solid {disp_color}44;border-radius:4px;
               padding:10px 14px;margin-bottom:8px;">
     <p style="color:{disp_color};font-size:0.67rem;text-transform:uppercase;
