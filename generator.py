@@ -6471,7 +6471,7 @@ def at_build_excel(top_df, scored_df, system_name, r_start, r_end, fname) -> byt
         return "\n\n".join(sentences)
 
     narrative = _build_narrative(
-        top_df, scored_df, sys_name or "the reviewed system",
+        top_df, scored_df, system_name or "the reviewed system",
         r_start, r_end, n_crit, n_high, n_med, n_esc, total
     )
 
@@ -8793,7 +8793,7 @@ match your system's export column names to the fields above — rename nothing i
                 prog.progress(0.15)
                 scored = at_score_events(df)
 
-                st.write(f"⚡ Step 2: Scoring {len(scored):,} events across 6 dimensions...")
+                st.write(f"⚡ Step 2: Scoring {len(scored):,} events across 16 rules...")
                 prog.progress(0.45)
                 # ── Select Top 20 with two filters ────────────────────────────
                 # Filter 1: Remove burst duplicates (already built)
