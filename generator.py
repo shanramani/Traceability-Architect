@@ -3428,10 +3428,11 @@ st.markdown("""
         border-color: #64748b !important;
     }
 
-    /* ── Back to Periodic Review — top bar, matches End Session height ── */
+    /* ── Back to Periodic Review — top bar, no text wrap ── */
     div.stButton > button[key="pr_back_btn"] {
         white-space: nowrap !important;
-        min-width: 0 !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
         width: 100% !important;
     }
 
@@ -6902,16 +6903,35 @@ def show_audit_trail(user: str, role: str, model_id: str):
             "System Name", value=st.session_state.get("at_system_name",""),
             placeholder="e.g. DocuSign Part 11", key="at_sysname")
 
-    def _parse_date_input(key_date, key_str, label):
+    # ── Previous quarter defaults for date pickers ───────────────────────────
+    import datetime as _dt_q
+    def _prev_quarter_dates():
+        today = _dt_q.date.today()
+        q = (today.month - 1) // 3 + 1
+        if q == 1:
+            return (_dt_q.date(today.year - 1, 10, 1),
+                    _dt_q.date(today.year - 1, 12, 31))
+        elif q == 2:
+            return (_dt_q.date(today.year, 1, 1),
+                    _dt_q.date(today.year, 3, 31))
+        elif q == 3:
+            return (_dt_q.date(today.year, 4, 1),
+                    _dt_q.date(today.year, 6, 30))
+        else:
+            return (_dt_q.date(today.year, 7, 1),
+                    _dt_q.date(today.year, 9, 30))
+
+    _pq_start, _pq_end = _prev_quarter_dates()
+
+    def _parse_date_input(key_date, key_str, label, fallback):
         """
-        Render a date_input (calendar picker). Returns the formatted string
-        stored in session_state for use in report headers.
-        Parses any pre-stored string (typed or previously picked) back to a
-        date object so the picker shows the right value on rerender.
+        Render a date_input calendar picker. Defaults to `fallback` (previous
+        quarter start or end) when no value has been stored yet.
+        Parses any pre-stored string back to a date object on rerender.
         """
         import datetime as _dt
         stored = st.session_state.get(key_str, "")
-        default_val = _dt.date.today()   # always pass a valid date — avoids None errors
+        default_val = fallback
         if stored:
             for fmt in ("%d-%b-%Y", "%d/%m/%Y", "%Y-%m-%d", "%d%m%Y", "%Y%m%d"):
                 try:
@@ -6919,11 +6939,10 @@ def show_audit_trail(user: str, role: str, model_id: str):
                     break
                 except ValueError:
                     continue
-
         picked = st.date_input(
             label,
             value=default_val,
-            format="DD/MM/YYYY",   # only slash-separated formats are valid in Streamlit
+            format="DD/MM/YYYY",
             key=key_date,
         )
         if picked:
@@ -6933,9 +6952,11 @@ def show_audit_trail(user: str, role: str, model_id: str):
         return stored
 
     with mc2:
-        _parse_date_input("at_rstart_picker", "at_review_start", "Review Period Start")
+        _parse_date_input("at_rstart_picker", "at_review_start",
+                          "Review Period Start", _pq_start)
     with mc3:
-        _parse_date_input("at_rend_picker",   "at_review_end",   "Review Period End")
+        _parse_date_input("at_rend_picker",   "at_review_end",
+                          "Review Period End",   _pq_end)
 
     st.markdown("---")
 
@@ -9260,7 +9281,7 @@ def show_app():
         and st.session_state.get("pr_active_module") is not None
     )
     if _in_pr_submodule:
-        _back_col, _spacer_col, _end_col = st.columns([3, 6, 3])
+        _back_col, _spacer_col, _end_col = st.columns([5, 4, 3])
         with _back_col:
             if st.button("← Back to Periodic Review", key="pr_back_btn",
                          use_container_width=True):
