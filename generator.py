@@ -8963,13 +8963,13 @@ match your system's export column names to the fields above — rename nothing i
         st.markdown(f"""
 <div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;
             padding:14px 20px;margin-top:14px;font-size:0.8rem;">
-  <b style="color:#94a3b8;">Paste into Periodic Review Report Section 9.1.6:</b><br>
+  <b style="color:#94a3b8;">Content for your Periodic Review Report:</b><br>
   <i style="color:#cbd5e1;">
   "AI-assisted audit trail review identified the {n_esc} highest-risk events from
   {n_total:,} total entries using a 16-rule anomaly detection engine. {pct_clr}% of
-  events were auto-cleared as low risk. All {n_esc} escalated events were reviewed
-  by the undersigned and dispositioned as documented in Appendix A.
-  Complies with 21 CFR Part 11 §11.10(e) and EU Annex 11 Clause 9."
+  events were auto-cleared as low risk. All {n_esc} escalated events are available
+  for human review and have been dispositioned by the undersigned as documented in
+  the attached Appendix. Complies with 21 CFR Part 11 §11.10(e) and EU Annex 11 Clause 9."
   </i>
 </div>""", unsafe_allow_html=True)
 
