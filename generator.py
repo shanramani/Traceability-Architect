@@ -5505,7 +5505,8 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
                         "A sudden new action type from an established user is an "
                         "insider risk signal — especially high-risk actions like "
                         "delete or approve that were never performed before. "
-                        "Verify this was authorised and intentional "
+                        "Verify this action was within the user's approved access rights at the time "
+                        "and obtain documented authorisation if not already on file "
                         "(21 CFR Part 11 §11.10(d), ALCOA+ Attributable)."
                     )
 
@@ -5617,6 +5618,10 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
                 and tier == "Low": return "High"
         if float(row.get("score_rule14_dormant_account",    0)) >= 8 and tier == "Low":
             return "High"
+        if float(row.get("score_rule13_service_account",    0)) >= 6 and tier in ("Low","Medium"):
+            return "High"   # Rule 13 High (non-GxP-record) must surface as at least High
+        if float(row.get("score_privilege",                 0)) >= 7 and tier == "Low":
+            return "High"   # Rule 8 privileged user must surface as at least High
         if float(row.get("score_rule1_vague_rationale",     0)) >= 7 and tier == "Low":
             return "High"
         if float(row.get("score_rule4_drift",               0)) >= 7 and tier == "Low":
@@ -5840,9 +5845,9 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
             "If the deletion was used to circumvent the locked record workflow, "
             "this is a Critical data integrity finding requiring formal investigation.",
         "score_rule16_first_time_behavior":
-            "Verify this action was intentional and authorised. Obtain written confirmation "
-            "from the user's supervisor that this action type was within their approved role "
-            "at the time it was performed. If the user was not authorised to perform this "
+            "Verify this action was within the user's approved access rights at the time it was performed. Obtain written confirmation "
+            "from the user's supervisor that this action type was within their authorised role. "
+            "If the user was not authorised to perform this "
             "action, assess all records affected and raise a non-conformance.",
         "score_rule12_timestamp_reversal":
             "This finding requires immediate investigation. Retrieve the full audit "
@@ -6731,6 +6736,7 @@ def at_build_excel(top_df, scored_df, system_name, r_start, r_end, fname) -> byt
     ws.merge_cells(f"A{row}:B{row}")
     stmt = ws.cell(row=row, column=1, value=(
         f"This audit trail review was performed using rule-based anomaly detection with system-generated narrative summaries. "
+        f"All risk classifications are derived from deterministic rules; narrative text does not influence risk scoring or tier assignment. "
         f"{total:,} records were reviewed across the period {r_start} to {r_end}. "
         f"{pct_clear}% of records were automatically cleared as low risk. "
         f"The {n_esc} records requiring review are documented in the 'Events for Review' sheet. "
@@ -6903,9 +6909,14 @@ def at_build_excel(top_df, scored_df, system_name, r_start, r_end, fname) -> byt
             val = drow.get(data_col, "")
             if pd.isnull(val):
                 val = ""
-            if data_col == "Triggered_Rules" and val:
+            if data_col == "Triggered_Rules":
                 val = str(val).replace(" [HIGH]","").replace(
                     " [MEDIUM]","").replace(" [CRITICAL]","")
+                if not val or val.strip() == "":
+                    val = "No anomaly detected"
+            if data_col == "Event_Chain_ID":
+                if not val or str(val).strip() in ("", "nan"):
+                    val = "None"
             if isinstance(val, float) and not pd.isnull(val):
                 val = round(val, 2)
             c = ws3.cell(row=ri, column=ci, value=val)
@@ -9160,6 +9171,38 @@ match your system's export column names to the fields above — rename nothing i
         ]:
             col.metric(label, val)
 
+        # ── Out-of-period events warning ─────────────────────────────────────
+        # If the user entered review period dates, check whether the uploaded
+        # file contains events outside that range and warn clearly.
+        _r_start_str = st.session_state.get("at_review_start","").strip()
+        _r_end_str   = st.session_state.get("at_review_end","").strip()
+        _missing_str = "(review period dates not specified)"
+        if (_r_start_str and _r_end_str
+                and _r_start_str != _missing_str
+                and _r_end_str   != _missing_str
+                and "timestamp_parsed" in scored.columns):
+            try:
+                import datetime as _dtp
+                _r_s = pd.to_datetime(_r_start_str, dayfirst=True, errors="coerce")
+                _r_e = pd.to_datetime(_r_end_str,   dayfirst=True, errors="coerce")
+                if not pd.isnull(_r_s) and not pd.isnull(_r_e):
+                    _ts  = scored["timestamp_parsed"].dropna()
+                    _before = int((_ts < _r_s).sum())
+                    _after  = int((_ts > _r_e).sum())
+                    if _before > 0 or _after > 0:
+                        _parts = []
+                        if _before: _parts.append(f"{_before:,} event(s) before {_r_start_str}")
+                        if _after:  _parts.append(f"{_after:,} event(s) after {_r_end_str}")
+                        st.warning(
+                            f"⚠️ **Dataset scope note:** The uploaded file contains events "
+                            f"outside the defined review period ({' and '.join(_parts)}). "
+                            "These are included in the analysis as the full dataset was provided. "
+                            "If only the defined review period should be assessed, filter your "
+                            "system export before uploading."
+                        )
+            except Exception:
+                pass
+
         st.markdown("<br>", unsafe_allow_html=True)
 
         # ── Risk Distribution ─────────────────────────────────────────────────
@@ -9221,7 +9264,7 @@ match your system's export column names to the fields above — rename nothing i
             padding:14px 20px;margin-top:14px;font-size:0.8rem;">
   <b style="color:#94a3b8;">Content for your Periodic Review Report:</b><br>
   <i style="color:#cbd5e1;">
-  "Rule-based anomaly detection identified the {n_esc} highest-risk events from
+  "System-assisted audit trail review identified the {n_esc} highest-risk events from
   {n_total:,} total entries using a 16-rule anomaly detection engine. {pct_clr}% of
   events were auto-cleared as low risk. All {n_esc} escalated events are available
   for human review and have been dispositioned by the undersigned as documented in
@@ -9353,9 +9396,13 @@ match your system's export column names to the fields above — rename nothing i
             primary_r  = str(row.get("Primary_Rule","")).replace(" [CRITICAL]","").replace(" [HIGH]","").replace(" [MEDIUM]","")
             supporting = str(row.get("Supporting_Signals",""))
 
+            # For sequence-chain events (LOGIN, DELETE in Rule 5/6/15 chains),
+            # the risk is in the sequence — surface the chain ID prominently
+            # so reviewers don't read a plain LOGIN as independently Critical
+            chain_suffix = f"  ·  Part of Event Chain {chain_id}" if chain_id and chain_id != "None" else ""
             expander_label = (
                 f"{icon} Event #{rank} · {tier} · {score:.1f}/10"
-                f"  |  {user_id}  ·  {action}  ·  {primary_r}"
+                f"  |  {user_id}  ·  {action}  ·  {primary_r}{chain_suffix}"
             )
 
             with st.expander(expander_label, expanded=False):
