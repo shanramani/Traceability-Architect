@@ -3428,11 +3428,11 @@ st.markdown("""
         border-color: #64748b !important;
     }
 
-    /* ── Back to Periodic Review — prevent text wrapping ── */
-    div.stButton > button[key="pr_back_btn"],
-    div.stButton > button[key="pr_back_btn2"] {
+    /* ── Back to Periodic Review — top bar, matches End Session height ── */
+    div.stButton > button[key="pr_back_btn"] {
         white-space: nowrap !important;
-        min-width: 220px !important;
+        min-width: 0 !important;
+        width: 100% !important;
     }
 
     /* ── Sticky top-right terminate button overlay ── */
@@ -6742,23 +6742,12 @@ def show_periodic_review(user: str, role: str, model_id: str):
     """
     active = st.session_state.get("pr_active_module")
 
-    # ── If a sub-module is open, show it with a Back button ──────────────────
+    # ── If a sub-module is open, show it ─────────────────────────────────────
     if active == "audit_trail":
-        bc, _ = st.columns([3, 7])
-        with bc:
-            if st.button("← Back to Periodic Review", key="pr_back_btn"):
-                st.session_state["pr_active_module"] = None
-                st.rerun()
-        st.markdown("<br>", unsafe_allow_html=True)
         show_audit_trail(user, role, model_id)
         return
 
     if active in ("access_review", "report_drafter"):
-        bc, _ = st.columns([3, 7])
-        with bc:
-            if st.button("← Back to Periodic Review", key="pr_back_btn2"):
-                st.session_state["pr_active_module"] = None
-                st.rerun()
         st.markdown("<br>", unsafe_allow_html=True)
         label = "User Access Review Intelligence" if active == "access_review" \
                 else "Periodic Review Report Drafter"
@@ -6917,24 +6906,24 @@ def show_audit_trail(user: str, role: str, model_id: str):
         """
         Render a date_input (calendar picker). Returns the formatted string
         stored in session_state for use in report headers.
-        Also accepts a raw compact string like 01012011 or 2011-01-01 typed
-        into the session state externally and parses it gracefully.
+        Parses any pre-stored string (typed or previously picked) back to a
+        date object so the picker shows the right value on rerender.
         """
         import datetime as _dt
-        # Determine current value for the picker
         stored = st.session_state.get(key_str, "")
-        default_val = None
+        default_val = _dt.date.today()   # always pass a valid date — avoids None errors
         if stored:
-            for fmt in ("%d-%b-%Y", "%Y-%m-%d", "%d/%m/%Y", "%d%m%Y", "%Y%m%d"):
+            for fmt in ("%d-%b-%Y", "%d/%m/%Y", "%Y-%m-%d", "%d%m%Y", "%Y%m%d"):
                 try:
                     default_val = _dt.datetime.strptime(stored.strip(), fmt).date()
                     break
                 except ValueError:
                     continue
+
         picked = st.date_input(
             label,
             value=default_val,
-            format="DD-MMM-YYYY",
+            format="DD/MM/YYYY",   # only slash-separated formats are valid in Streamlit
             key=key_date,
         )
         if picked:
@@ -9263,13 +9252,33 @@ def show_app():
                     else:
                         st.warning("Username and password are required.")
 
-    # ── End Session trigger — right-aligned via spacer column ───────────────
-    _es_space, _es_col = st.columns([11, 3])
-    with _es_col:
-        if st.button("⏹ End Session", key="terminate_hidden_trigger"):
-            st.session_state["_logout_requested"] = True
-            st.session_state["_logout_reason"]    = "User clicked End Session (sticky button)"
-            st.rerun()
+    # ── Top action bar — Back to Periodic Review (left) + End Session (right) ──
+    # The back button only appears when inside a Periodic Review sub-module.
+    # Both buttons sit in the same row so they align at the same visual level.
+    _in_pr_submodule = (
+        st.session_state.get("app_mode") == "Periodic Review"
+        and st.session_state.get("pr_active_module") is not None
+    )
+    if _in_pr_submodule:
+        _back_col, _spacer_col, _end_col = st.columns([3, 6, 3])
+        with _back_col:
+            if st.button("← Back to Periodic Review", key="pr_back_btn",
+                         use_container_width=True):
+                st.session_state["pr_active_module"] = None
+                st.rerun()
+        with _end_col:
+            if st.button("⏹ End Session", key="terminate_hidden_trigger",
+                         use_container_width=True):
+                st.session_state["_logout_requested"] = True
+                st.session_state["_logout_reason"]    = "User clicked End Session (sticky button)"
+                st.rerun()
+    else:
+        _es_space, _es_col = st.columns([11, 3])
+        with _es_col:
+            if st.button("⏹ End Session", key="terminate_hidden_trigger"):
+                st.session_state["_logout_requested"] = True
+                st.session_state["_logout_reason"]    = "User clicked End Session (sticky button)"
+                st.rerun()
 
     # ── Sticky End Session: only inject when page has results (scrollable) ──
     # Using Python session state is the only reliable way to gate this —
