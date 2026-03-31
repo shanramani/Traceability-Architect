@@ -5698,6 +5698,51 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
         return "; ".join(fired) if fired else ""
     df["Triggered_Rules"] = df.apply(_triggered, axis=1)
 
+    # ── Primary Rule + Supporting Signals ────────────────────────────────────
+    # Primary Rule = the named rule that drove the tier classification.
+    # Derived from the same priority order as _apply_tier_override so the two
+    # are always consistent. Supporting Signals = all remaining triggered rules.
+    _RULE_PRIORITY = [
+        ("score_rule15_suspicious_sequence", 9,  "Rule 15 — Suspicious Action Sequence [CRITICAL]"),
+        ("score_rule12_timestamp_reversal",  9,  "Rule 12 — Timestamp Reversal [CRITICAL]"),
+        ("score_rule13_service_account",     9,  "Rule 13 — Service/Shared Account GxP Action [CRITICAL]"),
+        ("score_rule5_failed_login",         8,  "Rule 5 — Failed Login → Data Manipulation [CRITICAL]"),
+        ("score_rule3_admin_conflict",       8,  "Rule 3 — Admin/GxP Conflict [CRITICAL]"),
+        ("score_del_recreate",               9,  "Rule 6 — Delete and Recreate Pattern [CRITICAL]"),
+        ("score_record",                     10, "Rule 7 — Audit Trail Integrity Event [CRITICAL]"),
+        ("score_rule4_drift",                7,  "Rule 4 — Change Control Drift [HIGH]"),
+        ("score_rule1_vague_rationale",      7,  "Rule 1 — Vague Rationale [HIGH]"),
+        ("score_rule16_first_time_behavior", 8,  "Rule 16 — First-Time Behavior [HIGH]"),
+        ("score_rule14_dormant_account",     8,  "Rule 14 — Dormant Account Sudden Activity [HIGH]"),
+        ("score_rule2_burst",                6,  "Rule 2 — Contemporaneous Burst [MEDIUM]"),
+        ("score_privilege",                  7,  "Rule 8 — Privileged User on GxP Data [HIGH]"),
+        ("score_record",                     8,  "Rule 7 — Sensitive Record Deletion [HIGH]"),
+        ("score_velocity",                   3.5,"Rule 9 — High-Volume Activity Burst [MEDIUM]"),
+        ("score_gap",                        7,  "Rule 10 — Audit Trail Timestamp Gap [HIGH]"),
+        ("score_temporal",                   5,  "Rule 11 — Off-Hours/Holiday Activity [MEDIUM]"),
+    ]
+
+    def _primary_rule(row):
+        for score_col, threshold, label in _RULE_PRIORITY:
+            if float(row.get(score_col, 0)) >= threshold:
+                return label
+        # Fallback: highest scoring dimension
+        return "Composite risk score — no single rule dominant"
+
+    def _supporting_signals(row):
+        primary = _primary_rule(row)
+        all_rules = [r.strip() for r in str(row.get("Triggered_Rules","")).split(";")
+                     if r.strip()]
+        # Remove severity labels for cleaner display
+        clean = lambda s: s.replace(" [CRITICAL]","").replace(" [HIGH]","").replace(" [MEDIUM]","").replace(" [LOW]","")
+        primary_clean = clean(primary)
+        supporting = [clean(r) for r in all_rules
+                      if clean(r) != primary_clean and r]
+        return "; ".join(supporting) if supporting else "—"
+
+    df["Primary_Rule"]       = df.apply(_primary_rule, axis=1)
+    df["Supporting_Signals"] = df.apply(_supporting_signals, axis=1)
+
     # ── Combined rationale — includes dimension rationales ────────────────────
     def _dim_rationale(row) -> str:
         """Build plain-English rationale for dimension-based findings."""
@@ -6158,45 +6203,57 @@ def at_generate_justifications(top_df: pd.DataFrame, model_id: str) -> pd.DataFr
             chain_ctx = (f"  Part of event chain: {chain_id}\n"
                          if chain_id else "")
 
-            prompt = f"""You are writing the AI Summary column for one row in a QA audit review table.
+            # Determine primary rule to anchor the narrative
+            all_rules = [r.strip() for r in triggered.split(";") if r.strip()]
+            primary_rule = all_rules[0] if all_rules else "Risk indicator detected"
 
-The table already has these columns the reviewer can see:
-- "Issues Found": {triggered}
-- "Why It Matters": (the rule rationale — already shown)
-- "Recommended Action": (the action — already shown)
+            prompt = f"""You are writing the System Narrative column for one row in a GxP audit trail review table.
 
-Your job is the AI Summary — a SHORT synthesis that adds insight BEYOND what those
-columns already say. Do NOT repeat the rule name, do NOT repeat the action.
+STRICT RULES — violations will be rejected:
+1. Do NOT infer intent, motivation, or organisational pressure. Never write phrases like
+   "suggests pressure to bypass", "deliberate", "intentional", or "attempted to hide".
+2. The PRIMARY finding is: {primary_rule}
+   Your narrative MUST lead with this finding. Do NOT downgrade it to a minor observation.
+3. Describe only what the logged data shows — user, action, timestamp, record, comment.
+4. Use language anchored to data integrity risk: "may indicate", "is inconsistent with",
+   "raises a concern regarding", "warrants verification of". Never use "violates".
+5. Two sentences maximum. Max 22 words per sentence.
 
-Event:
-  User '{usr}' performed '{act}' on {rec_type} {record_id} at {ts}.
-  Change reason on file: "{cmt}"
+Event data:
+  User: {usr}
+  Action: {act}
+  Record: {rec_type} / {record_id}
+  Timestamp: {ts}
+  Comment on file: "{cmt}"
   Suggested outcome: {sugg_disp}
+  Primary rule triggered: {primary_rule}
 {chain_ctx}
-Write exactly 2 sentences. Max 20 words each.
-Sentence 1: What the COMBINATION of facts tells you about this specific event
-            (go beyond the rule — what does the timing, user, record, and comment
-            together suggest about what actually happened?)
-Sentence 2: The data integrity implication — what could be wrong with the
-            underlying GxP record if this is not explained?
+Sentence 1: Describe the data integrity concern raised by the PRIMARY rule finding.
+            Lead with the finding, not background context.
+Sentence 2: State what specific verification is needed to resolve or close this finding.
 
-Example of good output:
-"An analyst modified a batch result at 2am with a one-word comment, immediately
-before batch release. If the value change was not scientifically justified,
-the batch disposition may be based on unreliable data."
+GOOD example (Rule 5 — Failed Login primary):
+"Three failed login attempts preceded this data modification within 30 minutes, which
+may indicate unauthorised access to a GxP record. Verify the user's authorised access
+status at the time of this action and compare the modified value against source documentation."
 
-Do NOT write: "This matters for FDA compliance" — that adds zero value.
-Do NOT name the rule — it is already in the Issues Found column.
-Plain English. Specific. Adds insight. Two sentences only."""
+BAD example (downgraded severity — REJECTED):
+"The analyst logged in during an unusual hour." [This ignores the primary finding entirely.]
+
+BAD example (intent inference — REJECTED):
+"Urgent release comment suggests pressure to bypass controls." [This infers motive.]
+
+Write only the two sentences. No labels, no preamble."""
 
             resp = _comp(
-                model=model_id, stream=False, temperature=0.2, max_tokens=150,
+                model=model_id, stream=False, temperature=0.1, max_tokens=160,
                 messages=[
                     {"role": "system", "content":
-                     "You write concise analytical summaries for pharmaceutical QA audit tables. "
-                     "Never state the obvious. Never repeat what other columns already say. "
-                     "Synthesise — what does the combination of facts imply about data integrity? "
-                     "Two sentences maximum. Be specific to the actual event."},
+                     "You write concise, factual summaries for pharmaceutical QA audit tables. "
+                     "Never infer intent or motivation. Never use the word 'violates'. "
+                     "Anchor to the highest-severity rule finding. Two sentences maximum. "
+                     "Describe data integrity risk using 'may indicate', 'is inconsistent with', "
+                     "'raises a concern regarding', or 'warrants verification of'."},
                     {"role": "user", "content": prompt}
                 ]
             )
@@ -6673,7 +6730,7 @@ def at_build_excel(top_df, scored_df, system_name, r_start, r_end, fname) -> byt
     _summary_row("REVIEWER STATEMENT", "", section=True)
     ws.merge_cells(f"A{row}:B{row}")
     stmt = ws.cell(row=row, column=1, value=(
-        f"This audit trail review was performed using AI-assisted anomaly detection. "
+        f"This audit trail review was performed using rule-based anomaly detection with system-generated narrative summaries. "
         f"{total:,} records were reviewed across the period {r_start} to {r_end}. "
         f"{pct_clear}% of records were automatically cleared as low risk. "
         f"The {n_esc} records requiring review are documented in the 'Events for Review' sheet. "
@@ -6706,26 +6763,27 @@ def at_build_excel(top_df, scored_df, system_name, r_start, r_end, fname) -> byt
 
     # Human-readable column definitions — NO internal score columns
     reviewer_cols = [
-        ("No.",              "Rank",              6),
-        ("Risk Level",       "Risk_Tier",         12),
-        ("Date & Time",      "timestamp",         20),
-        ("User",             "user_id",           16),
-        ("Action Performed", "action_type",       18),
-        ("Record Type",      "record_type",       18),
-        ("Record ID",        "record_id",         16),
-        ("Change Reason\nRecorded", "comments",   30),
-        ("Issues Found",     "Triggered_Rules",   42),
-        ("Event\nChain ID",  "Event_Chain_ID",    12),
-        ("Why It Matters",   "Rule_Rationale",    52),
-        ("Recommended Action","Action_Required",  52),
-        ("System Narrative", "AI_Justification",  52),
+        ("No.",                  "Rank",              6),
+        ("Risk Level",           "Risk_Tier",         12),
+        ("Date & Time",          "timestamp",         20),
+        ("User",                 "user_id",           16),
+        ("Action Performed",     "action_type",       18),
+        ("Record Type",          "record_type",       18),
+        ("Record ID",            "record_id",         16),
+        ("Change Reason\nRecorded", "comments",       30),
+        ("Primary Rule\n(Classification Driver)", "Primary_Rule", 36),
+        ("Supporting\nSignals",  "Supporting_Signals",30),
+        ("Event\nChain ID",      "Event_Chain_ID",    12),
+        ("Why It Matters",       "Rule_Rationale",    52),
+        ("Recommended Action",   "Action_Required",   52),
+        ("System Narrative",     "AI_Justification",  52),
         ("Suggested\nDisposition",
-                             "Suggested_Disposition", 26),
+                                 "Suggested_Disposition", 26),
         ("Basis for\nSuggestion",
-                             "Suggested_Disposition_Rationale", 44),
+                                 "Suggested_Disposition_Rationale", 44),
         ("Reviewer Decision\n(tick one)",
-                             "Reviewer_Disposition", 34),
-        ("Reviewer Notes",   "Reviewer_Notes",    30),
+                                 "Reviewer_Disposition", 34),
+        ("Reviewer Notes",       "Reviewer_Notes",    30),
     ]
 
     top_out = top_df.copy().reset_index(drop=True)
@@ -9163,7 +9221,7 @@ match your system's export column names to the fields above — rename nothing i
             padding:14px 20px;margin-top:14px;font-size:0.8rem;">
   <b style="color:#94a3b8;">Content for your Periodic Review Report:</b><br>
   <i style="color:#cbd5e1;">
-  "AI-assisted audit trail review identified the {n_esc} highest-risk events from
+  "Rule-based anomaly detection identified the {n_esc} highest-risk events from
   {n_total:,} total entries using a 16-rule anomaly detection engine. {pct_clr}% of
   events were auto-cleared as low risk. All {n_esc} escalated events are available
   for human review and have been dispositioned by the undersigned as documented in
@@ -9197,7 +9255,91 @@ match your system's export column names to the fields above — rename nothing i
             "Critical":"🔴","High":"🟠","Medium":"🟡","Low":"🟢"
         }
 
-        for rank,(_, row) in enumerate(top20.iterrows(),1):
+        # ── Low-risk grouping — collapse repetitive same-disposition entries ────
+        # Events sharing the same Primary_Rule + Risk_Tier + Suggested_Disposition
+        # where disposition is Justified (low urgency) are grouped into a single
+        # summary card so the reviewer sees intelligent aggregation, not repetition.
+        _COLLAPSIBLE_DISPOSITIONS = {
+            "Justified — No Action Required",
+            "Justified — Document Rationale",
+        }
+        _COLLAPSIBLE_TIERS = {"Medium", "Low"}
+
+        def _group_key(r):
+            disp = str(r.get("Suggested_Disposition",""))
+            tier = str(r.get("Risk_Tier",""))
+            prim = str(r.get("Primary_Rule","")).split("[")[0].strip()
+            if disp in _COLLAPSIBLE_DISPOSITIONS and tier in _COLLAPSIBLE_TIERS:
+                return f"{prim}||{tier}||{disp}"
+            return None   # non-collapsible — display individually
+
+        # Build display list: individual rows or grouped summaries
+        display_items = []   # each item: ("single", rank, row) or ("group", [rows])
+        group_buckets = {}   # key → [rows]
+        group_ranks   = {}   # key → [ranks]
+
+        for rank, (_, row) in enumerate(top20.iterrows(), 1):
+            key = _group_key(row)
+            if key:
+                group_buckets.setdefault(key, []).append(row)
+                group_ranks.setdefault(key, []).append(rank)
+            else:
+                display_items.append(("single", rank, row))
+
+        # Insert group summaries at the position of the first member's rank
+        # so ordering roughly matches the original risk-sorted list
+        group_insert = []
+        for key, rows in group_buckets.items():
+            first_rank = group_ranks[key][0]
+            group_insert.append((first_rank, "group", rows, group_ranks[key]))
+        group_insert.sort(key=lambda x: x[0])
+
+        for first_rank, _, rows, ranks in group_insert:
+            display_items.append(("group", first_rank, rows, ranks))
+
+        # Sort final display list by first rank in group / individual rank
+        display_items.sort(key=lambda x: x[1])
+
+        for item in display_items:
+          if item[0] == "group":
+            _, first_rank, rows, ranks = item
+            grp_tier  = str(rows[0].get("Risk_Tier","Medium"))
+            grp_icon  = tier_icons.get(grp_tier,"🟡")
+            grp_bc    = tier_colors.get(grp_tier,"#d97706")
+            grp_prim  = str(rows[0].get("Primary_Rule","")).replace(" [MEDIUM]","").replace(" [HIGH]","").replace(" [CRITICAL]","")
+            grp_disp  = str(rows[0].get("Suggested_Disposition",""))
+            grp_users = ", ".join(sorted({str(r.get("user_id","")) for r in rows}))
+            grp_label = (
+                f"{grp_icon} Events #{ranks[0]}–#{ranks[-1]} · {len(rows)} similar entries "
+                f"· {grp_tier} · {grp_prim}"
+            )
+            with st.expander(grp_label, expanded=False):
+                st.markdown(f"""
+<div style="background:#0f172a;border-left:3px solid {grp_bc};border-radius:6px;
+            padding:14px 18px;">
+  <p style="color:{grp_bc};font-weight:700;margin:0 0 6px;">
+    {len(rows)} similar entries reviewed collectively</p>
+  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;font-size:0.8rem;
+              margin-bottom:10px;">
+    <div><span style="color:#475569;">Primary Rule: </span>
+         <span style="color:#e2e8f0;">{grp_prim}</span></div>
+    <div><span style="color:#475569;">Risk Tier: </span>
+         <span style="color:#e2e8f0;">{grp_tier}</span></div>
+    <div><span style="color:#475569;">Disposition: </span>
+         <span style="color:#4ade80;">{grp_disp}</span></div>
+    <div><span style="color:#475569;">Users involved: </span>
+         <span style="color:#e2e8f0;">{grp_users}</span></div>
+    <div><span style="color:#475569;">Event ranks: </span>
+         <span style="color:#e2e8f0;">#{ranks[0]} – #{ranks[-1]}</span></div>
+  </div>
+  <p style="color:#475569;font-size:0.78rem;margin:0;font-style:italic;">
+    These entries share the same primary rule finding and disposition.
+    Reviewed collectively — all {len(rows)} events are recorded individually in the
+    downloaded evidence package with full detail.</p>
+</div>""", unsafe_allow_html=True)
+          else:
+            # individual event
+            _, rank, row = item
             tier    = str(row.get("Risk_Tier","Medium"))
             score   = float(row.get("Risk_Score",0))
             bc      = tier_colors.get(tier,"#d97706")
@@ -9208,10 +9350,12 @@ match your system's export column names to the fields above — rename nothing i
             rule_rat   = str(row.get("Rule_Rationale",""))
             action_req = str(row.get("Action_Required",""))
             chain_id   = str(row.get("Event_Chain_ID",""))
+            primary_r  = str(row.get("Primary_Rule","")).replace(" [CRITICAL]","").replace(" [HIGH]","").replace(" [MEDIUM]","")
+            supporting = str(row.get("Supporting_Signals",""))
 
             expander_label = (
                 f"{icon} Event #{rank} · {tier} · {score:.1f}/10"
-                f"  |  {user_id}  ·  {action}"
+                f"  |  {user_id}  ·  {action}  ·  {primary_r}"
             )
 
             with st.expander(expander_label, expanded=False):
@@ -9304,6 +9448,14 @@ match your system's export column names to the fields above — rename nothing i
          <span style="color="{'#fbbf24' if row.get('score_rule1_vague_rationale',0)>0 else '#e2e8f0'}">
            {str(row.get('comments','—'))[:60]}</span></div>
   </div>
+  <!-- Primary Rule — dominant badge -->
+  <div style="background:#1e1b4b;border:1.5px solid {bc};border-radius:6px;
+              padding:8px 14px;margin-bottom:8px;display:flex;align-items:center;gap:10px;">
+    <span style="color:#a5b4fc;font-size:0.65rem;text-transform:uppercase;
+                 letter-spacing:1.5px;white-space:nowrap;">Primary Rule</span>
+    <span style="color:#e2e8f0;font-size:0.82rem;font-weight:600;">{primary_r}</span>
+  </div>
+  {f'<div style="margin-bottom:8px;"><span style="color:#334155;font-size:0.67rem;text-transform:uppercase;letter-spacing:1px;">Supporting signals: </span><span style="color:#475569;font-size:0.75rem;">{supporting}</span></div>' if supporting and supporting != "—" else ""}
   {f'<div style="margin-bottom:8px;">{badges_html}</div>' if badges_html else ''}
   {f'''<div style="background:#1a0f2e;border:1px solid #7c3aed44;border-radius:4px;
               padding:10px 14px;margin-bottom:8px;">
