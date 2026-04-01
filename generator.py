@@ -4947,12 +4947,22 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
         return 0.0
     df["score_privilege"] = df.apply(_priv, axis=1)
 
+    # Read-only actions on any record type — never a data integrity finding
+    _AT_READ_ONLY = {"select", "read", "view", "query", "search",
+                     "select_audit", "read_audit", "list", "export",
+                     "report", "print"}
+
     def _rec(row):
         rec = str(row.get("record_type","")).lower()
         act = str(row.get("action_type","")).lower()
+        # Read-only actions are never a Record integrity finding regardless
+        # of which table they touch — a QA reviewer selecting audit trail
+        # records is expected behaviour, not a critical integrity event.
+        if act in _AT_READ_ONLY:
+            return 0.0
         combined = act + " " + rec
-        # Direct record_type name check — any action on a table named audit_trail
-        # is a critical integrity event regardless of action keyword content.
+        # Direct record_type name check — any modification to a table named
+        # audit_trail is a critical integrity event.
         if "audit_trail" in rec or "audit trail" in rec:
             return 10.0
         if any(k in combined for k in _AT_AUDIT_CTRL):
@@ -6876,8 +6886,12 @@ def at_build_excel(top_df, scored_df, system_name, r_start, r_end, fname) -> byt
                     rule_groups[key].append(ev)
 
             # Build one sentence per unique finding type (max 4)
+            # seen_rules deduplicates by rule label; seen_sentences deduplicates
+            # by output text — catches cases where two events share a rule and
+            # produce an identical aggregated sentence (e.g. two Rule 1 events).
             finding_sentences = []
-            seen_rules = set()
+            seen_rules     = set()
+            seen_sentences = set()
 
             for _, ev in top_df.iterrows():
                 if len(finding_sentences) >= 4:
@@ -6989,7 +7003,12 @@ def at_build_excel(top_df, scored_df, system_name, r_start, r_end, fname) -> byt
                 else:
                     continue
 
-            sentences.extend(finding_sentences)
+            # Deduplicate by sentence text before extending
+            sentences.extend(
+                s for s in finding_sentences
+                if s not in seen_sentences
+                and not seen_sentences.add(s)
+            )
 
         # ── Final sentence: Overall risk assessment (escalated counts only) ──
         if n_esc_crit >= 2:
