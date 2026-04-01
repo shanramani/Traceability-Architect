@@ -4951,12 +4951,14 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
         rec = str(row.get("record_type","")).lower()
         act = str(row.get("action_type","")).lower()
         combined = act + " " + rec
+        # Direct record_type name check — any action on a table named audit_trail
+        # is a critical integrity event regardless of action keyword content.
+        if "audit_trail" in rec or "audit trail" in rec:
+            return 10.0
         if any(k in combined for k in _AT_AUDIT_CTRL):
             return 10.0
         if any(k in rec for k in _AT_SENSITIVE) and any(k in act for k in _AT_DELETE_KW):
             return 8.0
-        # Removed 5.0 tier — non-destructive actions on GxP tables are normal
-        # system use and add noise without actionable signal.
         return 0.0
     df["score_record"] = df.apply(_rec, axis=1)
 
@@ -5570,6 +5572,46 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
 
     df["Event_Chain_ID"] = chain_id_col
 
+    # ── Sequence_Context — natural language description of chain membership ───
+    # Replaces EC-NNN identifiers in all reviewer-facing output.
+    # Events not in a chain get an empty string (displayed as "—" in Excel).
+    def _sequence_context(row):
+        cid     = str(row.get("Event_Chain_ID","")).strip()
+        primary = str(row.get("Primary_Rule","")).lower()
+        act     = str(row.get("action_type","")).lower()
+        rec_id  = str(row.get("record_id","")).strip()
+        rec_type= str(row.get("record_type","")).strip()
+        if not cid or cid in ("","None","nan","—"):
+            return ""
+        # Rule 5 chain: failed-login sequence
+        if "rule 5" in primary or "failed login" in primary:
+            if any(k in act for k in ["login","logon"]):
+                return ("Part of failed-login sequence — this login followed "
+                        "repeated failed attempts by the same user")
+            return ("Part of failed-login sequence — data action occurred "
+                    "within 30 minutes of repeated failed logins by this user")
+        # Rule 6 chain: delete-recreate
+        if "rule 6" in primary or "delete and recreate" in primary:
+            ref = f" ({rec_id})" if rec_id and rec_id not in ("","nan","—") else f" ({rec_type})"
+            if "delete" in act:
+                return f"Part of delete-recreate sequence — original record{ref} deleted here"
+            return f"Part of delete-recreate sequence — record{ref} recreated here after deletion"
+        # Rule 15 chain: update-delete-insert
+        if "rule 15" in primary or "suspicious" in primary:
+            return ("Part of Update→Delete→Insert sequence on the same record — "
+                    "see related events for the complete sequence")
+        # Generic fallback for any other chain type
+        return "Part of a multi-event sequence — review related events together"
+
+    # Sequence_Context depends on Primary_Rule so it must be computed after it
+    # We temporarily compute primary_rule inline here for sequencing, then
+    # the master table block below will also set Primary_Rule on df.
+    # We use a forward reference — chain_id_col is already set above.
+    # Primary_Rule will be set by the master table; we read from chain_id_col directly.
+    # Simple approach: derive context after master table populates Primary_Rule.
+    # Flag for post-master-table computation:
+    df["_needs_seq_ctx"] = chain_id_col.ne("").astype(int)
+
     # ── Composite Risk Score ──────────────────────────────────────────────────
     # Original 6 dimensions + 4 named rules, weighted
     weights = {
@@ -5787,8 +5829,10 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
             "Rule 6 — Delete and Recreate Pattern [CRITICAL]",
             "High",
             ("ALCOA+ Original principle; 21 CFR Part 11 §11.10(e) — "
-             "Deleted GxP records must be recoverable and their deletion must be "
-             "traceable; recreation of a deleted record breaks this chain."),
+             "GxP data must not be altered by deleting and recreating records "
+             "with different values. A DELETE followed by INSERT on the same "
+             "record ID replaces the original data with potentially altered "
+             "values, breaking the traceability chain the audit trail requires."),
             ("Retrieve both the original deleted record and the recreated record. "
              "Compare all field values for discrepancies. Obtain a retrospective "
              "written explanation from the user. If the change cannot be justified, "
@@ -6000,6 +6044,9 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
     df["Evidence_Strength"]  = df.apply(_evidence_strength, axis=1)
     df["Regulatory_Basis"]   = df.apply(_reg_basis, axis=1)
     df["Action_Required"]    = df.apply(_action_req, axis=1)
+
+    # ── Sequence_Context — computed after Primary_Rule is available ───────────
+    df["Sequence_Context"] = df.apply(_sequence_context, axis=1)
     # Primary Rule = the named rule that drove the tier classification.
     # Derived from the same priority order as _apply_tier_override so the two
     # are always consistent. Supporting Signals = all remaining triggered rules.
@@ -6174,7 +6221,7 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
     # └──────────────────────────────────────────────┴──────────────────────────┘
 
     def _suggested_disposition(row) -> tuple:
-        """Return (disposition_label, rationale_text)."""
+        """Return (disposition_label, rationale_text) — reviewer-facing language only."""
         r3  = float(row.get("score_rule3_admin_conflict",      0))
         r5  = float(row.get("score_rule5_failed_login",        0))
         r1  = float(row.get("score_rule1_vague_rationale",     0))
@@ -6193,50 +6240,52 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
         cmt     = str(row.get("comments","")).lower().strip()
         has_cmt = bool(cmt and cmt not in ("nan","none","-","—",""))
 
-        # TIER 1 — Structural: no comment gate, always Escalate
+        # TIER 1 — Structural: always Escalate regardless of documentation
         if r15 >= 9:
             return ("Escalate to CAPA",
-                    "Rule 15 threshold met (Update→Delete→Insert on same record "
-                    "within 30 min); maps unconditionally to Escalate to CAPA.")
+                    "Update, Delete, and re-Insert were performed on the same record "
+                    "within 30 minutes — this sequence is the primary method for "
+                    "altering locked GxP records while obscuring the original data.")
         if r12 >= 9:
             return ("Escalate to CAPA",
-                    "Rule 12 threshold met (approval timestamp precedes creation "
-                    "timestamp); chronologically impossible; maps unconditionally "
-                    "to Escalate to CAPA.")
+                    "Approval or release timestamp precedes the creation timestamp "
+                    "on the same record — this is chronologically impossible in a "
+                    "correctly functioning system and requires immediate investigation.")
         if r13 >= 9:
             return ("Escalate to CAPA",
-                    "Rule 13 threshold met (non-personal account on GxP record); "
-                    "individual attribution impossible; maps unconditionally to "
-                    "Escalate to CAPA.")
+                    "A service or shared account directly modified a GxP record — "
+                    "this action cannot be attributed to a named individual as required.")
         if r5 >= 8:
             return ("Escalate to CAPA",
-                    "Rule 5 threshold met (3+ failed logins within 120 min + "
-                    "GxP data action within 30 min of login); maps unconditionally "
-                    "to Escalate to CAPA.")
+                    "Three or more failed login attempts preceded a GxP data action "
+                    "within 30 minutes — this sequence requires investigation for "
+                    "potential unauthorised access.")
         if r3 >= 8:
             return ("Escalate to CAPA",
-                    "Rule 3 threshold met (admin-role account on production GxP "
-                    "table); Segregation of Duties breach; maps unconditionally "
-                    "to Escalate to CAPA.")
+                    "An administrative account directly modified production GxP data — "
+                    "administrative accounts are authorised for system configuration "
+                    "only, not direct data modification.")
         if r6 >= 9:
             return ("Escalate to CAPA",
-                    "Rule 6 threshold met (same record deleted then recreated); "
-                    "data originality chain broken; maps unconditionally to "
-                    "Escalate to CAPA.")
+                    "The same record was deleted then recreated — this pattern may "
+                    "replace original GxP data with altered values, breaking the "
+                    "traceability chain.")
         if rr >= 10:
             return ("Escalate to CAPA",
-                    "Rule 7 threshold met (audit trail config modified); maps "
-                    "unconditionally to Escalate to CAPA.")
+                    "The audit trail system itself was modified — any change to "
+                    "audit trail configuration requires immediate investigation.")
 
-        # TIER 2 — Destructive/high-risk: comment gate applies
+        # TIER 2 — Destructive/high-risk: documentation present downgrades to Investigate
         if rr >= 8:
             if has_cmt:
                 return ("Investigate — Verify Source Data",
-                        "Rule 7 (deletion, score<10) — GxP record deleted; "
-                        "comment present; comment-gate applied; maps to Investigate.")
+                        "A GxP-sensitive record was deleted with a comment on file — "
+                        "verify the comment constitutes adequate justification and "
+                        "the deletion was formally authorised.")
             return ("Escalate to CAPA",
-                    "Rule 7 (deletion, score<10) — GxP record deleted; "
-                    "no comment; maps to Escalate to CAPA.")
+                    "A GxP-sensitive record was deleted with no documented "
+                    "justification — authorisation must be established before "
+                    "this event can be closed.")
 
         if rg >= 7:
             try:
@@ -6245,90 +6294,109 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
                           and gap_ts.weekday() < 5
                           and _AT_BIZ_START <= gap_ts.hour < _AT_BIZ_END)
             except Exception:
-                is_biz = False   # unknown timestamp → cannot assert biz hours → Investigate
+                is_biz = False
             if is_biz:
                 return ("Escalate to CAPA",
-                        "Rule 10 threshold met — audit trail gap during verified "
-                        "business hours; maps to Escalate to CAPA.")
+                        "An unexplained gap in audit trail coverage occurred during "
+                        "normal business hours — continuous logging is required and "
+                        "any pause during working hours requires investigation.")
             return ("Investigate — Verify Source Data",
-                    "Rule 10 threshold met — audit trail gap outside business hours "
-                    "or timestamp unparseable; maps to Investigate.")
+                    "A gap in audit trail coverage was detected — verify whether "
+                    "this aligns with an approved maintenance window or scheduled "
+                    "system downtime.")
 
         if r4 >= 7:
             if has_cmt:
                 return ("Investigate — Verify Source Data",
-                        "Rule 4 threshold met (value >3σ from record-type mean); "
-                        "comment present; comment-gate applied; maps to Investigate.")
+                        "The recorded value is significantly outside the expected range "
+                        "for this record type, with a comment on file — verify the "
+                        "comment references an approved Change Control or specification.")
             return ("Escalate to CAPA",
-                    "Rule 4 threshold met (value >3σ from record-type mean); "
-                    "no comment; maps to Escalate to CAPA.")
+                    "The recorded value is significantly outside the expected range "
+                    "with no documented justification — verify against the approved "
+                    "specification before this event can be closed.")
 
         if rp >= 7:
             if has_cmt:
                 return ("Investigate — Verify Source Data",
-                        "Rule 8 threshold met (privileged account on GxP data); "
-                        "comment present; comment-gate applied; maps to Investigate.")
+                        "A privileged account acted on GxP data with a comment on file — "
+                        "verify the comment constitutes adequate business justification "
+                        "and that an Emergency Access Request was approved if required.")
             return ("Escalate to CAPA",
-                    "Rule 8 threshold met (privileged account on GxP data); "
-                    "no comment; maps to Escalate to CAPA.")
+                    "A privileged account modified GxP production data with no "
+                    "documented justification — authorisation must be established.")
 
         # TIER 3 — Documentation gap
         if r1 >= 8 and not has_cmt:
             return ("Escalate to CAPA",
-                    "Rule 1 at score≥8 — GxP data modified with no change reason "
-                    "recorded; maps to Escalate to CAPA.")
+                    "A GxP data modification was recorded with no change reason — "
+                    "retrospective justification is required before this event "
+                    "can be closed.")
         if r1 >= 6:
             return ("Amendment Required",
-                    "Rule 1 at score≥6 — change reason present but insufficient "
-                    "or non-descriptive; maps to Amendment Required.")
+                    "The change reason recorded is insufficient or uses "
+                    "non-descriptive language — a retrospective written amendment "
+                    "from the analyst is required.")
 
-        # TIER 4 — Statistical / behavioural
-        if r2 >= 6:
-            return ("Investigate — Verify Source Data",
-                    "Rule 2 threshold met (>10 inserts within 15 min); "
-                    "maps to Investigate.")
+        # TIER 4 — Statistical/behavioural
+        # Note: r14 checked BEFORE rg to prevent gap score from overriding
+        # dormant account as the disposition driver for long-inactivity events.
         if r14 >= 7:
             return ("Investigate — Verify Source Data",
-                    "Rule 14 threshold met (90+ day inactivity gap before GxP "
-                    "action); maps to Investigate.")
+                    "This account had no recorded activity for 90 or more days "
+                    "before this GxP action — verify current employment status "
+                    "and confirm access was formally re-authorised.")
+        if r2 >= 6:
+            return ("Investigate — Verify Source Data",
+                    "More than ten data entries were recorded by the same user "
+                    "within 15 minutes — verify that contemporaneous source "
+                    "records exist for each entry.")
         if r16 >= 5:
             return ("Investigate — Verify Source Data",
-                    "Rule 16 threshold met (first-time high-risk action); "
-                    "maps to Investigate.")
+                    "This user performed a high-risk action type for the first "
+                    "time in their recorded history — verify this was within "
+                    "their approved access rights at the time.")
 
-        # TIER 5 — Temporal: all four combinations explicit, no fallback path
+        # TIER 5 — Temporal: all four combinations explicit
         if rt >= 9:
             return (
                 "Document Rationale" if has_cmt else "Investigate — Verify Source Data",
-                f"Rule 11 at score≥9 (deep off-hours/holiday); "
-                f"{'comment present' if has_cmt else 'no comment'}; "
-                f"maps to {'Document Rationale' if has_cmt else 'Investigate'}."
+                ("Activity at an unusually late or early hour was detected with a "
+                 "comment on file — confirm a corresponding approved overtime record "
+                 "or maintenance window covers this period.")
+                if has_cmt else
+                ("Activity at an unusually late or early hour was detected with no "
+                 "documented reason — obtain business justification before closing "
+                 "this finding.")
             )
         if rt >= 5:
             return (
                 "Document Rationale" if has_cmt else "Investigate — Verify Source Data",
-                f"Rule 11 at score≥5 (off-hours); "
-                f"{'comment present' if has_cmt else 'no comment'}; "
-                f"maps to {'Document Rationale' if has_cmt else 'Investigate'}."
+                ("Off-hours activity was detected with a comment on file — confirm "
+                 "a corresponding approved overtime record or maintenance window "
+                 "covers this period.")
+                if has_cmt else
+                ("Off-hours activity was detected with no documented reason — "
+                 "obtain business justification before closing this finding.")
             )
 
-        # TIER 6 — Service account (non-GxP record, lower severity)
+        # TIER 6 — Service account, non-GxP record
         if r13 >= 6:
             return ("Investigate — Verify Source Data",
-                    "Rule 13 lower threshold met (non-personal account, non-GxP "
-                    "record); maps to Investigate.")
+                    "A service or shared account performed this action — verify "
+                    "that a responsible individual can be identified and that "
+                    "the action was authorised.")
 
-        # TIER 7 — Hard gate raised to 7.0 to avoid over-escalation
+        # TIER 7 — Hard gate
         named_max = max(r16,r15,r12,r13,r5,r3,r6,rg,rr,r4,r1,r2,rp,rt,r14)
         if named_max >= 7.0:
             return ("Investigate — Verify Source Data",
-                    f"Named rule score {named_max:.1f} reached ≥7.0 threshold; "
-                    "no specific tier matched; maps to Investigate by hard gate.")
+                    "A risk indicator was detected that warrants documented "
+                    "reviewer investigation before this event can be closed.")
 
-        # DEFAULT
         return ("No Action Required",
-                "No named rule reached the 7.0 threshold; event entered Top N "
-                "via composite score only; brief review sufficient.")
+                "No significant risk indicator was detected — a brief review "
+                "and documented disposition is sufficient.")
 
     sugg_disp = []
     sugg_rat  = []
@@ -6371,22 +6439,9 @@ def _at_deterministic_justification(row: dict) -> str:
     else:
         comment_clause = "; no change reason was recorded"
 
-    # Build chain context clause for chain-participant events
-    chain_id  = str(row.get("Event_Chain_ID", "")).strip()
-    chain_clause = ""
-    if chain_id and chain_id not in ("", "None", "nan", "—"):
-        primary = str(row.get("Primary_Rule", "")).lower()
-        if "rule 5" in primary or "failed login" in primary:
-            chain_clause = (f" — part of Event Chain {chain_id} "
-                            f"(preceded by failed login attempts for this user)")
-        elif "rule 6" in primary or "delete and recreate" in primary:
-            chain_clause = (f" — part of Event Chain {chain_id} "
-                            f"(delete and recreate sequence on this record)")
-        elif "rule 15" in primary or "suspicious" in primary:
-            chain_clause = (f" — part of Event Chain {chain_id} "
-                            f"(Update→Delete→Insert sequence on this record)")
-        else:
-            chain_clause = f" — part of Event Chain {chain_id}"
+    # Build chain context from natural language Sequence_Context field
+    seq_ctx      = str(row.get("Sequence_Context", "")).strip()
+    chain_clause = f" — {seq_ctx}" if seq_ctx else ""
 
     return f"{user} performed {action} on {record_ref} at {ts}{comment_clause}{chain_clause}."
 
@@ -6417,18 +6472,8 @@ def at_generate_justifications(top_df: pd.DataFrame, model_id: str) -> pd.DataFr
             cmt       = str(row.get("comments","none provided"))
             ts        = str(row.get("timestamp","unknown time"))
 
-            chain_id = str(row.get("Event_Chain_ID",""))
-            chain_ctx = ""
-            if chain_id and chain_id not in ("", "None", "nan"):
-                primary_lower = primary_rule.lower()
-                if "rule 5" in primary_lower or "failed login" in primary_lower:
-                    chain_ctx = (f"  This event is part of Event Chain {chain_id} "
-                                 f"(preceded by failed login attempts for this user).\n")
-                elif "rule 6" in primary_lower or "delete and recreate" in primary_lower:
-                    chain_ctx = (f"  This event is part of Event Chain {chain_id} "
-                                 f"(delete and recreate sequence on this record).\n")
-                else:
-                    chain_ctx = f"  Part of event chain: {chain_id}.\n"
+            seq_ctx   = str(row.get("Sequence_Context","")).strip()
+            chain_ctx = f"  Sequence context: {seq_ctx}\n" if seq_ctx else ""
 
             # Determine primary rule to anchor the narrative
             all_rules = [r.strip() for r in triggered.split(";") if r.strip()]
@@ -6440,10 +6485,11 @@ YOUR ONLY JOB: Write exactly ONE sentence stating the observable facts from the 
 
 HARD RULES — no exceptions:
 1. State ONLY what the log record shows: who, what action, on which record, at what time, what comment was recorded.
-2. Do NOT use any regulatory language: no "may indicate", "raises a concern", "is inconsistent with", "warrants", "ALCOA", "21 CFR", "data integrity".
-3. Do NOT recommend any action: no "verify", "confirm", "obtain", "investigate", "escalate".
-4. Do NOT infer intent or motivation.
-5. ONE sentence. Max 30 words.
+2. If Sequence context is provided below, you MUST include it in your sentence — it is factual log context.
+3. Do NOT use any regulatory language: no "may indicate", "raises a concern", "is inconsistent with", "warrants", "ALCOA", "21 CFR", "data integrity".
+4. Do NOT recommend any action: no "verify", "confirm", "obtain", "investigate", "escalate".
+5. Do NOT infer intent or motivation.
+6. ONE sentence. Max 40 words.
 
 Log data:
   User: {usr}
@@ -6595,9 +6641,9 @@ def at_build_excel(top_df, scored_df, system_name, r_start, r_end, fname) -> byt
         ws.row_dimensions[row].height = 22
         row += 1
 
-        # Column headers for critical findings table
+        # Column headers — no chain ID column
         for ci, (lbl, w) in enumerate([
-            ("Event Chain", 14), ("User", 20), ("Rule Triggered", 38),
+            ("User", 20), ("Rule Triggered", 38),
             ("Record / Table", 26), ("Date & Time", 22)
         ], 1):
             c_hdr = ws.cell(row=row, column=ci, value=lbl)
@@ -6607,35 +6653,58 @@ def at_build_excel(top_df, scored_df, system_name, r_start, r_end, fname) -> byt
             c_hdr.alignment = Alignment(horizontal="center", vertical="center")
         ws.row_dimensions[row].height = 16
 
-        # Critical events data (merge A:B into 5 cols using column C-F area)
-        ws.column_dimensions["A"].width = 14
-        ws.column_dimensions["B"].width = 20
-        ws.column_dimensions["C"].width = 38
-        ws.column_dimensions["D"].width = 26
-        ws.column_dimensions["E"].width = 22
+        ws.column_dimensions["A"].width = 20
+        ws.column_dimensions["B"].width = 38
+        ws.column_dimensions["C"].width = 26
+        ws.column_dimensions["D"].width = 22
         row += 1
 
+        # Group chain-related events visually — show sequence context in plain language
+        seen_chains = {}  # chain_id → first row written
         for _, ev in critical_events.iterrows():
-            chain = str(ev.get("Event_Chain_ID","—"))
+            chain = str(ev.get("Event_Chain_ID","")).strip()
             usr   = str(ev.get("user_id","—"))
-            rule  = str(ev.get("Triggered_Rules","—")).split(";")[0].strip()
-            # Clean rule label — remove severity tag for brevity
+            rule  = str(ev.get("Primary_Rule","—"))
             rule  = rule.replace(" [CRITICAL]","").replace(" [HIGH]","").strip()
             rec   = str(ev.get("record_id","—"))
             if rec in ("","nan","—"):
                 rec = str(ev.get("record_type","—"))
             ts    = str(ev.get("timestamp","—"))
+            seq   = str(ev.get("Sequence_Context","")).strip()
 
-            row_data = [chain, usr, rule, rec, ts]
+            # For chain events, prefix with ↳ after first member to show grouping
+            if chain and chain not in ("","None","nan"):
+                if chain not in seen_chains:
+                    seen_chains[chain] = row
+                    user_label = usr
+                else:
+                    user_label = f"  ↳ {usr}"  # indent to show sequence membership
+            else:
+                user_label = usr
+
+            row_data = [user_label, rule, rec, ts]
             for ci, val in enumerate(row_data, 1):
                 c_data = ws.cell(row=row, column=ci, value=val)
-                c_data.font      = Font(bold=(ci==3), color="7F1D1D",
+                c_data.font      = Font(bold=(ci==2), color="7F1D1D",
                                         name="Calibri", size=9)
                 c_data.fill      = _fill("FEF2F2")
                 c_data.border    = bdr
                 c_data.alignment = Alignment(vertical="center", wrap_text=True)
             ws.row_dimensions[row].height = 16
             row += 1
+
+            # If this is part of a sequence, add a light-grey context row
+            if seq and chain and chain in seen_chains:
+                ws.merge_cells(f"A{row}:D{row}")
+                ctx_cell = ws.cell(row=row, column=1,
+                                   value=f"   ⟳ {seq}")
+                ctx_cell.font      = Font(italic=True, color="6B7280",
+                                          name="Calibri", size=8)
+                ctx_cell.fill      = _fill("FFF7F7")
+                ctx_cell.border    = bdr
+                ctx_cell.alignment = Alignment(vertical="center", wrap_text=True)
+                ws.row_dimensions[row].height = 13
+                row += 1
 
         row += 1   # spacer after critical box
 
@@ -6737,12 +6806,19 @@ def at_build_excel(top_df, scored_df, system_name, r_start, r_end, fname) -> byt
                          n_esc: int, total: int) -> str:
         """
         Build a 4–6 sentence narrative summary of the audit trail findings.
-        Written in plain English, suitable for a QA Manager or auditor to read
-        without opening any other sheet.
+        Uses only escalated-event counts — full-dataset tier counts are NOT
+        referenced here because they represent a different population from
+        the escalated events and would create an irreconcilable contradiction
+        on the same page. Full-dataset distribution is in the Full Audit Log.
         """
         sentences = []
 
-        # ── Sentence 1: Period and volume ─────────────────────────────────────
+        # Derive counts from the escalated set (top_df) only
+        n_esc_crit = int((top_df["Risk_Tier"] == "Critical").sum()) if not top_df.empty else 0
+        n_esc_high = int((top_df["Risk_Tier"] == "High").sum())     if not top_df.empty else 0
+        n_esc_med  = int((top_df["Risk_Tier"] == "Medium").sum())   if not top_df.empty else 0
+
+        # ── Sentence 1: Period, volume, and escalated summary ─────────────────
         _missing = "(review period dates not specified)"
         period_str = (
             f"from {r_start} to {r_end}"
@@ -6750,32 +6826,33 @@ def at_build_excel(top_df, scored_df, system_name, r_start, r_end, fname) -> byt
                and r_start != _missing and r_end != _missing
             else _missing
         )
-        if n_crit == 0 and n_high == 0:
+        if n_esc == 0:
             sentences.append(
                 f"The audit trail for {sys_name} was reviewed {period_str}. "
-                f"Of {total:,} recorded events, {n_esc} were escalated for review. "
-                "No critical or high-risk events were identified."
+                f"Of {total:,} recorded events, none met the escalation threshold. "
+                "No findings require reviewer action."
+            )
+        elif n_esc_crit == 0 and n_esc_high == 0:
+            sentences.append(
+                f"The audit trail for {sys_name} was reviewed {period_str}. "
+                f"Of {total:,} recorded events, {n_esc} were escalated for review — "
+                f"none Critical or High. "
+                f"Full dataset tier distribution is available in the Full Audit Log sheet."
             )
         else:
-            risk_parts = []
-            if n_crit > 0:
-                risk_parts.append(
-                    f"{n_crit} critical event{'s' if n_crit > 1 else ''}")
-            if n_high > 0:
-                risk_parts.append(
-                    f"{n_high} high-risk event{'s' if n_high > 1 else ''}")
-            if n_med > 0:
-                risk_parts.append(
-                    f"{n_med} medium-risk event{'s' if n_med > 1 else ''}")
-            risk_str = " and ".join(
-                [", ".join(risk_parts[:-1])] + risk_parts[-1:]
-                if len(risk_parts) > 1 else risk_parts
-            )
+            esc_parts = []
+            if n_esc_crit > 0:
+                esc_parts.append(f"{n_esc_crit} Critical")
+            if n_esc_high > 0:
+                esc_parts.append(f"{n_esc_high} High")
+            if n_esc_med > 0:
+                esc_parts.append(f"{n_esc_med} Medium")
+            esc_str = ", ".join(esc_parts)
             sentences.append(
-                f"During the review period {period_str}, {total:,} audit trail "
-                f"events were analysed for {sys_name}. "
-                f"{risk_str.capitalize()} were identified out of "
-                f"{n_esc} events escalated for review."
+                f"The audit trail for {sys_name} was reviewed {period_str}. "
+                f"Of {total:,} recorded events, {n_esc} were escalated for review "
+                f"({esc_str}). "
+                f"Full dataset tier distribution is available in the Full Audit Log sheet."
             )
 
         # ── Sentences 2–4: Describe the most significant findings ─────────────
@@ -6914,27 +6991,27 @@ def at_build_excel(top_df, scored_df, system_name, r_start, r_end, fname) -> byt
 
             sentences.extend(finding_sentences)
 
-        # ── Final sentence: Overall risk assessment ───────────────────────────
-        if n_crit >= 2:
+        # ── Final sentence: Overall risk assessment (escalated counts only) ──
+        if n_esc_crit >= 2:
             overall = (
                 "Overall, the system presents a high risk to data integrity "
                 "and requires immediate corrective actions, particularly in "
                 "access control and audit trail integrity."
             )
-        elif n_crit == 1:
+        elif n_esc_crit == 1:
             overall = (
                 "Overall, the system presents a moderate-to-high risk to data "
                 "integrity. The critical finding identified requires prompt "
                 "investigation and formal non-conformance documentation."
             )
-        elif n_high >= 3:
+        elif n_esc_high >= 3:
             overall = (
                 "Overall, the system presents a moderate risk to data integrity. "
                 "Multiple high-risk findings indicate systemic issues in "
                 "documentation practices and access control that require "
                 "corrective action."
             )
-        elif n_high >= 1 or n_med >= 3:
+        elif n_esc_high >= 1 or n_esc_med >= 3:
             overall = (
                 "Overall, the system presents a low-to-moderate risk to data "
                 "integrity. The findings identified are manageable but require "
@@ -7019,7 +7096,7 @@ def at_build_excel(top_df, scored_df, system_name, r_start, r_end, fname) -> byt
         ("Record ID",                      "record_id",         14),
         ("Change Reason",                  "comments",          28),
         ("Primary Rule",                   "Primary_Rule",      34),
-        ("Event Chain",                    "Event_Chain_ID",    11),
+        ("Related Sequence",               "Sequence_Context",  28),
         ("Why It Matters",                 "Regulatory_Basis",  50),
         ("What Happened",                  "AI_Justification",  46),
         ("Recommended Action",             "Action_Required",   46),
@@ -7122,12 +7199,11 @@ def at_build_excel(top_df, scored_df, system_name, r_start, r_end, fname) -> byt
         ("Record Type",      "record_type",        18),
         ("Record ID",        "record_id",          16),
         ("Change Reason",    "comments",           28),
-        ("Risk Score",       "Risk_Score",         10),
         ("Risk Level",       "Risk_Tier",          11),
         ("Evidence",         "Evidence_Strength",  10),
         ("Primary Rule",     "Primary_Rule",       34),
         ("All Rules Fired",  "Triggered_Rules",    38),
-        ("Event Chain",      "Event_Chain_ID",     11),
+        ("Related Sequence",  "Sequence_Context",   22),
     ]
 
     # Strip internal columns — keep only the log_cols fields
@@ -9657,37 +9733,15 @@ match your system's export column names to the fields above — rename nothing i
             evidence_str = str(row.get("Evidence_Strength","Low"))
             ev_color     = {"High":"#16a34a","Medium":"#d97706","Low":"#475569"}.get(evidence_str,"#475569")
 
-            chain_suffix = f"  ·  Part of Event Chain {chain_id}" if chain_id and chain_id != "None" else ""
+            seq_ctx_ui     = str(row.get("Sequence_Context","")).strip()
+            seq_suffix     = f"  ·  {seq_ctx_ui}" if seq_ctx_ui else ""
             expander_label = (
-                f"{icon} Event #{rank} · {tier} · {score:.1f}/10 · {evidence_str} Evidence"
-                f"  |  {user_id}  ·  {action}  ·  {primary_r}{chain_suffix}"
+                f"{icon} Event #{rank} · {tier} · {evidence_str} Evidence"
+                f"  |  {user_id}  ·  {action}  ·  {primary_r}{seq_suffix}"
             )
 
+
             with st.expander(expander_label, expanded=False):
-                dims = [
-                    ("Temporal",     row.get("score_temporal",0)),
-                    ("Velocity",     row.get("score_velocity",0)),
-                    ("Privilege",    row.get("score_privilege",0)),
-                    ("Record Type",  row.get("score_record",0)),
-                    ("Del-Recreate", row.get("score_del_recreate",0)),
-                    ("Gap",          row.get("score_gap",0)),
-                    ("Rule 1 Vague", row.get("score_rule1_vague_rationale",0)),
-                    ("Rule 2 Burst", row.get("score_rule2_burst",0)),
-                    ("Rule 3 Admin", row.get("score_rule3_admin_conflict",0)),
-                    ("Rule 4 Drift", row.get("score_rule4_drift",0)),
-                    ("Rule 5 Login", row.get("score_rule5_failed_login",0)),
-                ]
-                dim_html = "".join([
-                    f'<div style="display:flex;align-items:center;gap:6px;margin-bottom:2px;">'
-                    f'<span style="color:{"#fbbf24" if "Rule" in dn else "#475569"};'
-                    f'font-size:0.67rem;width:78px;">{dn}</span>'
-                    f'<div style="flex:1;background:#1e293b;border-radius:2px;height:4px;">'
-                    f'<div style="background:{"#dc2626" if dv>=7 else "#ea580c" if dv>=5 else "#d97706" if dv>=3 else "#334155"};'
-                    f'height:4px;border-radius:2px;width:{min(dv/10*100,100):.0f}%;"></div></div>'
-                    f'<span style="color:#64748b;font-size:0.67rem;width:24px;text-align:right;">{dv:.1f}</span>'
-                    f'</div>'
-                    for dn,dv in dims
-                ])
 
                 badges_html = ""
                 if triggered:
@@ -9709,13 +9763,7 @@ match your system's export column names to the fields above — rename nothing i
                             f'{rule_label}</span>'
                         )
 
-                chain_badge = (
-                    f'&nbsp;<span style="background:#1e1b4b;color:#a5b4fc;'
-                    f'border:1px solid #6366f144;padding:2px 8px;border-radius:4px;'
-                    f'font-size:0.68rem;font-family:\'IBM Plex Mono\',monospace;">'
-                    f'⛓ {chain_id}</span>'
-                    if chain_id else ""
-                )
+                chain_badge = ""  # removed — chain context in sequence field
 
                 sugg_disp = str(row.get("Suggested_Disposition",""))
                 sugg_rat  = str(row.get("Suggested_Disposition_Rationale",""))
@@ -9734,10 +9782,10 @@ match your system's export column names to the fields above — rename nothing i
     <span style="color:{bc};font-weight:700;">Event #{rank}
       <span style="background:{bc}22;border:1px solid {bc}44;color:{bc};
              padding:2px 8px;border-radius:4px;font-size:0.7rem;margin-left:8px;">
-        {tier} · {score:.1f}/10</span>
+        {tier}</span>
       <span style="background:{ev_color}22;border:1px solid {ev_color}44;color:{ev_color};
              padding:2px 8px;border-radius:4px;font-size:0.68rem;margin-left:6px;">
-        {evidence_str} Evidence</span>{chain_badge}</span>
+        {evidence_str} Evidence</span></span>
     <span style="color:#334155;font-size:0.72rem;">{str(row.get('timestamp',''))}</span>
   </div>
   <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;
@@ -9785,20 +9833,13 @@ match your system's export column names to the fields above — rename nothing i
               letter-spacing:1px;margin:0 0 5px;font-weight:700;">&#9314; Action Required</p>
     <p style="color:#86efac;font-size:0.79rem;line-height:1.4;margin:0;">{action_req}</p>
   </div>''' if action_req else ''}
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:4px;">
-    <div>
-      <p style="color:#334155;font-size:0.67rem;text-transform:uppercase;
-               letter-spacing:1px;margin:0 0 5px;">&#9315; Dimension Scores</p>
-      {dim_html}
-    </div>
-    <div>
-      <p style="color:#334155;font-size:0.67rem;text-transform:uppercase;
-               letter-spacing:1px;margin:0 0 5px;">&#9316; What Happened</p>
-      <p style="color:#475569;font-size:0.73rem;font-style:italic;margin:0 0 4px;">
-        One-sentence log summary. All interpretation is in the fields above.</p>
-      <p style="color:#cbd5e1;font-size:0.79rem;line-height:1.5;margin:0;">
-        {str(row.get('AI_Justification',''))}</p>
-    </div>
+  <div style="margin-top:4px;">
+    <p style="color:#334155;font-size:0.67rem;text-transform:uppercase;
+             letter-spacing:1px;margin:0 0 5px;">&#9315; What Happened</p>
+    <p style="color:#475569;font-size:0.73rem;font-style:italic;margin:0 0 4px;">
+      One-sentence log summary. All interpretation is in the fields above.</p>
+    <p style="color:#cbd5e1;font-size:0.79rem;line-height:1.5;margin:0;">
+      {str(row.get('AI_Justification',''))}</p>
   </div>
 </div>""", unsafe_allow_html=True)
 
