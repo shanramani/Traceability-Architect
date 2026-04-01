@@ -5273,7 +5273,7 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
                 f"(service, shared, or automated) that performed "
                 f"'{row.get('action_type','')}' on '{row.get('record_type','')}' "
                 f"record '{row.get('record_id','')}'. Non-personal accounts cannot "
-                "be attributed to a single individual, violating "
+                "be attributed to a single individual, which is inconsistent with "
                 "21 CFR Part 11 §11.300 and ALCOA+ Attributable principle."
             )
         if is_gxp_action:
@@ -6371,7 +6371,24 @@ def _at_deterministic_justification(row: dict) -> str:
     else:
         comment_clause = "; no change reason was recorded"
 
-    return f"{user} performed {action} on {record_ref} at {ts}{comment_clause}."
+    # Build chain context clause for chain-participant events
+    chain_id  = str(row.get("Event_Chain_ID", "")).strip()
+    chain_clause = ""
+    if chain_id and chain_id not in ("", "None", "nan", "—"):
+        primary = str(row.get("Primary_Rule", "")).lower()
+        if "rule 5" in primary or "failed login" in primary:
+            chain_clause = (f" — part of Event Chain {chain_id} "
+                            f"(preceded by failed login attempts for this user)")
+        elif "rule 6" in primary or "delete and recreate" in primary:
+            chain_clause = (f" — part of Event Chain {chain_id} "
+                            f"(delete and recreate sequence on this record)")
+        elif "rule 15" in primary or "suspicious" in primary:
+            chain_clause = (f" — part of Event Chain {chain_id} "
+                            f"(Update→Delete→Insert sequence on this record)")
+        else:
+            chain_clause = f" — part of Event Chain {chain_id}"
+
+    return f"{user} performed {action} on {record_ref} at {ts}{comment_clause}{chain_clause}."
 
 
 def at_generate_justifications(top_df: pd.DataFrame, model_id: str) -> pd.DataFrame:
@@ -6401,8 +6418,17 @@ def at_generate_justifications(top_df: pd.DataFrame, model_id: str) -> pd.DataFr
             ts        = str(row.get("timestamp","unknown time"))
 
             chain_id = str(row.get("Event_Chain_ID",""))
-            chain_ctx = (f"  Part of event chain: {chain_id}\n"
-                         if chain_id else "")
+            chain_ctx = ""
+            if chain_id and chain_id not in ("", "None", "nan"):
+                primary_lower = primary_rule.lower()
+                if "rule 5" in primary_lower or "failed login" in primary_lower:
+                    chain_ctx = (f"  This event is part of Event Chain {chain_id} "
+                                 f"(preceded by failed login attempts for this user).\n")
+                elif "rule 6" in primary_lower or "delete and recreate" in primary_lower:
+                    chain_ctx = (f"  This event is part of Event Chain {chain_id} "
+                                 f"(delete and recreate sequence on this record).\n")
+                else:
+                    chain_ctx = f"  Part of event chain: {chain_id}.\n"
 
             # Determine primary rule to anchor the narrative
             all_rules = [r.strip() for r in triggered.split(";") if r.strip()]
@@ -6655,6 +6681,29 @@ def at_build_excel(top_df, scored_df, system_name, r_start, r_end, fname) -> byt
     _summary_row("Source File",     fname)
     _summary_row("Analysis Date",   str(datetime.date.today()))
     _summary_row("Regulatory Basis","21 CFR Part 11 §11.10(e)  |  EU Annex 11, Clause 9")
+
+    # Out-of-period scope note — added to Summary sheet if events outside review period exist
+    try:
+        _r_s = pd.to_datetime(r_start, dayfirst=True, errors="coerce")
+        _r_e = pd.to_datetime(r_end,   dayfirst=True, errors="coerce")
+        if not pd.isnull(_r_s) and not pd.isnull(_r_e) and "timestamp_parsed" in scored_df.columns:
+            _ts      = scored_df["timestamp_parsed"].dropna()
+            _before  = int((_ts < _r_s).sum())
+            _after   = int((_ts > _r_e).sum())
+            if _before > 0 or _after > 0:
+                _parts = []
+                if _before: _parts.append(f"{_before:,} event(s) pre-date {r_start}")
+                if _after:  _parts.append(f"{_after:,} event(s) post-date {r_end}")
+                _summary_row(
+                    "⚠ Dataset Scope Note",
+                    f"The uploaded file contains events outside the defined review period "
+                    f"({'; '.join(_parts)}). These events are included in the analysis "
+                    f"because the full dataset was provided. Reviewers must confirm whether "
+                    f"out-of-period events are within scope before signing this report.",
+                    bold_val=True
+                )
+    except Exception:
+        pass
     row += 1
 
     _summary_row("RESULTS AT A GLANCE", "", section=True)
@@ -6663,18 +6712,22 @@ def at_build_excel(top_df, scored_df, system_name, r_start, r_end, fname) -> byt
     _summary_row("Records Requiring Review", f"{n_esc}",         bold_val=True)
     row += 1
 
-    _summary_row("BREAKDOWN BY RISK LEVEL", "", section=True)
-    _summary_row("Critical — Requires immediate action",     n_crit, tier="Critical")
-    _summary_row("High — Requires investigation",            n_high, tier="High")
-    _summary_row("Medium — Review recommended",              n_med,  tier="Medium")
-    _summary_row("Low — No action required",                 n_low,  tier="Low")
+    _summary_row("ESCALATED EVENTS — BREAKDOWN", "", section=True)
+    # These counts reflect the Events for Review sheet only (escalated events).
+    # The Full Audit Log sheet contains tier counts for all 1,000 scored events.
+    n_esc_crit = int((top_df["Risk_Tier"] == "Critical").sum()) if not top_df.empty else 0
+    n_esc_high = int((top_df["Risk_Tier"] == "High").sum())     if not top_df.empty else 0
+    n_esc_med  = int((top_df["Risk_Tier"] == "Medium").sum())   if not top_df.empty else 0
+    _summary_row("Critical — Escalated for immediate action",
+                 f"{n_esc_crit} of {n_esc} escalated events", tier="Critical")
+    _summary_row("High — Escalated for investigation",
+                 f"{n_esc_high} of {n_esc} escalated events", tier="High")
+    _summary_row("Medium — Escalated for review",
+                 f"{n_esc_med} of {n_esc} escalated events",  tier="Medium")
+    _summary_row("Full dataset tier distribution",
+                 f"See Full Audit Log sheet — Risk Level column")
     row += 1
 
-    _summary_row("THRESHOLD SETTINGS (used for this analysis)", "", section=True)
-    _summary_row("Critical level",  f"Score ≥ {t_crit}")
-    _summary_row("High level",      f"Score ≥ {t_high}")
-    _summary_row("Medium level",    f"Score ≥ {t_med}")
-    _summary_row("Low level",       f"Score < {t_med}")
     row += 1
 
     # ── Review Narrative — human-readable story of findings ───────────────────
@@ -6781,8 +6834,8 @@ def at_build_excel(top_df, scored_df, system_name, r_start, r_end, fname) -> byt
                 if "rule 3" in r or "admin" in r and "conflict" in r:
                     finding_sentences.append(
                         f"A system administrator ({usr}) directly modified "
-                        f"production {rec_type} data{rec_ref}, violating "
-                        "Segregation of Duties controls."
+                        f"production {rec_type} data{rec_ref}, which is inconsistent "
+                        "with Segregation of Duties expectations under 21 CFR Part 11 §11.10(d)."
                     )
                 elif "rule 5" in r or "failed login" in r:
                     finding_sentences.append(
@@ -6922,8 +6975,9 @@ def at_build_excel(top_df, scored_df, system_name, r_start, r_end, fname) -> byt
         f"{total:,} records were reviewed across the period {r_start} to {r_end}. "
         f"{pct_clear}% of records were automatically cleared as low risk. "
         f"The {n_esc} records requiring review are documented in the 'Events for Review' sheet. "
-        f"Each finding has been reviewed and dispositioned by the undersigned reviewer. "
-        f"Risk thresholds applied: Critical ≥{t_crit}, High ≥{t_high}, Medium ≥{t_med}. "
+        f"Each finding has been independently reviewed and dispositioned by the undersigned reviewer. "
+        f"The 'System-Proposed Disposition' column is informational only; the reviewer's determination "
+        f"in the 'Reviewer Decision' column reflects independent human judgement and is the authoritative record. "
         f"Regulatory basis: 21 CFR Part 11 §11.10(e) and EU Annex 11 Clause 9.\n\n"
         f"Timezone note: Off-hours scoring (Rule 11) assumes all timestamps in the uploaded "
         f"file are in the same timezone. If your system exports timestamps in UTC or a "
@@ -6950,27 +7004,32 @@ def at_build_excel(top_df, scored_df, system_name, r_start, r_end, fname) -> byt
     ws2.sheet_view.showGridLines  = False
 
     # Director-facing column set — clean, scannable, no technical noise.
-    # Rule_Rationale, Triggered_Rules, Supporting_Signals hidden from this sheet
-    # (they appear in Full Audit Log for detailed investigation).
+    # Risk Score removed: composite score and tier are intentionally decoupled
+    # (named rule overrides force tier regardless of score — showing both
+    # creates confusion). Tier alone is the reviewer-facing classification.
+    # Supporting_Signals and Triggered_Rules are in Full Audit Log only.
     reviewer_cols = [
-        ("No.",                       "Rank",              5),
-        ("Risk Level",                "Risk_Tier",         11),
-        ("Evidence Strength",          "Evidence_Strength", 10),
-        ("Date & Time",               "timestamp",         19),
-        ("User",                      "user_id",           16),
-        ("Action",                    "action_type",       18),
-        ("Record",                    "record_type",       16),
-        ("Record ID",                 "record_id",         14),
-        ("Change Reason",             "comments",          28),
-        ("Primary Rule",              "Primary_Rule",      34),
-        ("Event Chain",               "Event_Chain_ID",    11),
-        ("Why It Matters",            "Regulatory_Basis",  50),
-        ("What Happened",             "AI_Justification",  46),
-        ("Recommended Action",        "Action_Required",   46),
-        ("Suggested Disposition",     "Suggested_Disposition", 24),
-        ("Decision Basis",            "Suggested_Disposition_Rationale", 40),
-        ("Reviewer Decision",         "Reviewer_Disposition", 32),
-        ("Reviewer Notes",            "Reviewer_Notes",    28),
+        ("No.",                            "Rank",              5),
+        ("Risk Level",                     "Risk_Tier",         11),
+        ("Evidence Strength",              "Evidence_Strength", 10),
+        ("Date & Time",                    "timestamp",         19),
+        ("User",                           "user_id",           16),
+        ("Action",                         "action_type",       18),
+        ("Record",                         "record_type",       16),
+        ("Record ID",                      "record_id",         14),
+        ("Change Reason",                  "comments",          28),
+        ("Primary Rule",                   "Primary_Rule",      34),
+        ("Event Chain",                    "Event_Chain_ID",    11),
+        ("Why It Matters",                 "Regulatory_Basis",  50),
+        ("What Happened",                  "AI_Justification",  46),
+        ("Recommended Action",             "Action_Required",   46),
+        ("System-Proposed Disposition\n(see Decision Basis — reviewer must\n"
+         "make independent determination)",
+                                           "Suggested_Disposition", 30),
+        ("Decision Basis",                 "Suggested_Disposition_Rationale", 40),
+        ("Reviewer Decision\n(independent — tick one)",
+                                           "Reviewer_Disposition", 34),
+        ("Reviewer Notes",                 "Reviewer_Notes",    28),
     ]
 
     top_out = top_df.copy().reset_index(drop=True)
