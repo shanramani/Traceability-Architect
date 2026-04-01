@@ -5704,7 +5704,302 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
         return "; ".join(fired) if fired else ""
     df["Triggered_Rules"] = df.apply(_triggered, axis=1)
 
-    # ── Primary Rule + Supporting Signals ────────────────────────────────────
+    # ══════════════════════════════════════════════════════════════════════════
+    # MASTER RULE TABLE — single source of truth for ALL derived fields.
+    #
+    # Every field that depends on "which rule is primary" consults THIS table
+    # in THIS order. No separate priority lists, no separate dicts.
+    #
+    # Columns:
+    #   score_col    — the DataFrame column to test
+    #   threshold    — minimum score for this entry to fire
+    #   label        — human-readable rule name (used in Primary_Rule)
+    #   evidence     — "High" | "Medium" | "Low" (used in Evidence_Strength)
+    #   reg_basis    — citation-only string (used in Regulatory_Basis / Why It Matters)
+    #   action       — procedural instruction (used in Action_Required)
+    # ══════════════════════════════════════════════════════════════════════════
+    _MASTER = [
+        # ── TIER 1: Structural / Attribution failures ─────────────────────────
+        (
+            "score_rule15_suspicious_sequence", 9,
+            "Rule 15 — Suspicious Action Sequence [CRITICAL]",
+            "High",
+            ("ALCOA+ Original principle; 21 CFR Part 11 §11.10(e) — "
+             "GxP records must reflect what was originally observed and must not be "
+             "altered after the fact without a complete, auditable change history."),
+            ("Retrieve all three events in this sequence — the UPDATE, DELETE, and "
+             "INSERT on the same record. Compare values before and after to identify "
+             "what changed. Obtain a written explanation from the user for each step. "
+             "If the deletion circumvented the locked record workflow, "
+             "initiate a formal data integrity investigation."),
+        ),
+        (
+            "score_rule12_timestamp_reversal", 9,
+            "Rule 12 — Timestamp Reversal [CRITICAL]",
+            "High",
+            ("21 CFR Part 11 §11.10(e); FDA Data Integrity Guidance (2018) — "
+             "Audit trail timestamps must be sequentially consistent; "
+             "an approval timestamp cannot precede a creation timestamp."),
+            ("Retrieve the full audit trail for this record and compare all creation "
+             "and approval timestamps. Determine whether a server clock error, system "
+             "migration, or direct database alteration caused the reversal. "
+             "Document all findings formally."),
+        ),
+        (
+            "score_rule13_service_account", 9,
+            "Rule 13 — Service/Shared Account GxP Action [CRITICAL]",
+            "High",
+            ("21 CFR Part 11 §11.300; ALCOA+ Attributable principle — "
+             "Each GxP action must be traceable to a single, identified individual; "
+             "non-personal accounts cannot satisfy this requirement."),
+            ("Identify the individual responsible for authorising this service or "
+             "shared account to perform this action. Obtain written justification "
+             "for use of a non-personal account on GxP data. Assess whether the "
+             "data modified can be attributed to a specific individual as required."),
+        ),
+        (
+            "score_rule5_failed_login", 8,
+            "Rule 5 — Failed Login → Data Manipulation [CRITICAL]",
+            "High",
+            ("ALCOA+ Original and Attributable principles; FDA Data Integrity Guidance (2018) — "
+             "GxP systems must ensure that only authorised individuals can access "
+             "and modify controlled records."),
+            ("Initiate a data integrity investigation immediately. Obtain all failed "
+             "login records for this user. Cross-reference every data change made "
+             "in the 30 minutes following login against source documents. "
+             "If manipulation is confirmed without authorisation, raise a Critical "
+             "non-conformance."),
+        ),
+        (
+            "score_rule3_admin_conflict", 8,
+            "Rule 3 — Admin/GxP Conflict [CRITICAL]",
+            "High",
+            ("21 CFR Part 11 §11.10(d); Segregation of Duties principle — "
+             "Administrative accounts are authorised for system configuration only "
+             "and must not directly create or modify GxP production records."),
+            ("Obtain documented business justification for this administrative action "
+             "on production data. Verify whether an Emergency Access Request was "
+             "approved prior to this action. If no documented authorisation exists, "
+             "assess impact on GxP record integrity and raise a non-conformance."),
+        ),
+        (
+            "score_del_recreate", 9,
+            "Rule 6 — Delete and Recreate Pattern [CRITICAL]",
+            "High",
+            ("ALCOA+ Original principle; 21 CFR Part 11 §11.10(e) — "
+             "Deleted GxP records must be recoverable and their deletion must be "
+             "traceable; recreation of a deleted record breaks this chain."),
+            ("Retrieve both the original deleted record and the recreated record. "
+             "Compare all field values for discrepancies. Obtain a retrospective "
+             "written explanation from the user. If the change cannot be justified, "
+             "initiate a data integrity investigation."),
+        ),
+        (
+            "score_record", 10,
+            "Rule 7 — Audit Trail Integrity Event [CRITICAL]",
+            "High",
+            ("21 CFR Part 11 §11.10(e); EU Annex 11 Clause 9 — "
+             "Audit trail systems must be protected from modification; "
+             "any change to audit trail configuration is a critical integrity event."),
+            ("This action affected the audit trail system itself. Retrieve the full "
+             "system configuration log and determine the scope of the change. "
+             "Assess whether any events may have been suppressed during the affected "
+             "period. Document all findings and escalate immediately."),
+        ),
+        # ── TIER 2: High-risk patterns ────────────────────────────────────────
+        (
+            "score_rule4_drift", 7,
+            "Rule 4 — Change Control Drift [HIGH]",
+            "Medium",
+            ("21 CFR Part 820.70(b); FDA Data Integrity Guidance (2018) — "
+             "Validated system parameters must remain within approved specifications; "
+             "deviations require documented Change Control authorisation."),
+            ("Cross-reference the recorded value against the approved specification "
+             "or validated setpoint. Verify whether a formal Change Control was "
+             "authorised before this value was applied. If not, assess impact on "
+             "the validated state."),
+        ),
+        (
+            "score_rule1_vague_rationale", 7,
+            "Rule 1 — Vague Rationale [HIGH]",
+            "Medium",
+            ("ALCOA+ Attributable and Legible principles; FDA Data Integrity Guidance (2018) — "
+             "GxP data changes must be accompanied by a specific, scientifically "
+             "justified rationale attributable to the performing individual."),
+            ("Obtain a retrospective written amendment from the analyst explaining "
+             "what changed and why. Assess whether the undocumented change could "
+             "affect the quality or disposition of the associated batch or result."),
+        ),
+        (
+            "score_rule16_first_time_behavior", 8,
+            "Rule 16 — First-Time Behavior [HIGH]",
+            "Low",
+            ("21 CFR Part 11 §11.10(d); ALCOA+ Attributable principle — "
+             "Each GxP action must be within the performing user's approved, "
+             "documented access rights at the time the action was taken."),
+            ("Verify this action was within the user's approved access rights at the "
+             "time it was performed. Obtain written confirmation from the user's "
+             "supervisor that this action type was within their authorised role. "
+             "If the user was not authorised, assess all affected records and raise "
+             "a non-conformance."),
+        ),
+        (
+            "score_rule14_dormant_account", 8,
+            "Rule 14 — Dormant Account Sudden Activity [HIGH]",
+            "Medium",
+            ("21 CFR Part 11 §11.10(d) — "
+             "User access rights must be reviewed periodically and must be formally "
+             "re-authorised following extended periods of inactivity."),
+            ("Verify the current employment and access authorisation status of this "
+             "user. Confirm whether access was formally reviewed and re-approved "
+             "before this re-activation. If no re-authorisation record exists, "
+             "assess this event for data integrity impact."),
+        ),
+        (
+            "score_record", 8,
+            "Rule 7 — Sensitive Record Deletion [HIGH]",
+            "High",
+            ("21 CFR Part 11 §11.10(e); ALCOA+ Original principle — "
+             "Deletions of GxP records must be fully justified, authorised, "
+             "and traceable in the audit trail."),
+            ("Review the event against the source document for that record. "
+             "Obtain written justification from the performing user. "
+             "If no authorisation can be demonstrated, escalate to a formal "
+             "non-conformance."),
+        ),
+        (
+            "score_privilege", 7,
+            "Rule 8 — Privileged User on GxP Data [HIGH]",
+            "Medium",
+            ("21 CFR Part 11 §11.10(d) — "
+             "Privileged accounts must be restricted to their authorised purpose; "
+             "direct modification of production GxP records is outside that scope."),
+            ("Verify that the use of this privileged account was consistent with its "
+             "authorised purpose. Administrative accounts must be used for system "
+             "configuration only and must not directly create or modify production "
+             "records."),
+        ),
+        # ── TIER 3: Statistical / Behavioural ────────────────────────────────
+        (
+            "score_rule2_burst", 6,
+            "Rule 2 — Contemporaneous Burst [MEDIUM]",
+            "Low",
+            ("ALCOA+ Contemporaneous principle; FDA Data Integrity Guidance (2018) — "
+             "GxP data entries must be recorded at the time of the activity, "
+             "not retrospectively from memory or paper records."),
+            ("Verify that contemporaneous source data exists — instrument printouts "
+             "or laboratory worksheets — confirming each entry was recorded in real "
+             "time. If entries were transcribed after the fact, investigate as a "
+             "data integrity concern."),
+        ),
+        (
+            "score_gap", 7,
+            "Rule 10 — Audit Trail Timestamp Gap [HIGH]",
+            "Low",
+            ("21 CFR Part 11 §11.10(e) — "
+             "Audit trails must be continuous and computer-generated; "
+             "gaps in coverage must be explained and documented."),
+            ("Investigate whether the audit trail was suspended during the gap "
+             "period. Document findings. If no legitimate explanation exists, "
+             "treat this as a critical audit trail integrity finding."),
+        ),
+        (
+            "score_velocity", 3.5,
+            "Rule 9 — High-Volume Activity Burst [MEDIUM]",
+            "Low",
+            ("ALCOA+ Contemporaneous principle; FDA Data Integrity Guidance (2018) — "
+             "High-volume data entry in a short window must be supported by "
+             "contemporaneous source records confirming real-time recording."),
+            ("Verify that contemporaneous source data exists to confirm each entry "
+             "was recorded in real time. If entries appear to have been made in bulk "
+             "or retrospectively, assess whether data integrity has been compromised."),
+        ),
+        (
+            "score_temporal", 5,
+            "Rule 11 — Off-Hours/Holiday Activity [MEDIUM]",
+            "Low",
+            ("21 CFR Part 11 §11.10(e); FDA Data Integrity Guidance (2018) — "
+             "Activity on GxP systems outside approved working hours must be "
+             "covered by a documented maintenance window or approved overtime record."),
+            ("Obtain documented business justification for this activity outside "
+             "normal working hours. Verify whether an approved overtime record or "
+             "scheduled maintenance window covers this period."),
+        ),
+        (
+            "score_rule13_service_account", 6,
+            "Rule 13 — Service/Shared Account Action [HIGH]",
+            "Medium",
+            ("21 CFR Part 11 §11.300; ALCOA+ Attributable principle — "
+             "Each GxP action must be traceable to a single, identified individual; "
+             "non-personal accounts cannot satisfy this requirement."),
+            ("Verify the individual responsible for this service or shared account "
+             "action. Obtain written justification for the use of a non-personal "
+             "account and confirm the action was authorised."),
+        ),
+        (
+            "score_rule16_first_time_behavior", 5,
+            "Rule 16 — First-Time Behavior [HIGH]",
+            "Low",
+            ("21 CFR Part 11 §11.10(d); ALCOA+ Attributable principle — "
+             "Each GxP action must be within the performing user's approved, "
+             "documented access rights at the time the action was taken."),
+            ("Verify this action was within the user's approved access rights. "
+             "If the user was not authorised to perform this action type, "
+             "assess all affected records and raise a non-conformance."),
+        ),
+    ]
+
+    # ── Derive all rule-dependent fields from the master table ────────────────
+    # One loop, one priority order, guaranteed consistency across all fields.
+
+    def _master_lookup(row):
+        """
+        Walk _MASTER in order. Return the first entry whose score_col >= threshold.
+        Returns the full tuple so callers can extract any field without re-walking.
+        Returns None if no rule fires.
+        """
+        for entry in _MASTER:
+            score_col, threshold = entry[0], entry[1]
+            if float(row.get(score_col, 0)) >= threshold:
+                return entry
+        return None
+
+    def _primary_rule(row):
+        m = _master_lookup(row)
+        return m[2] if m else "Composite risk score — no single rule dominant"
+
+    def _evidence_strength(row):
+        m = _master_lookup(row)
+        return m[3] if m else "Low"
+
+    def _reg_basis(row):
+        m = _master_lookup(row)
+        return m[4] if m else (
+            "No named data integrity risk indicator detected at a significant level.")
+
+    def _action_req(row):
+        m = _master_lookup(row)
+        return m[5] if m else (
+            "Review this event against source documentation and obtain a written "
+            "justification from the performing user if the reason for the action "
+            "is not already documented.")
+
+    def _supporting_signals(row):
+        primary = _primary_rule(row)
+        clean = lambda s: (s.replace(" [CRITICAL]","").replace(" [HIGH]","")
+                            .replace(" [MEDIUM]","").replace(" [LOW]",""))
+        primary_clean = clean(primary)
+        all_rules = [r.strip() for r in str(row.get("Triggered_Rules","")).split(";")
+                     if r.strip()]
+        supporting = [clean(r) for r in all_rules
+                      if clean(r) != primary_clean and r]
+        return "; ".join(supporting) if supporting else "—"
+
+    df["Primary_Rule"]       = df.apply(_primary_rule, axis=1)
+    df["Supporting_Signals"] = df.apply(_supporting_signals, axis=1)
+    df["Evidence_Strength"]  = df.apply(_evidence_strength, axis=1)
+    df["Regulatory_Basis"]   = df.apply(_reg_basis, axis=1)
+    df["Action_Required"]    = df.apply(_action_req, axis=1)
     # Primary Rule = the named rule that drove the tier classification.
     # Derived from the same priority order as _apply_tier_override so the two
     # are always consistent. Supporting Signals = all remaining triggered rules.
@@ -5745,9 +6040,6 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
         supporting = [clean(r) for r in all_rules
                       if clean(r) != primary_clean and r]
         return "; ".join(supporting) if supporting else "—"
-
-    df["Primary_Rule"]       = df.apply(_primary_rule, axis=1)
-    df["Supporting_Signals"] = df.apply(_supporting_signals, axis=1)
 
     # ── Combined rationale — includes dimension rationales ────────────────────
     def _dim_rationale(row) -> str:
@@ -5837,221 +6129,52 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
         return " | ".join(parts)
     df["Rule_Rationale"] = df.apply(_combined_rat, axis=1)
 
-    # ── Regulatory_Basis — one-sentence citation per event ───────────────────
-    # Distinct from Rule_Rationale (which is the full technical description).
-    # This field feeds the "Why It Matters" column in the Excel output — a
-    # single sentence anchored to the data integrity expectation, not the event.
-    _REG_BASIS_MAP = {
-        # Format: [Principle / Guidance] — [expectation stated as a rule, no event reference]
-        "score_rule15_suspicious_sequence":
-            "ALCOA+ Original principle; FDA Data Integrity Guidance (2018) — "
-            "GxP records must reflect what was originally observed and must not be "
-            "altered after the fact without a complete, auditable change history.",
-        "score_rule12_timestamp_reversal":
-            "21 CFR Part 11 §11.10(e); FDA Data Integrity Guidance (2018) — "
-            "Audit trail timestamps must be sequentially consistent; "
-            "an approval timestamp cannot precede a creation timestamp.",
-        "score_rule13_service_account":
-            "21 CFR Part 11 §11.300; ALCOA+ Attributable principle — "
-            "Each GxP action must be traceable to a single, identified individual; "
-            "non-personal accounts cannot satisfy this requirement.",
-        "score_rule5_failed_login":
-            "ALCOA+ Original and Attributable principles; FDA Data Integrity Guidance (2018) — "
-            "GxP systems must ensure that only authorised individuals can access "
-            "and modify controlled records.",
-        "score_rule3_admin_conflict":
-            "21 CFR Part 11 §11.10(d); Segregation of Duties principle — "
-            "Administrative accounts are authorised for system configuration only "
-            "and must not directly create or modify GxP production records.",
-        "score_del_recreate":
-            "ALCOA+ Original principle; 21 CFR Part 11 §11.10(e) — "
-            "Deleted GxP records must be recoverable and their deletion must be "
-            "traceable; recreation of a deleted record breaks this chain.",
-        "score_record":
-            "21 CFR Part 11 §11.10(e); EU Annex 11 Clause 9 — "
-            "Audit trail systems must be protected from modification; "
-            "any change to audit trail configuration is a critical integrity event.",
-        "score_rule4_drift":
-            "21 CFR Part 820.70(b); FDA Data Integrity Guidance (2018) — "
-            "Validated system parameters must remain within approved specifications; "
-            "deviations require documented Change Control authorisation.",
-        "score_rule1_vague_rationale":
-            "ALCOA+ Attributable and Legible principles; FDA Data Integrity Guidance (2018) — "
-            "GxP data changes must be accompanied by a specific, scientifically "
-            "justified rationale that is attributable to the performing individual.",
-        "score_rule14_dormant_account":
-            "21 CFR Part 11 §11.10(d) — "
-            "User access rights must be reviewed periodically and must be formally "
-            "re-authorised following extended periods of inactivity.",
-        "score_rule16_first_time_behavior":
-            "21 CFR Part 11 §11.10(d); ALCOA+ Attributable principle — "
-            "Each GxP action must be within the performing user's approved, "
-            "documented access rights at the time the action was taken.",
-        "score_rule2_burst":
-            "ALCOA+ Contemporaneous principle; FDA Data Integrity Guidance (2018) — "
-            "GxP data entries must be recorded at the time of the activity, "
-            "not retrospectively from memory or paper records.",
-        "score_privilege":
-            "21 CFR Part 11 §11.10(d) — "
-            "Privileged accounts must be restricted to their authorised purpose; "
-            "direct modification of production GxP records is outside that scope.",
-        "score_gap":
-            "21 CFR Part 11 §11.10(e) — "
-            "Audit trails must be continuous and computer-generated; "
-            "gaps in coverage must be explained and documented.",
-        "score_temporal":
-            "21 CFR Part 11 §11.10(e); FDA Data Integrity Guidance (2018) — "
-            "Activity on GxP systems outside approved working hours must be "
-            "covered by a documented maintenance window or approved overtime record.",
-        "score_velocity":
-            "ALCOA+ Contemporaneous principle; FDA Data Integrity Guidance (2018) — "
-            "High-volume data entry in a short window must be supported by "
-            "contemporaneous source records confirming real-time recording.",
-    }
-    _REG_PRIORITY_ORDER = [
-        "score_rule15_suspicious_sequence", "score_rule12_timestamp_reversal",
-        "score_rule13_service_account",     "score_rule5_failed_login",
-        "score_rule3_admin_conflict",       "score_del_recreate",
-        "score_record",                     "score_rule4_drift",
-        "score_rule1_vague_rationale",      "score_rule14_dormant_account",
-        "score_rule16_first_time_behavior", "score_rule2_burst",
-        "score_privilege",                  "score_gap",
-        "score_temporal",                   "score_velocity",
-    ]
+    # ── Suggested Disposition — fully deterministic 7-tier engine ────────────
+    # Single source of truth: _MASTER table determines Primary_Rule, and the
+    # same priority logic drives tier selection here. No separate lists.
+    #
+    # Comment-gate rule: comment presence downgrades Escalate → Investigate
+    # ONLY for documentation-gap rules (R1, R4, R8, Rr-deletion, off-hours).
+    # It NEVER downgrades structural findings (R3, R5, R6, R12, R13, R15, Rr≥10).
+    #
+    # Gap timestamp rule: is_biz defaults to False on parse failure —
+    # unknown timestamps never auto-escalate; they route to Investigate.
+    #
+    # Decision table (strict priority order — first match wins):
+    # ┌──────────────────────────────────────────────┬──────────────────────────┐
+    # │ Condition                                    │ Disposition              │
+    # ├──────────────────────────────────────────────┼──────────────────────────┤
+    # │ R15≥9  Update→Delete→Insert sequence        │ Escalate to CAPA         │
+    # │ R12≥9  Approval before creation timestamp   │ Escalate to CAPA         │
+    # │ R13≥9  Service/shared account on GxP record │ Escalate to CAPA         │
+    # │ R5≥8   Failed logins → GxP data action      │ Escalate to CAPA         │
+    # │ R3≥8   Admin account on production GxP data │ Escalate to CAPA         │
+    # │ R6≥9   Delete then recreate same record      │ Escalate to CAPA         │
+    # │ Rr≥10  Audit trail config modified           │ Escalate to CAPA         │
+    # │ Rr≥8 + no comment   GxP record deletion     │ Escalate to CAPA         │
+    # │ Rr≥8 + comment      GxP record deletion     │ Investigate              │
+    # │ Rg≥7 + business hrs  Audit trail gap        │ Escalate to CAPA         │
+    # │ Rg≥7 + other/unknown Audit trail gap        │ Investigate              │
+    # │ R4≥7 + no comment   Value drift             │ Escalate to CAPA         │
+    # │ R4≥7 + comment      Value drift             │ Investigate              │
+    # │ Rp≥7 + no comment   Privileged user         │ Escalate to CAPA         │
+    # │ Rp≥7 + comment      Privileged user         │ Investigate              │
+    # │ R1≥8 + no comment   Blank GxP change reason │ Escalate to CAPA         │
+    # │ R1≥6  Vague/insufficient change reason      │ Amendment Required       │
+    # │ R2≥6  Contemporaneous burst                 │ Investigate              │
+    # │ R14≥7 Dormant account re-activation         │ Investigate              │
+    # │ R16≥5 First-time high-risk action           │ Investigate              │
+    # │ Rt≥9 + comment      Deep off-hours          │ Document Rationale       │
+    # │ Rt≥9 + no comment   Deep off-hours          │ Investigate              │
+    # │ Rt≥5 + comment      Off-hours               │ Document Rationale       │
+    # │ Rt≥5 + no comment   Off-hours               │ Investigate              │
+    # │ R13≥6 Service account (non-GxP record)      │ Investigate              │
+    # │ named_max≥7.0  Any high-level named rule     │ Investigate              │
+    # │ default        No significant named rule     │ No Action Required       │
+    # └──────────────────────────────────────────────┴──────────────────────────┘
 
-    def _reg_basis(row):
-        for col in _REG_PRIORITY_ORDER:
-            if float(row.get(col, 0)) > 0:
-                return _REG_BASIS_MAP.get(col, "")
-        return "No named data integrity risk indicator detected at a significant level."
-
-    df["Regulatory_Basis"] = df.apply(_reg_basis, axis=1)
-
-    # ── Evidence_Strength — how directly the data supports the finding ────────
-    # High  = data directly shows the pattern; no inference required
-    # Medium = pattern is clear but context may explain it
-    # Low   = statistical/behavioural signal; requires investigation to confirm
-    _EVIDENCE_MAP = {
-        "score_rule15_suspicious_sequence": "High",
-        "score_rule12_timestamp_reversal":  "High",
-        "score_rule13_service_account":     "High",
-        "score_rule5_failed_login":         "High",
-        "score_rule3_admin_conflict":       "High",
-        "score_del_recreate":               "High",
-        "score_record":                     "High",
-        "score_rule4_drift":                "Medium",
-        "score_rule1_vague_rationale":      "Medium",
-        "score_privilege":                  "Medium",
-        "score_rule14_dormant_account":     "Medium",
-        "score_rule2_burst":                "Low",
-        "score_gap":                        "Low",
-        "score_temporal":                   "Low",
-        "score_velocity":                   "Low",
-        "score_rule16_first_time_behavior": "Low",
-    }
-
-    def _evidence_strength(row):
-        # Use same priority order — primary rule determines evidence level
-        for col in _REG_PRIORITY_ORDER:
-            if float(row.get(col, 0)) > 0:
-                return _EVIDENCE_MAP.get(col, "Low")
-        return "Low"
-
-    df["Evidence_Strength"] = df.apply(_evidence_strength, axis=1)
-    _ACTION_MAP = {
-        "score_rule15_suspicious_sequence":
-            "Retrieve all three events in this sequence — the UPDATE, DELETE, and "
-            "INSERT on the same record. Compare the values before and after to identify "
-            "what changed. Obtain a written explanation from the user for each step. "
-            "If the deletion was used to circumvent the locked record workflow, "
-            "this is a Critical data integrity finding requiring formal investigation.",
-        "score_rule16_first_time_behavior":
-            "Verify this action was within the user's approved access rights at the time it was performed. Obtain written confirmation "
-            "from the user's supervisor that this action type was within their authorised role. "
-            "If the user was not authorised to perform this "
-            "action, assess all records affected and raise a non-conformance.",
-        "score_rule12_timestamp_reversal":
-            "This finding requires immediate investigation. Retrieve the full audit "
-            "trail for this record and compare all creation and approval timestamps. "
-            "Determine whether a server clock error, system migration, or deliberate "
-            "manipulation caused the reversal. Document all findings formally.",
-        "score_rule13_service_account":
-            "Identify the individual responsible for configuring this service or shared "
-            "account to perform this action. Obtain written justification for the use of "
-            "a non-personal account on GxP data. Assess whether any data modified via "
-            "this account can be attributed to a specific individual as required.",
-        "score_rule5_failed_login":
-            "Initiate a data integrity investigation immediately. Obtain all failed login "
-            "records for this user. Cross-reference every data change made in the 30 minutes "
-            "following login against source documents. If manipulation is confirmed without "
-            "authorisation, raise a Critical non-conformance.",
-        "score_rule3_admin_conflict":
-            "Obtain documented business justification for this administrative action on "
-            "production data. Verify whether an Emergency Access Request was approved prior "
-            "to this action. If no documented authorisation exists, assess the impact on "
-            "GxP record integrity and raise a non-conformance.",
-        "score_del_recreate":
-            "Retrieve both the original deleted record and the recreated record. Compare all "
-            "field values for discrepancies. Obtain a retrospective written explanation from "
-            "the user. If the change cannot be justified, initiate a data integrity "
-            "investigation.",
-        "score_rule14_dormant_account":
-            "Verify the current employment and access authorisation status of this user. "
-            "Confirm whether access was formally reviewed and re-approved before this "
-            "re-activation. If no re-authorisation record exists, the account access must "
-            "be reviewed and this event assessed for data integrity impact.",
-        "score_record":
-            "This action affected a sensitive GxP record type. Review the event against the "
-            "source document for that record. Obtain a written justification from the "
-            "performing user. If no authorisation can be demonstrated, escalate to "
-            "a formal non-conformance.",
-        "score_rule1_vague_rationale":
-            "Obtain a retrospective written amendment from the analyst explaining what "
-            "changed and why. Assess whether the undocumented change could affect the "
-            "quality or disposition of the associated batch or result.",
-        "score_rule4_drift":
-            "Cross-reference the recorded value against the approved specification or "
-            "validated setpoint. Verify whether a formal change was authorised before "
-            "this value was applied. If not, assess the impact on the validated state.",
-        "score_rule2_burst":
-            "Verify that contemporaneous source data exists — instrument printouts or "
-            "laboratory worksheets — confirming each entry was recorded in real time. "
-            "If entries were transcribed from memory or paper after the fact, this "
-            "represents a data integrity concern requiring investigation.",
-        "score_gap":
-            "Investigate whether the audit trail was intentionally suspended during "
-            "the gap period. Document the findings. If no legitimate explanation exists, "
-            "treat this as a critical audit trail integrity finding.",
-        "score_privilege":
-            "Verify that the use of this privileged account was consistent with its "
-            "authorised purpose. Administrative accounts must be used for system "
-            "configuration only and must not directly create or modify production records.",
-        "score_temporal":
-            "Obtain documented business justification for this activity outside normal "
-            "working hours. Verify whether an approved overtime record or scheduled "
-            "maintenance window covers this period. If no justification exists, "
-            "investigate further.",
-        "score_velocity":
-            "Verify that contemporaneous source data exists to confirm each entry was "
-            "recorded in real time. If entries appear to have been made in bulk or "
-            "retrospectively, assess whether data integrity has been compromised.",
-    }
-
-    # ── Suggested Disposition — AI-driven decision support ────────────────────
-    # Provides a recommended disposition with rationale so reviewers have guidance,
-    # not just a blank checkbox. Reviewer always retains final authority.
     def _suggested_disposition(row) -> tuple:
-        """
-        Fully deterministic disposition engine. Every input combination maps to
-        exactly one output with explicit decision-logic rationale.
-
-        Comment-gate rule: comment presence downgrades Escalate → Investigate ONLY
-        for documentation-gap rules (R1, R4, R8, Rr-deletion, off-hours).
-        It NEVER downgrades structural findings (R3, R5, R6, R12, R13, R15, Rr≥10).
-
-        Gap timestamp rule: default is_biz=False on parse failure so unknown
-        timestamps never auto-escalate — they always route to Investigate.
-        """
+        """Return (disposition_label, rationale_text)."""
         r3  = float(row.get("score_rule3_admin_conflict",      0))
         r5  = float(row.get("score_rule5_failed_login",        0))
         r1  = float(row.get("score_rule1_vague_rationale",     0))
@@ -6070,7 +6193,7 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
         cmt     = str(row.get("comments","")).lower().strip()
         has_cmt = bool(cmt and cmt not in ("nan","none","-","—",""))
 
-        # TIER 1 — Structural findings: no comment gate, always Escalate
+        # TIER 1 — Structural: no comment gate, always Escalate
         if r15 >= 9:
             return ("Escalate to CAPA",
                     "Rule 15 threshold met (Update→Delete→Insert on same record "
@@ -6105,24 +6228,24 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
                     "Rule 7 threshold met (audit trail config modified); maps "
                     "unconditionally to Escalate to CAPA.")
 
-        # TIER 2 — Destructive / high-risk: comment gate applies
+        # TIER 2 — Destructive/high-risk: comment gate applies
         if rr >= 8:
             if has_cmt:
                 return ("Investigate — Verify Source Data",
-                        "Rule 7 (deletion tier, score<10) — GxP record deleted; "
+                        "Rule 7 (deletion, score<10) — GxP record deleted; "
                         "comment present; comment-gate applied; maps to Investigate.")
             return ("Escalate to CAPA",
-                    "Rule 7 (deletion tier, score<10) — GxP record deleted; "
+                    "Rule 7 (deletion, score<10) — GxP record deleted; "
                     "no comment; maps to Escalate to CAPA.")
 
         if rg >= 7:
             try:
-                gap_ts = pd.Timestamp(str(row.get("timestamp","")))
-                is_biz = (not pd.isnull(gap_ts) and
-                          gap_ts.weekday() < 5 and
-                          _AT_BIZ_START <= gap_ts.hour < _AT_BIZ_END)
+                gap_ts = pd.Timestamp(str(row.get("timestamp", "")))
+                is_biz = (not pd.isnull(gap_ts)
+                          and gap_ts.weekday() < 5
+                          and _AT_BIZ_START <= gap_ts.hour < _AT_BIZ_END)
             except Exception:
-                is_biz = False  # parse failure → cannot assert business hours → Investigate
+                is_biz = False   # unknown timestamp → cannot assert biz hours → Investigate
             if is_biz:
                 return ("Escalate to CAPA",
                         "Rule 10 threshold met — audit trail gap during verified "
@@ -6150,7 +6273,6 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
                     "no comment; maps to Escalate to CAPA.")
 
         # TIER 3 — Documentation gap
-        # Score band respected: ≥8 with no comment escalates; ≥6 (any) → Amendment
         if r1 >= 8 and not has_cmt:
             return ("Escalate to CAPA",
                     "Rule 1 at score≥8 — GxP data modified with no change reason "
@@ -6160,7 +6282,7 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
                     "Rule 1 at score≥6 — change reason present but insufficient "
                     "or non-descriptive; maps to Amendment Required.")
 
-        # TIER 4 — Statistical / behavioural signals
+        # TIER 4 — Statistical / behavioural
         if r2 >= 6:
             return ("Investigate — Verify Source Data",
                     "Rule 2 threshold met (>10 inserts within 15 min); "
@@ -6174,7 +6296,7 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
                     "Rule 16 threshold met (first-time high-risk action); "
                     "maps to Investigate.")
 
-        # TIER 5 — Temporal: all four combinations explicit, no fallback
+        # TIER 5 — Temporal: all four combinations explicit, no fallback path
         if rt >= 9:
             return (
                 "Document Rationale" if has_cmt else "Investigate — Verify Source Data",
@@ -6190,13 +6312,13 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
                 f"maps to {'Document Rationale' if has_cmt else 'Investigate'}."
             )
 
-        # TIER 6 — Service account non-GxP
+        # TIER 6 — Service account (non-GxP record, lower severity)
         if r13 >= 6:
             return ("Investigate — Verify Source Data",
                     "Rule 13 lower threshold met (non-personal account, non-GxP "
                     "record); maps to Investigate.")
 
-        # TIER 7 — Hard gate raised to 7.0
+        # TIER 7 — Hard gate raised to 7.0 to avoid over-escalation
         named_max = max(r16,r15,r12,r13,r5,r3,r6,rg,rr,r4,r1,r2,rp,rt,r14)
         if named_max >= 7.0:
             return ("Investigate — Verify Source Data",
@@ -6216,15 +6338,6 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
         sugg_rat.append(r)
     df["Suggested_Disposition"]          = sugg_disp
     df["Suggested_Disposition_Rationale"] = sugg_rat
-
-    def _action_req(row):
-        best_k = max(_ACTION_MAP, key=lambda k: float(row.get(k, 0)))
-        if float(row.get(best_k, 0)) > 0:
-            return _ACTION_MAP[best_k]
-        return ("Review this event against source documentation and obtain a written "
-                "justification from the performing user if the reason for the action "
-                "is not already documented.")
-    df["Action_Required"] = df.apply(_action_req, axis=1)
 
     return df.sort_values("Risk_Score", ascending=False).reset_index(drop=True)
 
@@ -6842,7 +6955,7 @@ def at_build_excel(top_df, scored_df, system_name, r_start, r_end, fname) -> byt
     reviewer_cols = [
         ("No.",                       "Rank",              5),
         ("Risk Level",                "Risk_Tier",         11),
-        ("Evidence\nStrength",        "Evidence_Strength", 10),
+        ("Evidence Strength",          "Evidence_Strength", 10),
         ("Date & Time",               "timestamp",         19),
         ("User",                      "user_id",           16),
         ("Action",                    "action_type",       18),
