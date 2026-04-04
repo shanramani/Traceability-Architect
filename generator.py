@@ -10728,7 +10728,15 @@ def show_app():
                         sample      = "\n\n".join(pages[:5]).lower() if pages else ""  # extended from 2 to 5 pages
                         pos_hits    = [p for p in _URS_POSITIVE if re.search(p, sample, re.IGNORECASE)]
                         neg_hits    = [p for p in _URS_NEGATIVE if re.search(p, sample, re.IGNORECASE)]
-                        shall_count = len(re.findall(r'\b(shall|must)\b', full_text, re.IGNORECASE))
+                        # Count unique lines containing "shall" or "must" — a
+                        # more meaningful proxy for requirement statement count
+                        # than raw word occurrences (which inflate the number by
+                        # counting every "shall" in process descriptions, preambles
+                        # and multi-shall sentences separately).
+                        shall_count = len({
+                            ln.strip() for ln in full_text.splitlines()
+                            if ln.strip() and re.search(r'\b(shall|must)\b', ln, re.IGNORECASE)
+                        })
 
                         if len(full_text.strip()) < 300:
                             st.session_state["doc_validation_msg"] = (
@@ -10769,7 +10777,7 @@ def show_app():
                             st.session_state["doc_validation_msg"] = (
                                 "success",
                                 f"✅ **Pre-screen passed** — {len(pos_hits)} URS indicator(s), "
-                                f"{shall_count} requirement statement(s). "
+                                f"{shall_count} 'shall'/'must' statement(s). "
                                 f"AI deep-check runs at analysis time."
                             )
                             st.session_state.sop_file_bytes = raw_bytes
