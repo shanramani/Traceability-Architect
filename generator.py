@@ -5634,12 +5634,12 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
                 )
             words     = [w for w in cmt.split() if len(w) > 1]
             has_vague = any(
-                _re_r1.search(r"\b" + _re_r1.escape(v) + r"\b", cmt, _re_r1.IGNORECASE)
+                re.search(r"\b" + re.escape(v) + r"\b", cmt, re.IGNORECASE)
                 for v in _AT_VAGUE_TERMS
             )
             if has_vague:
                 matched = [v for v in _AT_VAGUE_TERMS
-                    if _re_r1.search(r"\b" + _re_r1.escape(v) + r"\b", cmt, _re_r1.IGNORECASE)]
+                    if re.search(r"\b" + re.escape(v) + r"\b", cmt, re.IGNORECASE)]
                 return 8.0, (
                     f"The deletion reason ('{cmt}') uses non-descriptive language "
                     f"({', '.join(matched)}). A DELETE on a GxP record requires a "
@@ -5664,12 +5664,12 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
             )
         words     = [w for w in cmt.split() if len(w) > 1]
         has_vague = any(
-            _re_r1.search(r"\b" + _re_r1.escape(v) + r"\b", cmt, _re_r1.IGNORECASE)
+            re.search(r"\b" + re.escape(v) + r"\b", cmt, re.IGNORECASE)
             for v in _AT_VAGUE_TERMS
         )
         if has_vague:
             matched = [v for v in _AT_VAGUE_TERMS
-                       if _re_r1.search(r"\b" + _re_r1.escape(v) + r"\b", cmt, _re_r1.IGNORECASE)]
+                       if re.search(r"\b" + re.escape(v) + r"\b", cmt, re.IGNORECASE)]
             return 7.0, (
                 f"The change reason recorded ('{cmt}') uses non-descriptive language "
                 f"({', '.join(matched)}) that does not explain what changed or why. "
@@ -8129,7 +8129,7 @@ def show_periodic_review(user: str, role: str, model_id: str):
             "title":   "Audit Trail Review",
             "section": "21 CFR Part 11 §11.10(e) · EU Annex 11 Cl. 9",
             "desc":    (
-                "Upload your audit trail log file to run the 16-rule detection engine. "
+                "Upload your audit trail log file to run the 12-rule detection engine. "
                 "Escalates the 20 highest-risk events with a evidence package for "
                 "your Periodic Review Report."
             ),
@@ -8621,7 +8621,7 @@ to be considered an established account (excludes newly created accounts).
 
 ## Composite Scoring
 
-Each event receives scores across all 14 rules. A weighted composite (0–10):
+Each event receives scores across all 12 rules. A weighted composite (0–10):
 
 | Rule | Dimension | Weight |
 |------|-----------|--------|
@@ -10160,7 +10160,7 @@ match your system's export column names to the fields above — rename nothing i
                 prog.progress(0.15)
                 scored = at_score_events(df)
 
-                st.write(f"⚡ Step 2: Scoring {len(scored):,} events across 16 rules...")
+                st.write(f"⚡ Step 2: Scoring {len(scored):,} events across 12 rules...")
                 prog.progress(0.45)
                 # ── Select Top 20 with two filters ────────────────────────────
                 # Filter 1: Remove burst duplicates (already built)
@@ -10385,7 +10385,7 @@ match your system's export column names to the fields above — rename nothing i
   <b style="color:#94a3b8;">Content for your Periodic Review Report:</b><br>
   <i style="color:#cbd5e1;">
   "System-assisted audit trail review identified the {n_esc} highest-risk events from
-  {n_total:,} total entries using a 16-rule anomaly detection engine. {pct_clr}% of
+  {n_total:,} total entries using a 12-rule anomaly detection engine. {pct_clr}% of
   events were auto-cleared as low risk. All {n_esc} escalated events are available
   for human review and have been dispositioned by the undersigned as documented in
   the attached Appendix. Complies with 21 CFR Part 11 §11.10(e) and EU Annex 11 Clause 9."
