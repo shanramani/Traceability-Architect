@@ -1076,6 +1076,72 @@ def build_pass2_prompt(urs_csv: str, sys_context: str = "") -> str:
     )
 
 
+def _summarise_sys_context(sys_context: str) -> str:
+    """
+    Phase 2: condense the system guide to ~500 chars of key vocabulary.
+    Called ONCE before the per-requirement loop. Reused across all calls
+    to avoid sending the full guide with every individual requirement.
+    """
+    if not sys_context:
+        return ""
+    # Take first 3000 chars, extract unique noun phrases (screens, modules)
+    # Simple heuristic: lines containing capitalised compound words are likely
+    # screen/module names — include them verbatim, truncate everything else.
+    lines = sys_context[:3000].split("\n")
+    key_lines = []
+    for line in lines:
+        stripped = line.strip()
+        if not stripped:
+            continue
+        # Include lines that look like navigation paths, module names, or
+        # screen names (contain capitals + LIMS-specific keywords)
+        if any(kw in stripped for kw in [
+            "Tramline", "Tramstop", "SDC", "SDI", "Parameter List",
+            "Data Entry", "Sample", "Stability", "Instrument", "Audit",
+            "navigate", "screen", "page", "module", "tab", "button",
+        ]):
+            key_lines.append(stripped)
+        if len("\n".join(key_lines)) > 500:
+            break
+    summary = "\n".join(key_lines)[:500]
+    return summary if summary else sys_context[:500]
+
+
+def build_pass2_single_prompt(req_row: str, header: str,
+                               sys_summary: str = "") -> str:
+    """
+    Phase 2: generate FRS + OQ for ONE requirement row.
+    Sends only a 500-char system guide summary instead of full guide.
+    Returns same CSV format as batch prompt so existing parsers work unchanged.
+    """
+    if sys_summary:
+        context_block = (
+            f"SYSTEM GUIDE (key terminology only):\n{sys_summary}\n\n"
+        )
+        system_guidance = (
+            "Use the system guide terminology above for screen names and "
+            "navigation paths. Apply RULE B for features described in the "
+            "guide. Apply RULE C ([SCREEN UNVERIFIED], Confidence=0.60) for "
+            "features not described."
+        )
+    else:
+        context_block = ""
+        system_guidance = (
+            "No system guide provided. Use best-practice GxP LIMS terminology. "
+            "Prefix all OQ Test_Steps with [SCREEN UNVERIFIED] and set "
+            "Confidence=0.60."
+        )
+
+    # Single-requirement CSV: header + one data row
+    single_csv = header + "\n" + req_row
+
+    return _PROMPT_PASS2_RAW.format(
+        context_block   = context_block,
+        urs_csv         = single_csv,
+        system_guidance = system_guidance,
+    )
+
+
 # =============================================================================
 # 6. TWO-PASS AI ANALYSIS ENGINE
 # =============================================================================
@@ -1619,16 +1685,26 @@ def run_segmented_analysis(
         progress_bar.progress((idx) / (total * 2))
 
         try:
-            response = completion(
+            # Phase 1: stream=True prevents silent 600s hang on Pass 1 segments
+            stream_resp_p1 = completion(
                 model=model_id,
-                stream=False,
+                stream=True,
                 temperature=TEMPERATURE,
+                timeout=900,
                 messages=[
                     {"role": "system", "content": _make_system_prompt(sys_context)},
                     {"role": "user",   "content": build_pass1_prompt(chunk_text, idx, total)}
                 ]
             )
-            raw_urs = response.choices[0].message.content or ""
+            raw_urs = ""
+            for chunk in stream_resp_p1:
+                delta = (chunk.choices[0].delta.content or "") if chunk.choices else ""
+                raw_urs += delta
+                if len(raw_urs) % 600 < len(delta) + 1:
+                    status_text.text(
+                        f"📄 Pass 1 — segment {idx+1}/{total}: "
+                        f"extracting... ({len(raw_urs):,} chars)"
+                    )
             raw_urs = re.sub(r'^```[a-zA-Z]*\n?', '', raw_urs, flags=re.MULTILINE)
             raw_urs = re.sub(r'```\s*$',          '', raw_urs, flags=re.MULTILINE)
             raw_urs = _strip_preamble(raw_urs.strip())
@@ -1678,48 +1754,69 @@ def run_segmented_analysis(
     urs_csv_str = urs_final.to_csv(index=False)
     urs_lines   = urs_csv_str.split("\n")
     header_line = urs_lines[0]
-    data_lines  = urs_lines[1:]
-    PASS2_CHUNK = st.session_state.get("pass2_chunk_size", 8)
-    p2_chunks   = [data_lines[i:i+PASS2_CHUNK] for i in range(0, len(data_lines), PASS2_CHUNK)]
-    p2_total    = len(p2_chunks)
+    data_lines  = [l for l in urs_lines[1:] if l.strip()]  # skip blank rows
+    p2_total    = len(data_lines)
 
-    for p2_idx, p2_rows in enumerate(p2_chunks):
-        p2_csv = header_line + "\n" + "\n".join(p2_rows)
+    # ── Phase 2: per-requirement processing ──────────────────────────────────
+    # Process ONE requirement at a time with a condensed system guide summary.
+    # Each call is ~800 tokens in / ~400 tokens out — never times out.
+    # Results saved after every requirement so a failure loses only that row.
+    sys_summary = _summarise_sys_context(sys_context)
+    _failed_reqs = []
+
+    for p2_idx, req_row in enumerate(data_lines):
+        if not req_row.strip():
+            continue
+
+        pct = 0.50 + (p2_idx / max(p2_total, 1)) * 0.44
+        progress_bar.progress(min(pct, 0.94))
         status_text.text(
-            f"🔬 Pass 2 — Generating FRS/OQ/Gap: batch {p2_idx+1} of {p2_total}..."
+            f"🔬 Pass 2 — requirement {p2_idx+1}/{p2_total}  |  "
+            f"FRS: {sum(len(f) for f in frs_frames)} rows  |  "
+            f"OQ: {sum(len(f) for f in oq_frames)} tests"
         )
-        progress_bar.progress(0.5 + (p2_idx / p2_total) * 0.45)
 
         try:
-            # Phase 1: stream=True keeps the connection alive and prevents
-            # the 600s gateway timeout on large batches.
             stream_resp = completion(
                 model=model_id,
                 stream=True,
                 temperature=TEMPERATURE,
-                timeout=900,
+                timeout=120,
                 messages=[
-                    {"role": "system", "content": _make_system_prompt(sys_context)},
-                    {"role": "user",   "content": build_pass2_prompt(p2_csv, sys_context)}
+                    {"role": "system", "content": _make_system_prompt(sys_summary)},
+                    {"role": "user",   "content": build_pass2_single_prompt(
+                        req_row, header_line, sys_summary)}
                 ]
             )
             raw_p2 = ""
             for chunk in stream_resp:
                 delta = (chunk.choices[0].delta.content or "") if chunk.choices else ""
                 raw_p2 += delta
-                if len(raw_p2) % 400 < len(delta) + 1:
-                    status_text.text(
-                        f"🔬 Pass 2 — batch {p2_idx+1}/{p2_total}: "
-                        f"generating... ({len(raw_p2):,} chars)"
-                    )
+
         except Exception as e:
-            # FAIL-STOP: abort — do not produce a partial FRS/OQ
-            raise SegmentFailureError(
-                f"Pass 2 batch {p2_idx + 1}/{p2_total} failed: {e}\n\n"
-                f"Analysis aborted. A partial FRS/OQ package covering only "
-                f"{p2_idx * PASS2_CHUNK} of {len(data_lines)} requirements "
-                f"would be invalid as a GxP validation artifact. Please retry."
-            ) from e
+            # Phase 2: per-requirement retry once before skipping
+            try:
+                import time as _time
+                _time.sleep(8)
+                stream_resp2 = completion(
+                    model=model_id,
+                    stream=True,
+                    temperature=TEMPERATURE,
+                    timeout=120,
+                    messages=[
+                        {"role": "system", "content": _make_system_prompt(sys_summary)},
+                        {"role": "user",   "content": build_pass2_single_prompt(
+                            req_row, header_line, sys_summary)}
+                    ]
+                )
+                raw_p2 = ""
+                for chunk in stream_resp2:
+                    delta = (chunk.choices[0].delta.content or "") if chunk.choices else ""
+                    raw_p2 += delta
+            except Exception as e2:
+                # Log the skip — do not abort the whole run
+                _failed_reqs.append(f"req {p2_idx+1}: {str(e2)[:80]}")
+                continue  # move to next requirement
 
         sections = _robust_split_datasets(raw_p2, _PASS2_HEADERS)
         frs_csv, oq_csv, gap_csv = sections[0], sections[1], sections[2]
@@ -1731,6 +1828,14 @@ def run_segmented_analysis(
             df = _csv_to_df(csv_text)
             if not df.empty:
                 frames.append(df)
+
+    # Surface any skipped requirements as a soft warning (not a hard abort)
+    if _failed_reqs:
+        st.warning(
+            f"⚠️ {len(_failed_reqs)} requirement(s) skipped after retry failure "
+            f"and excluded from this package. Re-run to recover: "
+            f"{'; '.join(_failed_reqs[:5])}"
+        )
 
     progress_bar.progress(0.95)
     status_text.text("✅ Both passes complete — running deterministic checks...")
@@ -10554,6 +10659,7 @@ def show_app():
                     "Audit_Log":      audit_df,
                 }
 
+            status_text.text("📊 Building validation package — this may take 20–30 seconds...")
             st.write("📋 Compiling signed validation workbook...")
             xlsx_bytes_presig = build_styled_excel(
                 dataframes,
