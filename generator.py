@@ -5522,7 +5522,7 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
     # ── Timestamp parsing ─────────────────────────────────────────────────────
     if "timestamp" in df.columns:
         df["timestamp_parsed"] = pd.to_datetime(
-            df["timestamp"], errors="coerce", infer_datetime_format=True)
+            df["timestamp"], errors="coerce")
     else:
         df["timestamp_parsed"] = pd.NaT
 
@@ -6279,7 +6279,8 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
     # ── Event Chain ID — group related events from Rules 5, 6, 15 ─────────────
     # Gives reviewer a shared identifier to filter and see complete event stories.
     # Format: EC-NNN where NNN increments per chain found in the dataset.
-    chain_id_col = pd.Series("", index=df.index)
+    chain_id_col  = pd.Series("", index=df.index)
+    chain_counter = [0]   # mutable int in list — increments across chain blocks
     # BQ-010: r15_chain_key removed (Rule 15 merged into Rule 6)
 
     # Rule 5 chains — LOGIN_FAILED sequence → same user → DELETE/UPDATE
@@ -8040,7 +8041,7 @@ def at_build_excel(top_df, scored_df, system_name, r_start, r_end, fname) -> byt
     ws3.freeze_panes    = "A2"
 
     # ══════════════════════════════════════════════════════════════════════════
-    # SHEET 4 — Detection Logic Reference (full 14-rule specification)
+    # SHEET 4 — Detection Logic Reference (full 12-rule specification)
     # ══════════════════════════════════════════════════════════════════════════
     ws4 = wb.create_sheet("Detection Logic")
     ws4.sheet_properties.tabColor = "374151"
@@ -10130,7 +10131,7 @@ match your system's export column names to the fields above — rename nothing i
             padding:8px 16px;margin-bottom:16px;">
   <span style="color:#16a34a;font-size:0.88rem;">●</span>
   <span style="color:#15803d;font-size:0.82rem;font-weight:600;">
-    16-Rule Detection Engine Ready
+    12-Rule Detection Engine Ready
   </span>
 </div>""", unsafe_allow_html=True)
 
