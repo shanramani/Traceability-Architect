@@ -1614,7 +1614,13 @@ def _fill_missing_frs(urs_df: pd.DataFrame, frs_df: pd.DataFrame) -> pd.DataFram
 
     placeholders = []
     for _, row in urs_df.iterrows():
-        uid  = str(row.get("Req_ID", "")).strip()
+        uid      = str(row.get("Req_ID", "")).strip()
+        src_rid  = str(row.get("Source_Req_ID", "")).strip()
+        # Build display ref: if original doc ID differs from Req_ID, show both
+        if src_rid and src_rid not in ("N/A", "NAN", "", uid):
+            uid_display = f"{uid} ({src_rid})"
+        else:
+            uid_display = uid
         desc = str(row.get("Requirement_Description", "")).strip()
         if uid and uid not in frs_urs_refs:
             # Determine next FRS number
@@ -1635,7 +1641,7 @@ def _fill_missing_frs(urs_df: pd.DataFrame, frs_df: pd.DataFrame) -> pd.DataFram
                 "Priority":                "N/A",
                 "Risk":                    "High",
                 "GxP_Impact":              "Direct",
-                "Source_URS_Ref":          uid,
+                "Source_URS_Ref":          uid_display,
                 "Source_Text":             str(row.get("Source_Text", "N/A")).strip() or "N/A",
                 "Source_Page":             str(row.get("Source_Page", "N/A")).strip() or "N/A",
                 "Confidence":              "0.50",
@@ -2268,6 +2274,29 @@ def run_segmented_analysis(
     # any cross-reference so FRS-001…FRS-N are unique across all batches.
     frs_final = _renumber_frs_ids(frs_final)
     oq_final  = _renumber_oq_ids(oq_final)
+
+    # ── Enrich FRS Source_URS_Ref with original document Req IDs ────────────
+    # Build a lookup: URS-NNN → original Source_Req_ID (e.g. CAL01, SPEC01)
+    # so that Source_URS_Ref shows "URS-001 (CAL01)" for full traceability.
+    if (not frs_final.empty and "Source_URS_Ref" in frs_final.columns
+            and not urs_final.empty
+            and "Req_ID" in urs_final.columns
+            and "Source_Req_ID" in urs_final.columns):
+        _urs_src_map = {}
+        for _, _ur in urs_final.iterrows():
+            _uid   = str(_ur.get("Req_ID", "")).strip()
+            _srcid = str(_ur.get("Source_Req_ID", "")).strip()
+            if _uid and _srcid and _srcid not in ("N/A", "NAN", "", _uid):
+                _urs_src_map[_uid] = _srcid
+        if _urs_src_map:
+            def _enrich_ref(val):
+                v = str(val).strip()
+                # Already enriched or gap-source — leave alone
+                if "(" in v or "GAP-SOURCE" in v:
+                    return v
+                _orig = _urs_src_map.get(v, "")
+                return f"{v} ({_orig})" if _orig else v
+            frs_final["Source_URS_Ref"] = frs_final["Source_URS_Ref"].apply(_enrich_ref)
 
     # Patch OQ Requirement_Link to the renumbered FRS IDs using Source_URS_Ref mapping.
     # Build a map: Source_URS_Ref → new FRS ID (after renumber)
@@ -11156,6 +11185,13 @@ def show_app():
                             if _csv and _csv.strip():
                                 try:
                                     _df = _pd.read_csv(_io.StringIO(_csv))
+                                    # Surface Source_Req_ID as second column in URS preview
+                                    if _sheet == "URS" and "Source_Req_ID" in _df.columns:
+                                        _cols = ["Req_ID", "Source_Req_ID"] + [
+                                            c for c in _df.columns
+                                            if c not in ("Req_ID", "Source_Req_ID")
+                                        ]
+                                        _df = _df[_cols]
                                     st.markdown(f"**{_sheet}** — {len(_df)} rows")
                                     st.dataframe(_df, use_container_width=True)
                                 except Exception:
@@ -11659,8 +11695,17 @@ def show_app():
 
         with st.expander("📋 Preview Generated Sheets", expanded=True):
             for sheet_name, df in r["dataframes"].items():
-                st.markdown(f"**{sheet_name}** — {len(df)} rows")
-                st.dataframe(df, use_container_width=True)
+                # For URS sheet: surface Source_Req_ID (original doc ID) as
+                # second column so reviewers can immediately match to source doc.
+                _disp_df = df.copy()
+                if sheet_name == "URS_Extraction" and "Source_Req_ID" in _disp_df.columns:
+                    _cols = ["Req_ID", "Source_Req_ID"] + [
+                        c for c in _disp_df.columns
+                        if c not in ("Req_ID", "Source_Req_ID")
+                    ]
+                    _disp_df = _disp_df[_cols]
+                st.markdown(f"**{sheet_name}** — {len(_disp_df)} rows")
+                st.dataframe(_disp_df, use_container_width=True)
 
         # ── Download / Sign buttons ────────────────────────────────────────────
         st.markdown("---")
