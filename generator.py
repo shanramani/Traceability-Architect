@@ -878,7 +878,7 @@ def validate_urs_document(
     # ── Stage 0: Structural pre-check ─────────────────────────────────────────
     full_text    = "\n".join(pages)
     full_lower   = full_text.lower()
-    sample_text  = "\n\n".join(pages[:2])
+    sample_text  = "\n\n".join(pages[:5])  # extended from 2 to 5 pages
     sample_lower = sample_text.lower()
 
     if len(full_text.strip()) < 300:
@@ -9962,6 +9962,11 @@ def show_app():
     # ── Sidebar ──
     with st.sidebar:
         st.markdown('<p class="sb-title">VALINTEL.AI — Validation Intelligence</p>', unsafe_allow_html=True)
+        st.markdown(
+            '<p style="color:#94a3b8;font-size:0.68rem;margin:-6px 0 4px;'
+            'letter-spacing:0.5px;font-family:\'IBM Plex Mono\',monospace;">'
+            'Build v60 · Audit Trail Module</p>',
+            unsafe_allow_html=True)
         st.divider()
         st.markdown('<p class="sb-sub">🔧 Analysis Mode</p>', unsafe_allow_html=True)
         _modes = [
@@ -10160,7 +10165,7 @@ def show_app():
                     try:
                         pages       = extract_pages(raw_bytes)
                         full_text   = "\n".join(pages) if pages else ""
-                        sample      = "\n\n".join(pages[:2]).lower() if pages else ""
+                        sample      = "\n\n".join(pages[:5]).lower() if pages else ""  # extended from 2 to 5 pages
                         pos_hits    = [p for p in _URS_POSITIVE if re.search(p, sample, re.IGNORECASE)]
                         neg_hits    = [p for p in _URS_NEGATIVE if re.search(p, sample, re.IGNORECASE)]
                         shall_count = len(re.findall(r'\b(shall|must)\b', full_text, re.IGNORECASE))
