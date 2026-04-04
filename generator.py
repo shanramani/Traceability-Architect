@@ -336,6 +336,30 @@ def db_migrate():
             if col not in ai_cols:
                 conn.execute(f"ALTER TABLE ai_gen_log ADD COLUMN {col} {defn}")
 
+        # ── Async job queue table ────────────────────────────────────────────
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS jobs (
+                job_id      TEXT    PRIMARY KEY,
+                user        TEXT    NOT NULL,
+                status      TEXT    NOT NULL DEFAULT 'queued',
+                file_name   TEXT,
+                model_id    TEXT,
+                created_at  TEXT,
+                started_at  TEXT,
+                completed_at TEXT,
+                progress    INTEGER DEFAULT 0,
+                progress_msg TEXT   DEFAULT '',
+                result_urs  TEXT,
+                result_frs  TEXT,
+                result_oq   TEXT,
+                result_trace TEXT,
+                result_gap  TEXT,
+                result_xlsx BLOB,
+                error_msg   TEXT,
+                sys_ctx_name TEXT
+            )
+        """)
+
         conn.commit()
         conn.close()
 
@@ -389,6 +413,256 @@ def db_diagnostics() -> dict:
         return result
     except Exception as e:
         return {"error": str(e)}
+
+
+
+# =============================================================================
+# ASYNC JOB QUEUE
+# Background thread processes validation jobs independently of Streamlit.
+# UI submits a job_id and polls status — no blocking, no timeouts.
+# =============================================================================
+
+import threading as _threading
+import uuid      as _uuid
+import time      as _time_mod
+
+# Global worker state — one worker thread per process
+_worker_lock    = _threading.Lock()
+_worker_thread  = None
+_worker_running = False
+
+
+def _job_update(job_id: str, **kwargs):
+    """Update job fields atomically."""
+    if not kwargs:
+        return
+    fields = ", ".join(f"{k} = ?" for k in kwargs)
+    vals   = list(kwargs.values()) + [job_id]
+    try:
+        conn = db_connect()
+        conn.execute(f"UPDATE jobs SET {fields} WHERE job_id = ?", vals)
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+
+
+def _job_get(job_id: str) -> dict:
+    """Fetch a single job row as a dict."""
+    try:
+        conn = db_connect()
+        row  = conn.execute(
+            "SELECT * FROM jobs WHERE job_id = ?", (job_id,)
+        ).fetchone()
+        conn.close()
+        if row:
+            cols = ["job_id","user","status","file_name","model_id",
+                    "created_at","started_at","completed_at",
+                    "progress","progress_msg",
+                    "result_urs","result_frs","result_oq",
+                    "result_trace","result_gap","result_xlsx",
+                    "error_msg","sys_ctx_name"]
+            return dict(zip(cols, row))
+    except Exception:
+        pass
+    return {}
+
+
+def _run_job(job_id: str, file_bytes: bytes, sys_ctx_bytes,
+             model_id: str, user: str):
+    """
+    Execute the full validation pipeline for one job.
+    Runs in a background thread — never touches Streamlit state directly.
+    Updates the jobs table with progress and results.
+    """
+    import io as _io
+    import datetime as _dt
+
+    _job_update(job_id,
+                status="running",
+                started_at=_dt.datetime.utcnow().isoformat())
+
+    # Minimal progress_bar / status_text shims so run_segmented_analysis
+    # can call them without hitting Streamlit from a background thread.
+    class _FakeProgress:
+        def progress(self, v): pass
+        def empty(self): pass
+
+    class _FakeText:
+        def __init__(self, job_id):
+            self._jid = job_id
+            self._last = ""
+        def text(self, msg):
+            if msg != self._last:
+                self._last = msg
+                _job_update(self._jid, progress_msg=str(msg)[:500])
+        def empty(self): pass
+
+    fake_bar  = _FakeProgress()
+    fake_text = _FakeText(job_id)
+
+    try:
+        urs_df, frs_df, oq_df, trace_df, gap_df = run_segmented_analysis(
+            file_bytes, model_id, fake_bar, fake_text, sys_ctx_bytes
+        )
+
+        if urs_df.empty and frs_df.empty:
+            _job_update(job_id,
+                        status="failed",
+                        error_msg="Pipeline returned empty output. Check API quota.",
+                        completed_at=_dt.datetime.utcnow().isoformat())
+            return
+
+        # ── Post-processing (mirrors synchronous pipeline) ────────────────
+        _job_update(job_id, progress=70, progress_msg="Running deterministic checks...")
+        gap_df, det_df = run_deterministic_validation(frs_df, oq_df, gap_df, urs_df)
+        for _df in [gap_df, det_df, trace_df]:
+            _df.fillna("N/A", inplace=True)
+            _df.replace("", "N/A", inplace=True)
+
+        _job_update(job_id, progress=80, progress_msg="Saving documents...")
+        save_document("URS_Extraction", urs_df.to_csv(index=False),  user, "async_job")
+        save_document("FRS",            frs_df.to_csv(index=False),  user, "async_job")
+        save_document("OQ",             oq_df.to_csv(index=False),   user, "async_job")
+        save_document("Traceability",   trace_df.to_csv(index=False),user, "async_job")
+        save_document("Gap_Analysis",   gap_df.to_csv(index=False),  user, "async_job")
+        save_document("Det_Validation", det_df.to_csv(index=False),  user, "async_job")
+
+        _job_update(job_id, progress=88, progress_msg="Building validation workbook...")
+        audit_df     = build_audit_log_sheet(
+            user, "async_job", model_id,
+            frs_df, oq_df, gap_df, det_df, 1, 1, ""
+        )
+        dashboard_df = build_dashboard_sheet(
+            frs_df, oq_df, gap_df, det_df, trace_df, "async_job", model_id
+        )
+        dataframes = {
+            "Dashboard":      dashboard_df,
+            "URS_Extraction": urs_df,
+            "FRS":            frs_df,
+            "OQ":             oq_df,
+            "Traceability":   trace_df,
+            "Gap_Analysis":   gap_df,
+            "Det_Validation": det_df,
+            "Audit_Log":      audit_df,
+        }
+        xlsx_bytes = build_styled_excel(
+            dataframes, user=user, file_name="async_job",
+            model_name=model_id, sys_context_name="",
+            dashboard_df=dashboard_df
+        )
+
+        _job_update(job_id,
+                    status="complete",
+                    progress=100,
+                    progress_msg=(
+                        f"✅ Done — {len(urs_df)} requirements, "
+                        f"{len(frs_df)} FRS rows, {len(oq_df)} OQ tests"
+                    ),
+                    result_urs   = urs_df.to_csv(index=False),
+                    result_frs   = frs_df.to_csv(index=False),
+                    result_oq    = oq_df.to_csv(index=False),
+                    result_trace = trace_df.to_csv(index=False),
+                    result_gap   = gap_df.to_csv(index=False),
+                    result_xlsx  = xlsx_bytes,
+                    completed_at = _dt.datetime.utcnow().isoformat())
+
+    except Exception as exc:
+        _job_update(job_id,
+                    status="failed",
+                    error_msg=str(exc)[:1000],
+                    completed_at=_dt.datetime.utcnow().isoformat())
+
+
+def _worker_loop():
+    """
+    Continuously poll for queued jobs and process them one at a time.
+    Runs as a daemon thread started once at app boot.
+    """
+    global _worker_running
+    _worker_running = True
+    try:
+        while True:
+            try:
+                conn = db_connect()
+                row  = conn.execute(
+                    "SELECT job_id, user, model_id FROM jobs "
+                    "WHERE status = 'queued' ORDER BY created_at LIMIT 1"
+                ).fetchone()
+                conn.close()
+            except Exception:
+                row = None
+
+            if row:
+                job_id, user, model_id = row
+                # Fetch file bytes from the job blobs table
+                try:
+                    conn = db_connect()
+                    blob_row = conn.execute(
+                        "SELECT file_bytes, sys_ctx_bytes FROM job_blobs "
+                        "WHERE job_id = ?", (job_id,)
+                    ).fetchone()
+                    conn.close()
+                    if blob_row:
+                        file_bytes   = blob_row[0]
+                        sys_ctx_bytes = blob_row[1]
+                        _run_job(job_id, file_bytes, sys_ctx_bytes,
+                                 model_id, user)
+                except Exception as exc:
+                    _job_update(job_id, status="failed",
+                                error_msg=f"Worker fetch error: {exc}")
+            else:
+                _time_mod.sleep(3)  # poll every 3 seconds when idle
+    finally:
+        _worker_running = False
+
+
+def ensure_worker_running():
+    """Start the background worker thread if not already running."""
+    global _worker_thread, _worker_running
+    with _worker_lock:
+        if _worker_thread is None or not _worker_thread.is_alive():
+            _worker_thread = _threading.Thread(
+                target=_worker_loop, daemon=True, name="valintel-worker"
+            )
+            _worker_thread.start()
+
+
+def submit_job(user: str, file_bytes: bytes, file_name: str,
+               model_id: str, sys_ctx_bytes=None,
+               sys_ctx_name: str = "") -> str:
+    """
+    Queue a new validation job. Returns the job_id immediately.
+    File bytes are stored in a separate job_blobs table to keep jobs table lean.
+    """
+    import datetime as _dt
+    job_id = str(_uuid.uuid4())[:12].upper()
+
+    conn = db_connect()
+    # Ensure job_blobs table exists
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS job_blobs (
+            job_id       TEXT PRIMARY KEY,
+            file_bytes   BLOB,
+            sys_ctx_bytes BLOB
+        )
+    """)
+    conn.execute(
+        "INSERT INTO job_blobs (job_id, file_bytes, sys_ctx_bytes) VALUES (?,?,?)",
+        (job_id, file_bytes, sys_ctx_bytes)
+    )
+    conn.execute(
+        """INSERT INTO jobs
+           (job_id, user, status, file_name, model_id, created_at, sys_ctx_name)
+           VALUES (?,?,?,?,?,?,?)""",
+        (job_id, user, "queued", file_name, model_id,
+         _dt.datetime.utcnow().isoformat(), sys_ctx_name)
+    )
+    conn.commit()
+    conn.close()
+
+    ensure_worker_running()
+    return job_id
 
 
 def log_audit(user: str, action: str, object_changed: str = "",
@@ -1738,8 +2012,48 @@ def run_segmented_analysis(
 
     urs_final = _apply_confidence_flags(urs_final)
 
+    # ── Filter fabricated rows from empty table shells ─────────────────────
+    # Pass 1 sometimes extracts section headers and empty table rows from
+    # sparse URS documents as fake requirements. Remove rows where:
+    #   (a) Requirement_Description is very short (< 15 chars) — section header
+    #   (b) Requirement_Description matches known header patterns
+    #   (c) Req_ID is empty, N/A, or non-URS format
+    if not urs_final.empty and "Requirement_Description" in urs_final.columns:
+        _before = len(urs_final)
+        _hdr_patterns = [
+            r"^(single sample|bulk sample|parent.child|aliquot|barcode|bi.direct"
+            r"|data integrity|audit trail|computer.gen|electronic sig|access level"
+            r"|reagent.*registry|study protocol|pull sched|oot detect|system.*arch"
+            r"|login proc|role def|instrument.*reg|note:|n/?a)$"
+        ]
+        import re as _re
+        def _is_fabricated(row):
+            desc = str(row.get("Requirement_Description", "")).strip()
+            req_id = str(row.get("Req_ID", "")).strip()
+            # Too short to be a real requirement
+            if len(desc) < 15:
+                return True
+            # Looks like a section sub-heading (no "shall" or "must")
+            if not _re.search(r"(shall|must|will)", desc, _re.IGNORECASE):
+                if len(desc) < 60:
+                    return True
+            # Matches known empty-shell header patterns
+            for pat in _hdr_patterns:
+                if _re.match(pat, desc.lower()):
+                    return True
+            return False
+
+        mask = urs_final.apply(_is_fabricated, axis=1)
+        urs_final = urs_final[~mask].reset_index(drop=True)
+        # Re-apply sequential IDs after filtering
+        urs_final["Req_ID"] = [f"URS-{i+1:03d}" for i in range(len(urs_final))]
+        _after = len(urs_final)
+        if _before != _after:
+            st.caption(f"ℹ️ Pass 1 extracted {_before} rows — filtered {_before - _after} "
+                       f"section headers/empty rows → {_after} real requirements.")
+
     progress_bar.progress(0.5)
-    status_text.text("✅ Pass 1 complete — structured URS table built. Running Pass 2...")
+    status_text.text(f"✅ Pass 1 complete — {len(urs_final)} requirements found. Running Pass 2...")
 
     # ── PASS 2: Generate FRS / OQ / Gap from URS table ────────────────────────
     frs_frames, oq_frames, gap_frames = [], [], []
@@ -1756,49 +2070,75 @@ def run_segmented_analysis(
     header_line = urs_lines[0]
     data_lines  = [l for l in urs_lines[1:] if l.strip()]  # skip blank rows
     p2_total    = len(data_lines)
-
-    # ── Phase 2: per-requirement processing ──────────────────────────────────
-    # Process ONE requirement at a time with a condensed system guide summary.
-    # Each call is ~800 tokens in / ~400 tokens out — never times out.
-    # Results saved after every requirement so a failure loses only that row.
     sys_summary = _summarise_sys_context(sys_context)
     _failed_reqs = []
 
-    for p2_idx, req_row in enumerate(data_lines):
-        if not req_row.strip():
-            continue
-
-        pct = 0.50 + (p2_idx / max(p2_total, 1)) * 0.44
-        progress_bar.progress(min(pct, 0.94))
+    # ── Fast-path: small documents (≤ 15 requirements) ───────────────────────
+    # Send all requirements in a single streaming batch call.
+    # Avoids the per-req overhead (15 × 30s = 7.5 min) for small docs.
+    # Large documents (> 15 requirements) use the per-req loop below.
+    if p2_total <= 15:
         status_text.text(
-            f"🔬 Pass 2 — requirement {p2_idx+1}/{p2_total}  |  "
-            f"FRS: {sum(len(f) for f in frs_frames)} rows  |  "
-            f"OQ: {sum(len(f) for f in oq_frames)} tests"
+            f"🔬 Pass 2 — small document ({p2_total} requirements): "
+            f"single batch call..."
         )
-
+        progress_bar.progress(0.52)
         try:
-            stream_resp = completion(
+            _full_csv = header_line + "\n" + "\n".join(data_lines)
+            _stream_fp = completion(
                 model=model_id,
                 stream=True,
                 temperature=TEMPERATURE,
-                timeout=120,
+                timeout=300,
                 messages=[
                     {"role": "system", "content": _make_system_prompt(sys_summary)},
-                    {"role": "user",   "content": build_pass2_single_prompt(
-                        req_row, header_line, sys_summary)}
+                    {"role": "user",   "content": build_pass2_prompt(_full_csv, sys_summary)}
                 ]
             )
-            raw_p2 = ""
-            for chunk in stream_resp:
-                delta = (chunk.choices[0].delta.content or "") if chunk.choices else ""
-                raw_p2 += delta
+            _raw_fp = ""
+            for _chunk in _stream_fp:
+                _delta = (_chunk.choices[0].delta.content or "") if _chunk.choices else ""
+                _raw_fp += _delta
+                if len(_raw_fp) % 800 < len(_delta) + 1:
+                    status_text.text(
+                        f"🔬 Pass 2 — generating... ({len(_raw_fp):,} chars)"
+                    )
+            _sections = _robust_split_datasets(_raw_fp, _PASS2_HEADERS)
+            for _frames, _csv_text in [
+                (frs_frames, _sections[0]),
+                (oq_frames,  _sections[1]),
+                (gap_frames, _sections[2]),
+            ]:
+                _df = _csv_to_df(_csv_text)
+                if not _df.empty:
+                    _frames.append(_df)
+            progress_bar.progress(0.95)
+            status_text.text(
+                f"✅ Pass 2 complete — "
+                f"FRS: {sum(len(f) for f in frs_frames)} rows  |  "
+                f"OQ: {sum(len(f) for f in oq_frames)} tests"
+            )
+        except Exception as _e:
+            raise SegmentFailureError(
+                f"Pass 2 fast-path failed: {_e}\n\n"
+                f"Analysis aborted. Please retry."
+            ) from _e
+    else:
+        # ── Phase 2: per-requirement processing (large documents > 15 reqs) ──
+        for p2_idx, req_row in enumerate(data_lines):
+            if not req_row.strip():
+                continue
 
-        except Exception as e:
-            # Phase 2: per-requirement retry once before skipping
+            pct = 0.50 + (p2_idx / max(p2_total, 1)) * 0.44
+            progress_bar.progress(min(pct, 0.94))
+            status_text.text(
+                f"🔬 Pass 2 — requirement {p2_idx+1}/{p2_total}  |  "
+                f"FRS: {sum(len(f) for f in frs_frames)} rows  |  "
+                f"OQ: {sum(len(f) for f in oq_frames)} tests"
+            )
+
             try:
-                import time as _time
-                _time.sleep(8)
-                stream_resp2 = completion(
+                stream_resp = completion(
                     model=model_id,
                     stream=True,
                     temperature=TEMPERATURE,
@@ -1810,24 +2150,45 @@ def run_segmented_analysis(
                     ]
                 )
                 raw_p2 = ""
-                for chunk in stream_resp2:
+                for chunk in stream_resp:
                     delta = (chunk.choices[0].delta.content or "") if chunk.choices else ""
                     raw_p2 += delta
-            except Exception as e2:
-                # Log the skip — do not abort the whole run
-                _failed_reqs.append(f"req {p2_idx+1}: {str(e2)[:80]}")
-                continue  # move to next requirement
 
-        sections = _robust_split_datasets(raw_p2, _PASS2_HEADERS)
-        frs_csv, oq_csv, gap_csv = sections[0], sections[1], sections[2]
-        for frames, csv_text in [
-            (frs_frames,  frs_csv),
-            (oq_frames,   oq_csv),
-            (gap_frames,  gap_csv),
-        ]:
-            df = _csv_to_df(csv_text)
-            if not df.empty:
-                frames.append(df)
+            except Exception as e:
+                # Phase 2: per-requirement retry once before skipping
+                try:
+                    import time as _time
+                    _time.sleep(8)
+                    stream_resp2 = completion(
+                        model=model_id,
+                        stream=True,
+                        temperature=TEMPERATURE,
+                        timeout=120,
+                        messages=[
+                            {"role": "system", "content": _make_system_prompt(sys_summary)},
+                            {"role": "user",   "content": build_pass2_single_prompt(
+                                req_row, header_line, sys_summary)}
+                        ]
+                    )
+                    raw_p2 = ""
+                    for chunk in stream_resp2:
+                        delta = (chunk.choices[0].delta.content or "") if chunk.choices else ""
+                        raw_p2 += delta
+                except Exception as e2:
+                    # Log the skip — do not abort the whole run
+                    _failed_reqs.append(f"req {p2_idx+1}: {str(e2)[:80]}")
+                    continue  # move to next requirement
+
+            sections = _robust_split_datasets(raw_p2, _PASS2_HEADERS)
+            frs_csv, oq_csv, gap_csv = sections[0], sections[1], sections[2]
+            for frames, csv_text in [
+                (frs_frames,  frs_csv),
+                (oq_frames,   oq_csv),
+                (gap_frames,  gap_csv),
+            ]:
+                df = _csv_to_df(csv_text)
+                if not df.empty:
+                    frames.append(df)
 
     # Surface any skipped requirements as a soft warning (not a hard abort)
     if _failed_reqs:
@@ -10256,6 +10617,40 @@ def show_app():
     # ── Main area — New Validation ────────────────────────────────────────────
     st.title("Auto-Generate Validation Package")
 
+    # ── Restore active job from DB on page load ───────────────────────────────
+    # If the user closed the browser during a run and logged back in,
+    # restore their most recent active or completed job automatically.
+    if not st.session_state.get("active_job_id"):
+        try:
+            _conn = db_connect()
+            _restore = _conn.execute(
+                """SELECT job_id, status FROM jobs
+                   WHERE user = ?
+                   AND status IN ('queued','running','complete')
+                   ORDER BY created_at DESC LIMIT 1""",
+                (user,)
+            ).fetchone()
+            _conn.close()
+            if _restore:
+                _rjob_id, _rjob_status = _restore
+                # Only restore if job is recent (< 24 hours old)
+                _conn2 = db_connect()
+                _rjob_age = _conn2.execute(
+                    "SELECT created_at FROM jobs WHERE job_id = ?", (_rjob_id,)
+                ).fetchone()
+                _conn2.close()
+                if _rjob_age:
+                    import datetime as _dt_restore
+                    _created = _dt_restore.datetime.fromisoformat(_rjob_age[0])
+                    _age_hrs = (_dt_restore.datetime.utcnow() - _created).total_seconds() / 3600
+                    if _age_hrs < 24:
+                        st.session_state["active_job_id"] = _rjob_id
+                        # Restart worker in case server was rebooted
+                        if _rjob_status in ("queued", "running"):
+                            ensure_worker_running()
+        except Exception:
+            pass  # non-fatal — user just won't see restored job
+
     # Dynamic key allows the file-uploader widget to be fully reset after a
     # completed run. Incrementing uploader_key_n forces Streamlit to mount
     # a brand-new widget instance, which clears any retained file state.
@@ -10457,6 +10852,71 @@ def show_app():
 
     st.markdown("<br>", unsafe_allow_html=True)
 
+    # ── Async job status polling ─────────────────────────────────────────────
+    # If a job was previously submitted, show its status and poll for completion.
+    _active_job = st.session_state.get("active_job_id")
+    if _active_job:
+        _job = _job_get(_active_job)
+        if _job:
+            _status = _job.get("status", "unknown")
+            _prog   = _job.get("progress", 0)
+            _msg    = _job.get("progress_msg", "")
+
+            if _status == "complete":
+                st.success(f"✅ Analysis complete — {_msg}")
+                _xlsx = _job.get("result_xlsx")
+                if _xlsx:
+                    import pandas as _pd
+                    import io as _io
+                    _fname = _job.get("file_name","validation").replace(".pdf","")
+                    st.download_button(
+                        label="📥 Download Validation Package (.xlsx)",
+                        data=_xlsx,
+                        file_name=f"Validation_Package_{_fname}.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        key="async_download_btn",
+                        use_container_width=True,
+                    )
+                    # Preview sheets
+                    with st.expander("📋 Preview Generated Sheets", expanded=True):
+                        for _sheet, _csv_key in [
+                            ("URS", "result_urs"), ("FRS", "result_frs"),
+                            ("OQ", "result_oq"),   ("Traceability", "result_trace"),
+                        ]:
+                            _csv = _job.get(_csv_key, "")
+                            if _csv and _csv.strip():
+                                try:
+                                    _df = _pd.read_csv(_io.StringIO(_csv))
+                                    st.markdown(f"**{_sheet}** — {len(_df)} rows")
+                                    st.dataframe(_df, use_container_width=True)
+                                except Exception:
+                                    pass
+                if st.button("🔄 New Analysis", key="async_new_btn"):
+                    st.session_state.pop("active_job_id", None)
+                    st.session_state.sop_file_bytes = None
+                    st.session_state.sop_file_name  = None
+                    st.rerun()
+
+            elif _status == "failed":
+                st.error(f"❌ Analysis failed: {_job.get('error_msg','Unknown error')}")
+                if st.button("🔄 Retry", key="async_retry_btn"):
+                    st.session_state.pop("active_job_id", None)
+                    st.rerun()
+
+            else:
+                # queued or running — show live progress and auto-refresh
+                _label = "⏳ Queued — starting shortly..." if _status == "queued" else f"🔬 Running..."
+                st.info(_label)
+                st.progress(max(_prog, 2) / 100)
+                if _msg:
+                    st.caption(_msg)
+                _jid_short = _active_job[:8]
+                st.caption(f"Job reference: **{_active_job}**  |  You can safely close this tab and return later.")
+                _time_mod.sleep(3)
+                st.rerun()
+            # Do not render the upload/button UI while a job is active
+            return
+
     if st.button("🚀 Run Analysis", key="run_analysis_btn", disabled=not is_ready):
         file_bytes = st.session_state.sop_file_bytes
         file_name  = st.session_state.sop_file_name or "unknown.pdf"
@@ -10464,9 +10924,6 @@ def show_app():
         sys_ctx    = st.session_state.get("sys_context_bytes", None)
 
         # ── Stage 2: LLM document pre-flight ─────────────────────────────────
-        # Stage 1 already ran on upload (heuristic, free). Stage 2 uses the
-        # selected model to confirm this is genuinely a URS/SRS/SOP.
-        # This is the only place an API call is made before the main pipeline.
         with st.spinner("🔍 Validating document type..."):
             is_valid_doc, validation_msg = validate_urs_document(file_bytes, model_id)
 
@@ -10492,7 +10949,20 @@ def show_app():
                       + (f" | Guide: {st.session_state.get('sys_context_name','')}"
                          if st.session_state.get("sys_context_name") else "")
                   ))
-        st.info(f"⚙️ Two-pass analysis started — {st.session_state.selected_model} — chunk size: {CHUNK_SIZE} pages")
+
+        # ── Submit async job ──────────────────────────────────────────────────
+        _job_id = submit_job(
+            user         = user,
+            file_bytes   = file_bytes,
+            file_name    = file_name,
+            model_id     = model_id,
+            sys_ctx_bytes = sys_ctx,
+            sys_ctx_name = st.session_state.get("sys_context_name",""),
+        )
+        st.session_state["active_job_id"] = _job_id
+        log_audit(user, "JOB_SUBMITTED", "ASYNC_QUEUE",
+                  new_value=_job_id, reason=f"file={file_name}")
+        st.rerun()   # immediately show the polling UI
 
         progress_bar = st.progress(0)
         status_text  = st.empty()
