@@ -5417,17 +5417,28 @@ def _at_velocity_scores(df: pd.DataFrame) -> pd.Series:
 
 
 def _at_gap_scores(df: pd.DataFrame) -> pd.Series:
+    # BQ-008 Fix 1: Default gap score lowered to 4.0 MEDIUM.
+    # A bare gap is a weak signal — downtime, batch jobs, archiving all produce
+    # gaps. Escalation to HIGH/CRITICAL is handled by a post-scoring correlation
+    # pass in at_score_events() after all other rules have fired.
     scores = pd.Series(0.0, index=df.index)
     if "timestamp_parsed" not in df.columns:
         return scores
     ts   = df["timestamp_parsed"].sort_values()
     prev = ts.shift(1)
     gap  = (ts - prev).dt.total_seconds() / 3600
-    scores.loc[gap[gap > 2].index] = 7.0
+    scores.loc[gap[gap > 2].index] = 4.0   # MEDIUM default — may escalate below
     return scores
 
 
 def _at_del_recreate_scores(df: pd.DataFrame) -> pd.Series:
+    """
+    BQ-010: Merged Rule 6 + Rule 15 into a single two-tier detection.
+    Tier 1 — D→I  (Delete + Insert on same record):   9.0 CRITICAL
+    Tier 2 — U→D→I (Update + Delete + Insert):        9.5 CRITICAL (premeditated evasion)
+    Rule 15 is retired; this function now handles both patterns.
+    The score column name (score_del_recreate) is preserved — no downstream breakage.
+    """
     scores = pd.Series(0.0, index=df.index)
     needed = ["record_id","user_id","action_type","timestamp_parsed"]
     if not all(c in df.columns for c in needed):
@@ -5437,8 +5448,11 @@ def _at_del_recreate_scores(df: pd.DataFrame) -> pd.Series:
         lambda x: any(k in x for k in _AT_DELETE_KW))
     df2["_cre"] = df2["action_type"].astype(str).str.lower().apply(
         lambda x: any(k in x for k in _AT_CREATE_KW))
+    df2["_upd"] = df2["action_type"].astype(str).str.lower().apply(
+        lambda x: any(k in x for k in ["update","modify","edit","amend","correct"]))
     dels = df2[df2["_del"]]
     cres = df2[df2["_cre"]]
+    upds = df2[df2["_upd"]]
     for _, dr in dels.iterrows():
         if pd.isnull(dr["timestamp_parsed"]):
             continue
@@ -5448,13 +5462,22 @@ def _at_del_recreate_scores(df: pd.DataFrame) -> pd.Series:
             (cres["timestamp_parsed"] >= dr["timestamp_parsed"]) &
             (cres["timestamp_parsed"] <= dr["timestamp_parsed"] + pd.Timedelta(hours=4))
         ]
-        if not match.empty:
-            di = df2[(df2["record_id"]==dr["record_id"]) &
-                     (df2["user_id"]==dr["user_id"]) &
-                     (df2["_del"]) &
-                     (df2["timestamp_parsed"]==dr["timestamp_parsed"])].index
-            scores.loc[di]          = 9.0
-            scores.loc[match.index] = 9.0
+        if match.empty:
+            continue
+        # Tier 2: check for a preceding UPDATE on same record by same user (U→D→I)
+        has_preceding_update = not upds[
+            (upds["record_id"] == dr["record_id"]) &
+            (upds["user_id"]   == dr["user_id"]) &
+            (upds["timestamp_parsed"] < dr["timestamp_parsed"]) &
+            (upds["timestamp_parsed"] >= dr["timestamp_parsed"] - pd.Timedelta(hours=4))
+        ].empty
+        _score = 9.5 if has_preceding_update else 9.0
+        di = df2[(df2["record_id"]==dr["record_id"]) &
+                 (df2["user_id"]==dr["user_id"]) &
+                 (df2["_del"]) &
+                 (df2["timestamp_parsed"]==dr["timestamp_parsed"])].index
+        scores.loc[di]          = _score
+        scores.loc[match.index] = _score
     return scores
 
 
@@ -5476,18 +5499,36 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
 
     # ── Original 6 dimensions ─────────────────────────────────────────────────
     df["score_temporal"]     = df["timestamp_parsed"].apply(_at_temporal_score)
-    df["score_velocity"]     = _at_velocity_scores(df)
+    df["score_velocity"]     = pd.Series(0.0, index=df.index)  # BQ-007: Rule 9 removed
     df["score_gap"]          = _at_gap_scores(df)
     df["score_del_recreate"] = _at_del_recreate_scores(df)
 
+    # BQ-004: Rule 8 scope redesigned to eliminate overlap with Rule 3.
+    # Rule 3 owns: admin write/delete on core GxP production tables (RESULTS, BATCH etc.)
+    # Rule 8 owns: admin write on GxP-regulated tables NOT in Rule 3's core list
+    #              e.g. STABILITY_PROTOCOL, SPECIFICATION_MASTER, METHOD_MASTER,
+    #              INSTRUMENT_CONFIG, USER_MASTER, ACCESS_CONTROL.
+    # If Rule 3 already covers the table, Rule 8 does not fire — one finding per event.
+    _RULE3_CORE_TABLES = {
+        "results","result","batch","batch_release",
+        "sample_data","sample","electronic_signature","esig",
+        "quality_record","raw_data",
+    }
     def _priv(row):
         role = str(row.get("role","")).lower()
         rec  = str(row.get("record_type","")).lower()
         act  = str(row.get("action_type","")).lower()
-        if any(k in role for k in _AT_ADMIN_KW) and any(k in rec for k in _AT_SENSITIVE):
+        is_admin = any(k in role for k in _AT_ADMIN_KW)
+        if not is_admin:
+            return 0.0
+        # Rule 3 owns these tables — do not double-fire Rule 8
+        if any(t in rec for t in _RULE3_CORE_TABLES):
+            return 0.0
+        # Rule 8 owns: admin on sensitive tables outside Rule 3 scope
+        if any(k in rec for k in _AT_SENSITIVE):
             return 8.0
-        if any(k in role for k in _AT_ADMIN_KW) and any(
-                k in act for k in _AT_MODIFY_KW + _AT_DELETE_KW):
+        # Admin performing any write/delete on any other table
+        if any(k in act for k in _AT_MODIFY_KW + _AT_DELETE_KW):
             return 7.0
         return 0.0
     df["score_privilege"] = df.apply(_priv, axis=1)
@@ -5518,38 +5559,94 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
     df["score_record"] = df.apply(_rec, axis=1)
 
     # ── Rule 1 — Vague Rationale (Compliance Gap) ─────────────────────────────
-    # Target: UPDATE on RESULTS or BATCH table with <3-word or non-descriptive comment
-    # Risk: High
+    # Target: UPDATE/MODIFY/EDIT/DELETE on any GxP-regulated table with a
+    #         blank, vague, or copy-pasted change reason.
+    # Fixes applied:
+    #   (a) Table scope expanded — SAMPLE_DATA, SAMPLE, ELECTRONIC_SIGNATURE,
+    #       ESIG, QUALITY_RECORD, RAW_DATA added alongside RESULTS and BATCH.
+    #   (b) DELETE with blank/vague rationale now detected at elevated scores
+    #       (deletion without justification is MORE severe than modification).
+    #   (c) Copy-paste reuse: identical comment repeated across 3+ records
+    #       of the same table type is flagged as a separate sub-finding after
+    #       the per-row loop.
+    # Risk: High (baseline); Critical when DELETE + blank.
+
+    _RULE1_GXP_TABLES = [
+        "RESULTS", "RESULT", "BATCH", "BATCH_RELEASE",
+        "SAMPLE_DATA", "SAMPLE", "ELECTRONIC_SIGNATURE", "ESIG",
+        "QUALITY_RECORD", "RAW_DATA",
+    ]
+    _RULE1_MODIFY_KW = ["UPDATE", "MODIFY", "EDIT", "AMEND", "CORRECT", "REVISE"]
+    _RULE1_DELETE_KW = ["DELETE", "DEL", "REMOVE", "PURGE", "VOID"]
+
     def _rule1(row):
-        act  = str(row.get("action_type","")).upper()
-        tbl  = str(row.get("record_type","")).upper()
-        cmt  = str(row.get("comments","")).strip().lower()
-        tbl_hit = any(t in tbl for t in ["RESULTS","RESULT","BATCH"])
-        if not tbl_hit:
+        act = str(row.get("action_type", "")).upper()
+        tbl = str(row.get("record_type",  "")).upper()
+        cmt = str(row.get("comments",     "")).strip().lower()
+
+        tbl_hit    = any(t in tbl for t in _RULE1_GXP_TABLES)
+        is_modify  = any(k in act for k in _RULE1_MODIFY_KW)
+        is_delete  = any(k in act for k in _RULE1_DELETE_KW)
+
+        if not tbl_hit or (not is_modify and not is_delete):
             return 0.0, ""
-        if "UPDATE" not in act and "MODIFY" not in act and "EDIT" not in act:
+
+        blank = not cmt or cmt in ("", "nan", "none", "-", "—")
+
+        # ── DELETE path (elevated scores — deletion requires stronger justification)
+        if is_delete:
+            if blank:
+                return 9.0, (
+                    f"No deletion reason was recorded for this DELETE action on "
+                    f"'{tbl}'. Deletion of GxP records without documented justification "
+                    "is a critical data integrity violation. Every DELETE must have an "
+                    "approved, specific rationale per 21 CFR Part 11 §11.10(e) and "
+                    "ALCOA+ Original principle."
+                )
+            words     = [w for w in cmt.split() if len(w) > 1]
+            has_vague = any(
+                _re_r1.search(r"\b" + _re_r1.escape(v) + r"\b", cmt, _re_r1.IGNORECASE)
+                for v in _AT_VAGUE_TERMS
+            )
+            if has_vague:
+                matched = [v for v in _AT_VAGUE_TERMS
+                    if _re_r1.search(r"\b" + _re_r1.escape(v) + r"\b", cmt, _re_r1.IGNORECASE)]
+                return 8.0, (
+                    f"The deletion reason ('{cmt}') uses non-descriptive language "
+                    f"({', '.join(matched)}). A DELETE on a GxP record requires a "
+                    "specific, authorised justification — not a generic term. "
+                    "21 CFR Part 11 §11.10(e)."
+                )
+            if len(words) < 2:
+                return 7.0, (
+                    f"The deletion reason ('{cmt}') is too brief to constitute "
+                    "adequate documentation for removing a GxP record. "
+                    "ALCOA+ Attributable principle requires clear authorship and "
+                    "justification for every data action."
+                )
             return 0.0, ""
-        # Blank or missing comment — always flag
-        if not cmt or cmt in ("", "nan", "none", "-", "—"):
+
+        # ── MODIFY path (existing logic, unchanged scores)
+        if blank:
             return 8.0, (
                 "No change reason was recorded for this data modification. "
                 "Every update to a GxP record requires a documented justification "
                 "explaining what changed and why (21 CFR Part 211.68, ALCOA+)."
             )
-        # Contains a known vague/non-descriptive term — flag
         words     = [w for w in cmt.split() if len(w) > 1]
-        has_vague = any(vague in cmt for vague in _AT_VAGUE_TERMS)
-        # Only flag short comments if they ALSO contain a vague term
-        # (avoids false positives on legitimate brief annotations like "Outlier test")
+        has_vague = any(
+            _re_r1.search(r"\b" + _re_r1.escape(v) + r"\b", cmt, _re_r1.IGNORECASE)
+            for v in _AT_VAGUE_TERMS
+        )
         if has_vague:
-            matched = [v for v in _AT_VAGUE_TERMS if v in cmt]
+            matched = [v for v in _AT_VAGUE_TERMS
+                       if _re_r1.search(r"\b" + _re_r1.escape(v) + r"\b", cmt, _re_r1.IGNORECASE)]
             return 7.0, (
                 f"The change reason recorded ('{cmt}') uses non-descriptive language "
                 f"({', '.join(matched)}) that does not explain what changed or why. "
                 "GxP data modifications require a specific, scientifically justified "
                 "rationale per 21 CFR Part 211.68."
             )
-        # Very short AND no meaningful content (1 word only, not scientific)
         if len(words) < 2:
             return 6.0, (
                 f"The change reason ('{cmt}') is too brief to constitute adequate "
@@ -5558,7 +5655,7 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
             )
         return 0.0, ""
 
-    r1_scores   = []
+    r1_scores    = []
     r1_rationale = []
     for _, row in df.iterrows():
         s, r = _rule1(row)
@@ -5567,11 +5664,57 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
     df["score_rule1_vague_rationale"] = r1_scores
     df["rule1_rationale"]             = r1_rationale
 
+    # ── Rule 1 sub-check: Copy-paste rationale reuse ──────────────────────────
+    # Identical non-blank comment repeated across 3+ rows of the same GxP table
+    # type is a copy-paste finding — the rationale was not written per-record.
+    # Applied as a post-loop boost: if the row already fired Rule 1, the score
+    # is kept (it's already flagged). If it had NOT fired (comment was deemed
+    # adequate), the copy-paste pattern overrides with 7.5 HIGH.
+    if "comments" in df.columns and "record_type" in df.columns:
+        _CP_THRESHOLD = 3   # 3+ identical comments = copy-paste finding
+        # Build count of each (table, comment) combination
+        from collections import Counter as _Counter
+        _combo_counts = _Counter()
+        for _, _row in df.iterrows():
+            _tbl = str(_row.get("record_type", "")).upper()
+            _cmt = str(_row.get("comments",    "")).strip().lower()
+            if _cmt and _cmt not in ("nan", "none", "-", "—")                     and any(t in _tbl for t in _RULE1_GXP_TABLES):
+                _combo_counts[(_tbl, _cmt)] += 1
+        # Flag rows where the same comment was used >= threshold times
+        for _idx, _row in df.iterrows():
+            _tbl = str(_row.get("record_type", "")).upper()
+            _cmt = str(_row.get("comments",    "")).strip().lower()
+            if not _cmt or _cmt in ("nan", "none", "-", "—"):
+                continue
+            if not any(t in _tbl for t in _RULE1_GXP_TABLES):
+                continue
+            _cnt = _combo_counts.get((_tbl, _cmt), 0)
+            if _cnt >= _CP_THRESHOLD:
+                _cp_rationale = (
+                    f"Rule 1 — Copy-Paste Rationale Reuse [HIGH]: "
+                    f"The comment '{_cmt}' appears identically on {_cnt} records "
+                    f"in the '{_tbl}' table. Identical rationale across multiple "
+                    "records indicates the justification was not written for each "
+                    "individual change, which is inconsistent with ALCOA+ Attributable "
+                    "and 21 CFR Part 211.68 requirements for per-record documentation."
+                )
+                # Boost only if not already flagged at a higher score
+                if df.at[_idx, "score_rule1_vague_rationale"] < 7.5:
+                    df.at[_idx, "score_rule1_vague_rationale"] = 7.5
+                    df.at[_idx, "rule1_rationale"]             = _cp_rationale
+
     # ── Rule 2 — Contemporaneous Burst (ALCOA Gap) ────────────────────────────
-    # Target: >10 RESULT_INSERT actions within 15-minute window per user
-    # Risk: Medium
+    # BQ-002: (1) Exclude system/service accounts — they legitimately generate
+    #             high-volume automated entries (instrument interfaces, LIMS middleware).
+    #         (2) Detect UPDATE/MODIFY bursts as well as INSERT bursts — backdated
+    #             modifications from paper scraps are the same ALCOA+ violation.
+    # Threshold: >10 same-type actions within 15 minutes by same human user.
     r2_scores    = pd.Series(0.0, index=df.index)
     r2_rationale = pd.Series("", index=df.index)
+    _R2_SVC_PREFIXES = (
+        "svc_","service_","shr_","shared_","batch_","sys_","system_",
+        "robot_","auto_","automation_","api_","sa_","dba_","daemon","interface_",
+    )
     if "timestamp_parsed" in df.columns and "user_id" in df.columns:
         df_s   = df.sort_values("timestamp_parsed").copy()
         df_s   = df_s[df_s["timestamp_parsed"].notna()].copy()
@@ -5580,9 +5723,22 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
         ac_arr = df_s["action_type"].astype(str).str.upper().tolist()
         ix_arr = df_s.index.tolist()
         insert_kw = ["INSERT","RESULT_INSERT","CREATE","ADD"]
+        modify_kw = ["UPDATE","MODIFY","EDIT","AMEND","CORRECT","REVISE"]
         for i in range(len(df_s)):
-            if not any(kw in ac_arr[i] for kw in insert_kw):
+            # BQ-002 Fix 1: skip system/service accounts
+            if any(us_arr[i].lower().startswith(p) for p in _R2_SVC_PREFIXES):
                 continue
+            is_insert = any(kw in ac_arr[i] for kw in insert_kw)
+            is_modify = any(kw in ac_arr[i] for kw in modify_kw)
+            if not is_insert and not is_modify:
+                continue
+            active_kw  = insert_kw if is_insert else modify_kw
+            burst_type = "INSERT" if is_insert else "UPDATE/MODIFY"
+            rationale_detail = (
+                "batch processing from memory or paper scraps rather than real-time entry"
+                if is_insert else
+                "retrospective bulk modification — possible backdated correction from paper records"
+            )
             count = 0
             for j in range(max(0,i-200), min(len(df_s),i+200)):
                 if j == i:
@@ -5592,31 +5748,42 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
                 except Exception:
                     continue
                 if diff_mins <= 15:
-                    if us_arr[j]==us_arr[i] and any(kw in ac_arr[j] for kw in insert_kw):
+                    if us_arr[j]==us_arr[i] and any(kw in ac_arr[j] for kw in active_kw):
                         count += 1
             if count > 10:
                 r2_scores.at[ix_arr[i]]    = 6.0
                 r2_rationale.at[ix_arr[i]] = (
-                    f"Rule 2 — Contemporaneous Burst [MEDIUM]: {count+1} INSERT actions "
+                    f"Rule 2 — Contemporaneous Burst [MEDIUM]: {count+1} {burst_type} actions "
                     f"by user '{us_arr[i]}' within 15 minutes. Exceeds the 10-action "
-                    "threshold indicating batch processing from memory or paper scraps "
-                    "rather than real-time entry, which is inconsistent with the ALCOA+ Contemporaneous principle (FDA Data Integrity Guidance, 2018)."
+                    f"threshold indicating {rationale_detail}, "
+                    "which is inconsistent with the ALCOA+ Contemporaneous principle (FDA Data Integrity Guidance, 2018)."
                 )
     df["score_rule2_burst"]    = r2_scores
     df["rule2_rationale"]      = r2_rationale
 
     # ── Rule 3 — Admin/GxP Conflict (SoD Gap) ────────────────────────────────
-    # Target: Admin or DBA performing INSERT or UPDATE on SAMPLE_DATA or BATCH_RELEASE
-    # Risk: Critical
+    # BQ-003: Added DELETE to action coverage — admin deleting a GxP record is
+    # the most severe SoD violation and previously bypassed Rule 3 entirely.
+    # DELETE scores 10.0; non-DELETE write actions score 10.0 (unchanged).
     def _rule3(row):
         role = str(row.get("role","")).upper()
         act  = str(row.get("action_type","")).upper()
         tbl  = str(row.get("record_type","")).upper()
-        role_hit = any(r in role for r in ["ADMIN","DBA","ADMINISTRATOR","SYSADMIN"])
-        act_hit  = any(a in act  for a in ["INSERT","UPDATE","CREATE","MODIFY"])
-        tbl_hit  = any(t in tbl  for t in ["SAMPLE_DATA","SAMPLE","BATCH_RELEASE",
+        role_hit   = any(r in role for r in ["ADMIN","DBA","ADMINISTRATOR","SYSADMIN"])
+        is_write   = any(a in act for a in ["INSERT","UPDATE","CREATE","MODIFY"])
+        is_delete  = any(a in act for a in ["DELETE","DEL","REMOVE","PURGE","VOID"])
+        tbl_hit    = any(t in tbl for t in ["SAMPLE_DATA","SAMPLE","BATCH_RELEASE",
                                             "BATCH","RESULTS","RESULT"])
-        if role_hit and act_hit and tbl_hit:
+        if role_hit and tbl_hit and is_delete:
+            return 10.0, (
+                f"Rule 3 — Admin/GxP Conflict [CRITICAL]: Role '{row.get('role','')}' "
+                f"performed DELETE on production GxP table '{row.get('record_type','')}'. "
+                "Deletion of GxP records by an administrative account is the most severe "
+                "Segregation of Duties violation — it destroys evidence rather than modifying it. "
+                "Administrative accounts must be restricted to system configuration only "
+                "(21 CFR Part 11 §11.10(d); ALCOA+ Original principle)."
+            )
+        if role_hit and is_write and tbl_hit:
             return 10.0, (
                 f"Rule 3 — Admin/GxP Conflict [CRITICAL]: Role '{row.get('role','')}' "
                 f"performed {row.get('action_type','')} on production GxP table "
@@ -5652,26 +5819,37 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
             # Try numeric deviation detection
             try:
                 numeric_vals = pd.to_numeric(vals, errors="coerce").dropna()
-                if len(numeric_vals) >= 3:
-                    mean = numeric_vals.mean()
-                    std  = numeric_vals.std()
-                    if std > 0:
-                        for idx in grp.index:
-                            try:
-                                v = float(df.at[idx,"new_value"])
-                                z = abs(v - mean) / std
-                                if z > 3.0:   # >3 std dev from mean for this record type
-                                    scores.at[idx] = 8.0
-                                    rationale.at[idx] = (
-                                        f"Rule 4 — Change Control Drift [HIGH]: "
-                                        f"new_value '{v}' deviates {z:.1f} standard deviations "
-                                        f"from the expected range for '{rec_type}' records "
-                                        f"(mean={mean:.2f}, σ={std:.2f}). "
-                                        "May indicate manual override of a validated setpoint "
-                                        "without Change Control per 21 CFR Part 820.70(b)."
-                                    )
-                            except (ValueError, TypeError):
-                                pass
+                # BQ-005 Fix 1: raise minimum sample to 10 for statistically
+                # meaningful baseline (n=3 makes std dev unreliable)
+                if len(numeric_vals) < 10:
+                    continue
+                mean = numeric_vals.mean()
+                std  = numeric_vals.std()
+                # BQ-005 Fix 2: std floor — near-zero std produces false positives
+                # from divide-by-near-zero on uniformly consistent data
+                if std < 1e-6:
+                    continue
+                # BQ-005 Fix 3: CV gate — if data is extremely uniform (CV < 1%)
+                # the z-score is unreliable; any small deviation looks like an outlier
+                cv = std / abs(mean) if abs(mean) > 1e-6 else 0
+                if cv < 0.01:
+                    continue
+                for idx in grp.index:
+                    try:
+                        v = float(df.at[idx,"new_value"])
+                        z = abs(v - mean) / std
+                        if z > 3.0:   # >3 std dev from mean for this record type
+                            scores.at[idx] = 8.0
+                            rationale.at[idx] = (
+                                f"Rule 4 — Change Control Drift [HIGH]: "
+                                f"new_value '{v}' deviates {z:.1f} standard deviations "
+                                f"from the expected range for '{rec_type}' records "
+                                f"(mean={mean:.2f}, σ={std:.2f}, CV={cv:.1%}, n={len(numeric_vals)}). "
+                                "May indicate manual override of a validated setpoint "
+                                "without Change Control per 21 CFR Part 820.70(b)."
+                            )
+                    except (ValueError, TypeError):
+                        pass
             except Exception:
                 pass
         return scores, rationale
@@ -5745,6 +5923,24 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
                 rec_k = df_s["record_type"].iloc[k].lower() \
                         if "record_type" in df_s.columns else ""
                 if any(kw in act_k for kw in manip_kw):
+                    # BQ-006: Tighten scope — only fire if privileged account OR
+                    # action targets a sensitive table. Standard analyst routine
+                    # RESULTS/BATCH INSERTs after password struggle = false positive.
+                    _R5_PRIV_KW   = ["admin","dba","administrator","sysadmin","superuser"]
+                    _R5_SENS_TBLS = ["audit_trail","electronic_signature","esig",
+                                     "quality_record","raw_data"]
+                    _role_k = ""
+                    if "role" in df_s.columns:
+                        try:
+                            _role_k = str(df_s["role"].iloc[k]).lower()
+                        except Exception:
+                            _role_k = ""
+                    is_privileged = any(kw in _role_k for kw in _R5_PRIV_KW)
+                    is_sens_tbl   = any(kw in rec_k   for kw in _R5_SENS_TBLS)
+                    if not is_privileged and not is_sens_tbl:
+                        seen_acts.add(act_k) if False else None
+                        continue  # routine analyst action — not a finding
+                    _score_r5 = 10.0 if is_privileged else 9.0
                     # Flag both the login event and the manipulation event
                     rationale_text = (
                         f"Rule 5 — Failed Login → Data Manipulation [CRITICAL]: "
@@ -5752,11 +5948,12 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
                         f"in the 120 minutes preceding successful login at {t_login}. "
                         f"Within 30 minutes of login, action '{df_s['action_type'].iloc[k]}' "
                         f"was performed on '{df_s['record_type'].iloc[k] if 'record_type' in df_s.columns else 'GxP record'}'. "
-                        f"This sequence indicates potential brute-force access followed by "
-                        f"This sequence may indicate unauthorised data access and manipulation, raising concerns regarding data originality and attributability inconsistent with 21 CFR Part 11 §11.300 and FDA Data Integrity Guidance (2018)."
+                        + ("Privileged account performing GxP action after credential struggle. " if is_privileged else
+                           "Action targets a sensitive GxP table not part of routine analyst workflow. ")
+                        + "This sequence may indicate unauthorised data access and manipulation, raising concerns regarding data originality and attributability inconsistent with 21 CFR Part 11 §11.300 and FDA Data Integrity Guidance (2018)."
                     )
-                    r5_scores.at[ix_lst[i]] = 10.0
-                    r5_scores.at[ix_lst[k]] = 10.0
+                    r5_scores.at[ix_lst[i]] = _score_r5
+                    r5_scores.at[ix_lst[k]] = _score_r5
                     r5_rationale.at[ix_lst[i]] = rationale_text
                     r5_rationale.at[ix_lst[k]] = rationale_text
                     break   # one manipulation is enough to flag
@@ -5803,8 +6000,12 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
     df["rule12_rationale"]                = r12_rationale
 
     # ── Rule 13 — Service / Shared Account GxP Action ─────────────────────────
-    # Non-personal accounts (service, shared, automated) performing GxP data ops.
-    # Risk: Critical for GxP data actions, High otherwise.
+    # BQ-009: Behavioral consistency auto-detection — a validated instrument
+    # interface has a predictable fingerprint (single action, single table,
+    # no DELETE, no off-hours, no sensitive tables). Derived entirely from the
+    # uploaded log — no user input required.
+    # Consistent profile → downgrade to 5.0 MEDIUM (still logged, not CRITICAL).
+    # Inconsistent profile → existing CRITICAL/HIGH scores unchanged.
     _NONPERSONAL_PREFIXES = (
         "svc_","service_","shr_","share_","shared_","share.",
         "adm_","admin_","tec_","tech_","technical_",
@@ -5815,6 +6016,34 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
     _GXP_ACTIONS_13 = {"insert","update","modify","delete","create","result_insert",
                        "amend","approve","release","override"}
 
+    # Build behavioral profile for each service account from the full log
+    _svc_profiles: dict = {}
+    for _uid13 in df["user_id"].unique():
+        _uid13_str = str(_uid13).lower().strip()
+        if not any(_uid13_str.startswith(p) for p in _NONPERSONAL_PREFIXES):
+            continue
+        _urows13   = df[df["user_id"].astype(str).str.lower().str.strip() == _uid13_str]
+        _acts13    = set(_urows13["action_type"].astype(str).str.upper().unique())
+        _tbls13    = set(_urows13["record_type"].astype(str).str.lower().unique())                      if "record_type" in _urows13.columns else set()
+        _has_del13 = any(any(k in a for k in ["DELETE","REMOVE","PURGE","VOID"])
+                         for a in _acts13)
+        _has_sens13 = any(any(t in tb for t in ["audit_trail","electronic_signature",
+                              "quality_record"]) for tb in _tbls13)
+        _has_offhr13 = False
+        if "timestamp_parsed" in _urows13.columns:
+            _hrs13 = set(_urows13["timestamp_parsed"].dropna().apply(
+                lambda x: pd.Timestamp(x).hour if pd.notna(x) else None
+            ).dropna().unique())
+            _has_offhr13 = any(h < 7 or h >= 20 for h in _hrs13)
+        _consistent = (
+            len(_acts13) <= 2 and
+            len(_tbls13) <= 2 and
+            not _has_del13 and
+            not _has_sens13 and
+            not _has_offhr13
+        )
+        _svc_profiles[_uid13_str] = _consistent
+
     def _rule13(row) -> tuple:
         uid = str(row.get("user_id","")).lower().strip()
         act = str(row.get("action_type","")).lower().strip()
@@ -5823,6 +6052,18 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
             return 0.0, ""
         is_gxp_action = any(kw in act for kw in _GXP_ACTIONS_13)
         is_gxp_rec    = any(kw in rec for kw in _AT_SENSITIVE)
+        # BQ-009: downgrade consistent-profile service accounts to MEDIUM
+        if _svc_profiles.get(uid, False):
+            if is_gxp_action and is_gxp_rec:
+                return 5.0, (
+                    f"Rule 13 — Likely Validated Integration Account [MEDIUM]: "
+                    f"Account '{row.get('user_id','')}' matches a service account pattern "
+                    "but shows a consistent single-action, single-table automated profile "
+                    "across this log. Verify this account is documented in the validated "
+                    "system configuration and that its scope has not changed. "
+                    "(21 CFR Part 11 §11.300)"
+                )
+            return 0.0, ""
         if is_gxp_action and is_gxp_rec:
             return 10.0, (
                 f"Rule 13 — Service/Shared Account GxP Action [CRITICAL]: "
@@ -5896,77 +6137,6 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
     df["score_rule14_dormant_account"] = r14_scores
     df["rule14_rationale"]             = r14_rationale
 
-    # ── Rule 15 — Suspicious Action Sequence (UPDATE → DELETE → INSERT) ───────
-    # Detects the 3-step data manipulation pattern:
-    #   1. User UPDATEs a record (modification is logged)
-    #   2. User DELETEs the same record (removes the logged update)
-    #   3. User INSERTs the same record_id (recreates with altered values)
-    # All three steps by same user, same record_id, within 30 minutes.
-    # This extends Rule 6 (delete-recreate) by detecting the preceding UPDATE
-    # that motivates the deletion — the hallmark of deliberate log evasion.
-    # Risk: Critical. No extra file needed.
-    _SEQ_WINDOW_MINS = 30
-    r15_scores    = pd.Series(0.0, index=df.index)
-    r15_rationale = pd.Series("", index=df.index)
-    r15_chain_key = pd.Series("", index=df.index)  # for Event Chain ID
-    if all(c in df.columns for c in ["record_id","user_id","action_type",
-                                       "timestamp_parsed"]):
-        df_s15 = df.sort_values("timestamp_parsed").copy()
-        df_s15 = df_s15[df_s15["timestamp_parsed"].notna() &
-                        df_s15["record_id"].astype(str).str.strip().ne("")].copy()
-        df_s15["_rid"] = df_s15["record_id"].astype(str).str.strip()
-
-        chain_counter = [0]
-        for rid, grp in df_s15.groupby("_rid"):
-            if len(grp) < 3:
-                continue
-            events = grp.sort_values("timestamp_parsed")
-            acts   = events["action_type"].astype(str).str.upper().tolist()
-            tss    = events["timestamp_parsed"].tolist()
-            usrs   = events["user_id"].astype(str).tolist()
-            idxs   = events.index.tolist()
-
-            for i in range(len(events) - 2):
-                # Look for UPDATE/MODIFY → DELETE → INSERT in order
-                is_upd = any(k in acts[i] for k in
-                             ["UPDATE","MODIFY","EDIT","AMEND"])
-                is_del = any(k in acts[i+1] for k in
-                             ["DELETE","DEL","REMOVE","PURGE"])
-                is_ins = any(k in acts[i+2] for k in
-                             ["INSERT","CREATE","ADD","RESULT_INSERT"])
-                if not (is_upd and is_del and is_ins):
-                    continue
-                # Same user all three steps
-                if not (usrs[i] == usrs[i+1] == usrs[i+2]):
-                    continue
-                # Within time window
-                try:
-                    span = (tss[i+2] - tss[i]).total_seconds() / 60
-                except Exception:
-                    continue
-                if span > _SEQ_WINDOW_MINS:
-                    continue
-
-                chain_counter[0] += 1
-                chain_id = f"EC-{chain_counter[0]:03d}"
-                rationale = (
-                    f"Rule 15 — Suspicious Action Sequence [CRITICAL]: "
-                    f"User '{usrs[i]}' performed UPDATE → DELETE → INSERT on record "
-                    f"'{rid}' within {span:.0f} minutes "
-                    f"({tss[i].strftime('%H:%M')} to {tss[i+2].strftime('%H:%M')}). "
-                    "This three-step sequence — modify, delete, recreate — is the "
-                    "primary method for altering a locked GxP record while obscuring "
-                    "the original modification from the audit trail. "
-                    "(21 CFR Part 11 §11.10(e), ALCOA+ Original)"
-                )
-                for j, idx in enumerate([idxs[i], idxs[i+1], idxs[i+2]]):
-                    r15_scores.at[idx]    = 10.0
-                    r15_rationale.at[idx] = rationale
-                    r15_chain_key.at[idx] = chain_id
-                break   # one sequence per record is enough
-
-    df["score_rule15_suspicious_sequence"] = r15_scores
-    df["rule15_rationale"]                 = r15_rationale
 
     # ── Rule 16 — First-Time Behavior Detection ────────────────────────────────
     # Detects when a user performs an action_type they have never performed before
@@ -5983,10 +6153,13 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
     # Rationale always states prior event count so reviewer can judge
     # whether "first time" is statistically meaningful.
 
+    # BQ-011: extended high-risk action list — AMEND, DISABLE, UNLOCK added
     _HIGH_RISK_FIRST_ACTIONS = {
-        "delete","del","purge",
+        "delete","del","purge","remove","void",
         "approve","release","authorise","authorize","sign",
         "override","batch_release","approve_result",
+        "amend","amendment",
+        "disable","deactivate","unlock",
     }
     _MIN_PRIOR_EVENTS_16 = 5
 
@@ -6058,11 +6231,12 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
                     r16_rationale.at[orig] = (
                         f"Rule 16 — First-Time Behavior [HIGH]: "
                         f"User '{uid}' performed '{raw_act}' on '{raw_rec}' "
-                        f"for the first time after {prior} prior recorded events in "
-                        f"this audit trail. ({conf}) "
-                        "A sudden new action type from an established user is an "
-                        "insider risk signal — especially high-risk actions like "
-                        "delete or approve that were never performed before. "
+                        f"for the first time within this uploaded log window "
+                        f"(after {prior} prior recorded events). ({conf}) "
+                        "Note: prior activity before the log window may exist — "
+                        "verify against training records and role assignment history. "
+                        "A first-time high-risk action (delete, approve, release, amend) "
+                        "from an established user is an insider risk signal. "
                         "Verify this action was within the user's approved access rights at the time "
                         "and obtain documented authorisation if not already on file "
                         "(21 CFR Part 11 §11.10(d), ALCOA+ Attributable)."
@@ -6077,7 +6251,7 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
     # Gives reviewer a shared identifier to filter and see complete event stories.
     # Format: EC-NNN where NNN increments per chain found in the dataset.
     chain_id_col = pd.Series("", index=df.index)
-    chain_id_col[r15_chain_key != ""] = r15_chain_key[r15_chain_key != ""]
+    # BQ-010: r15_chain_key removed (Rule 15 merged into Rule 6)
 
     # Rule 5 chains — LOGIN_FAILED sequence → same user → DELETE/UPDATE
     # Assign chain IDs to the login and manipulation events together
@@ -6152,9 +6326,9 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
                 return f"Part of delete-recreate sequence — original record{ref} deleted here"
             return f"Part of delete-recreate sequence — record{ref} recreated here after deletion"
         # Rule 15 chain: update-delete-insert
-        if "rule 15" in primary or "suspicious" in primary:
-            return ("Part of Update→Delete→Insert sequence on the same record — "
-                    "see related events for the complete sequence")
+        if "reconstruction" in primary or "delete and recreate" in primary or "suspicious" in primary:
+            return ("Part of Record Reconstruction sequence (U→D→I or D→I) on the same record "
+                    "— see related events for the complete pattern")
         # Generic fallback for any other chain type
         return "Part of a multi-event sequence — review related events together"
 
@@ -6171,10 +6345,9 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
     # Original 6 dimensions + 4 named rules, weighted
     weights = {
         "score_temporal":               0.06,
-        "score_velocity":               0.07,
         "score_privilege":              0.09,
         "score_record":                 0.08,
-        "score_del_recreate":           0.08,
+        "score_del_recreate":           0.10,  # BQ-010: merged Rule 6+15
         "score_gap":                    0.06,
         "score_rule1_vague_rationale":  0.07,
         "score_rule2_burst":            0.07,
@@ -6184,7 +6357,6 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
         "score_rule12_timestamp_reversal": 0.09,  # Critical — impossible in valid system
         "score_rule13_service_account":    0.09,  # Critical — attribution violation
         "score_rule14_dormant_account":    0.07,  # High — access control gap
-        "score_rule15_suspicious_sequence":0.09,  # Critical — deliberate log evasion
         "score_rule16_first_time_behavior": 0.07,  # High — insider risk signal
     }
     df["Risk_Score"] = sum(df[c]*w for c,w in weights.items()).round(2)
@@ -6211,7 +6383,6 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
         if float(row.get("score_record",                    0)) >= 10: return "Critical"
         if float(row.get("score_rule12_timestamp_reversal", 0)) >= 9: return "Critical"
         if float(row.get("score_rule13_service_account",    0)) >= 9: return "Critical"
-        if float(row.get("score_rule15_suspicious_sequence",0)) >= 9: return "Critical"
         if float(row.get("score_rule16_first_time_behavior", 0)) >= 8 \
                 and tier == "Low": return "High"
         if float(row.get("score_rule14_dormant_account",    0)) >= 8 and tier == "Low":
@@ -6228,6 +6399,56 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
             return "Medium"
         return tier
     df["Risk_Tier"] = df.apply(_apply_tier_override, axis=1)
+
+    # ── BQ-008: Rule 10 correlation escalation ────────────────────────────────
+    # Gap rows default to 4.0 MEDIUM. Escalate to HIGH or CRITICAL when the gap
+    # is surrounded by other risk signals — those combinations are genuine findings.
+    _R10_HIGH_NEARBY_RULES = [
+        "score_rule1_vague_rationale","score_rule2_burst","score_rule3_admin_conflict",
+        "score_rule4_drift","score_rule5_failed_login","score_del_recreate",
+        "score_rule12_timestamp_reversal","score_rule13_service_account",
+        "score_rule14_dormant_account","score_rule16_first_time_behavior",
+    ]
+    _R10_BURST_KW = ["INSERT","RESULT_INSERT","CREATE","ADD","UPDATE","MODIFY"]
+    gap_rows = df[df["score_gap"] >= 4].index.tolist()
+    df_sorted_r10 = df.sort_values("timestamp_parsed").reset_index()                     if "timestamp_parsed" in df.columns else None
+    for _gi in gap_rows:
+        _gpos = df.index.get_loc(_gi) if _gi in df.index else None
+        # Condition (a): gap during business hours (07:00–20:00 weekday)
+        _is_biz_gap = False
+        if "timestamp_parsed" in df.columns:
+            try:
+                _gts = pd.Timestamp(df.at[_gi, "timestamp_parsed"])
+                if not pd.isnull(_gts) and _gts.weekday() < 5 and 7 <= _gts.hour < 20:
+                    _is_biz_gap = True
+            except Exception:
+                pass
+        # Condition (b): another rule ≥7.0 within ±10 rows
+        _nearby_firing = False
+        if _gpos is not None:
+            _window = df.iloc[max(0,_gpos-10):min(len(df),_gpos+11)]
+            for _rc in _R10_HIGH_NEARBY_RULES:
+                if _rc in _window.columns and float(_window[_rc].max()) >= 7.0:
+                    _nearby_firing = True
+                    break
+        # Condition (c): gap immediately followed by INSERT/UPDATE burst
+        _followed_burst = False
+        if _gpos is not None:
+            _after = df.iloc[_gpos+1:min(len(df),_gpos+15)]
+            if not _after.empty and "action_type" in _after.columns:
+                _acts_after = _after["action_type"].astype(str).str.upper()
+                _burst_count = _acts_after.apply(
+                    lambda a: any(k in a for k in _R10_BURST_KW)).sum()
+                if _burst_count >= 5:
+                    _followed_burst = True
+        # Apply escalation
+        if _is_biz_gap and _nearby_firing:
+            df.at[_gi, "score_gap"] = 9.0
+            df.at[_gi, "Risk_Tier"] = "Critical"
+        elif _is_biz_gap or _nearby_firing or _followed_burst:
+            df.at[_gi, "score_gap"] = 7.0
+            if df.at[_gi, "Risk_Tier"] in ("Low", "Medium"):
+                df.at[_gi, "Risk_Tier"] = "High"
 
     # ── Deduplicate burst events — keep one representative per user+action burst
     # so the Top 20 isn't dominated by 11 identical Rule 2 rows
@@ -6261,7 +6482,7 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
         if row.get("score_rule5_failed_login", 0) > 0:
             fired.append("Rule 5 — Failed Login → Data Manipulation [CRITICAL]")
         if float(row.get("score_del_recreate", 0)) >= 9:
-            fired.append("Rule 6 — Delete and Recreate Pattern [CRITICAL]")
+            fired.append("Rule 6 — Record Reconstruction Pattern [CRITICAL]")
         # ── Dimension-based rules — only fire when score is meaningful ────────
         if float(row.get("score_record", 0)) >= 10:
             fired.append("Rule 7 — Audit Trail Integrity Event [CRITICAL]")
@@ -6269,10 +6490,8 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
             fired.append("Rule 7 — Sensitive Record Deletion [HIGH]")
         if float(row.get("score_privilege", 0)) >= 7:
             fired.append("Rule 8 — Privileged User on GxP Data [HIGH]")
-        if float(row.get("score_velocity", 0)) >= 3.5:
-            fired.append("Rule 9 — High-Volume Activity Burst [MEDIUM]")
-        if float(row.get("score_gap", 0)) >= 7:
-            fired.append("Rule 10 — Audit Trail Timestamp Gap [HIGH]")
+        if float(row.get("score_gap", 0)) >= 4:
+            fired.append("Rule 10 — Audit Trail Timestamp Gap [MEDIUM]")
         if float(row.get("score_temporal", 0)) >= 9:
             fired.append("Rule 11 — Off-Hours Activity [HIGH]")
         elif float(row.get("score_temporal", 0)) >= 5:
@@ -6294,8 +6513,6 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
             fired.append("Rule 13 — Service/Shared Account Action [HIGH]")
         if float(row.get("score_rule14_dormant_account", 0)) >= 7:
             fired.append("Rule 14 — Dormant Account Sudden Activity [HIGH]")
-        if float(row.get("score_rule15_suspicious_sequence", 0)) >= 9:
-            fired.append("Rule 15 — Suspicious Action Sequence [CRITICAL]")
         if float(row.get("score_rule16_first_time_behavior", 0)) >= 5:
             fired.append("Rule 16 — First-Time Behavior [HIGH]")
         return "; ".join(fired) if fired else ""
@@ -6317,19 +6534,7 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
     # ══════════════════════════════════════════════════════════════════════════
     _MASTER = [
         # ── TIER 1: Structural / Attribution failures ─────────────────────────
-        (
-            "score_rule15_suspicious_sequence", 9,
-            "Rule 15 — Suspicious Action Sequence [CRITICAL]",
-            "High",
-            ("ALCOA+ Original principle; 21 CFR Part 11 §11.10(e) — "
-             "GxP records must reflect what was originally observed and must not be "
-             "altered after the fact without a complete, auditable change history."),
-            ("Retrieve all three events in this sequence — the UPDATE, DELETE, and "
-             "INSERT on the same record. Compare values before and after to identify "
-             "what changed. Obtain a written explanation from the user for each step. "
-             "If the deletion circumvented the locked record workflow, "
-             "initiate a formal data integrity investigation."),
-        ),
+
         (
             "score_rule12_timestamp_reversal", 9,
             "Rule 12 — Timestamp Reversal [CRITICAL]",
@@ -6381,13 +6586,14 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
         ),
         (
             "score_del_recreate", 9,
-            "Rule 6 — Delete and Recreate Pattern [CRITICAL]",
+            "Rule 6 — Record Reconstruction Pattern [CRITICAL]",
             "High",
             ("ALCOA+ Original principle; 21 CFR Part 11 §11.10(e) — "
-             "GxP data must not be altered by deleting and recreating records "
-             "with different values. A DELETE followed by INSERT on the same "
-             "record ID replaces the original data with potentially altered "
-             "values, breaking the traceability chain the audit trail requires."),
+             "GxP data must not be altered by deleting and recreating records. "
+             "Tier 1 (D→I): DELETE then INSERT on same record — score 9.0. "
+             "Tier 2 (U→D→I): UPDATE then DELETE then INSERT — score 9.5, "
+             "indicating deliberate evasion: the actor modified, then destroyed "
+             "the modification history, then recreated the record."),
             ("Retrieve both the original deleted record and the recreated record. "
              "Compare all field values for discrepancies. Obtain a retrospective "
              "written explanation from the user. If the change cannot be justified, "
@@ -6492,8 +6698,8 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
              "data integrity concern."),
         ),
         (
-            "score_gap", 7,
-            "Rule 10 — Audit Trail Timestamp Gap [HIGH]",
+            "score_gap", 4,
+            "Rule 10 — Audit Trail Timestamp Gap [MEDIUM]",
             "Low",
             ("21 CFR Part 11 §11.10(e) — "
              "Audit trails must be continuous and computer-generated; "
@@ -6502,17 +6708,7 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
              "period. Document findings. If no legitimate explanation exists, "
              "treat this as a critical audit trail integrity finding."),
         ),
-        (
-            "score_velocity", 3.5,
-            "Rule 9 — High-Volume Activity Burst [MEDIUM]",
-            "Low",
-            ("ALCOA+ Contemporaneous principle; FDA Data Integrity Guidance (2018) — "
-             "High-volume data entry in a short window must be supported by "
-             "contemporaneous source records confirming real-time recording."),
-            ("Verify that contemporaneous source data exists to confirm each entry "
-             "was recorded in real time. If entries appear to have been made in bulk "
-             "or retrospectively, assess whether data integrity has been compromised."),
-        ),
+
         (
             "score_temporal", 5,
             "Rule 11 — Off-Hours/Holiday Activity [MEDIUM]",
@@ -6606,12 +6802,11 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
     # Derived from the same priority order as _apply_tier_override so the two
     # are always consistent. Supporting Signals = all remaining triggered rules.
     _RULE_PRIORITY = [
-        ("score_rule15_suspicious_sequence", 9,  "Rule 15 — Suspicious Action Sequence [CRITICAL]"),
         ("score_rule12_timestamp_reversal",  9,  "Rule 12 — Timestamp Reversal [CRITICAL]"),
         ("score_rule13_service_account",     9,  "Rule 13 — Service/Shared Account GxP Action [CRITICAL]"),
         ("score_rule5_failed_login",         8,  "Rule 5 — Failed Login → Data Manipulation [CRITICAL]"),
         ("score_rule3_admin_conflict",       8,  "Rule 3 — Admin/GxP Conflict [CRITICAL]"),
-        ("score_del_recreate",               9,  "Rule 6 — Delete and Recreate Pattern [CRITICAL]"),
+        ("score_del_recreate",               9,  "Rule 6 — Record Reconstruction Pattern [CRITICAL]"),
         ("score_record",                     10, "Rule 7 — Audit Trail Integrity Event [CRITICAL]"),
         ("score_rule4_drift",                7,  "Rule 4 — Change Control Drift [HIGH]"),
         ("score_rule1_vague_rationale",      7,  "Rule 1 — Vague Rationale [HIGH]"),
@@ -6620,8 +6815,7 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
         ("score_rule2_burst",                6,  "Rule 2 — Contemporaneous Burst [MEDIUM]"),
         ("score_privilege",                  7,  "Rule 8 — Privileged User on GxP Data [HIGH]"),
         ("score_record",                     8,  "Rule 7 — Sensitive Record Deletion [HIGH]"),
-        ("score_velocity",                   3.5,"Rule 9 — High-Volume Activity Burst [MEDIUM]"),
-        ("score_gap",                        7,  "Rule 10 — Audit Trail Timestamp Gap [HIGH]"),
+        ("score_gap",                        4,  "Rule 10 — Audit Trail Timestamp Gap [MEDIUM]"),
         ("score_temporal",                   5,  "Rule 11 — Off-Hours/Holiday Activity [MEDIUM]"),
     ]
 
@@ -6789,14 +6983,14 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
         r12 = float(row.get("score_rule12_timestamp_reversal",  0))
         r13 = float(row.get("score_rule13_service_account",     0))
         r14 = float(row.get("score_rule14_dormant_account",     0))
-        r15 = float(row.get("score_rule15_suspicious_sequence", 0))
+        r15 = float(row.get("score_del_recreate", 0))  # BQ-010: Rule 15 merged into Rule 6
         r16 = float(row.get("score_rule16_first_time_behavior", 0))
         r2  = float(row.get("score_rule2_burst",                0))
         cmt     = str(row.get("comments","")).lower().strip()
         has_cmt = bool(cmt and cmt not in ("nan","none","-","—",""))
 
         # TIER 1 — Structural: always Escalate regardless of documentation
-        if r15 >= 9:
+        if r15 >= 9:  # BQ-010: r15 now reads score_del_recreate (covers D→I and U→D→I)
             return ("Escalate to CAPA",
                     "Update, Delete, and re-Insert were performed on the same record "
                     "within 30 minutes — this sequence is the primary method for "
@@ -9962,7 +10156,6 @@ match your system's export column names to the fields above — rename nothing i
                     "score_rule12_timestamp_reversal",
                     "score_rule13_service_account",
                     "score_rule14_dormant_account",
-                    "score_rule15_suspicious_sequence",
                     "score_rule16_first_time_behavior",
                 ]
                 _GATE_THRESHOLD = 7.0  # raised from 6.0 — reduces low-signal noise
