@@ -1679,7 +1679,7 @@ def run_segmented_analysis(
     urs_lines   = urs_csv_str.split("\n")
     header_line = urs_lines[0]
     data_lines  = urs_lines[1:]
-    PASS2_CHUNK = st.session_state.get("pass2_chunk_size", 40)
+    PASS2_CHUNK = st.session_state.get("pass2_chunk_size", 8)
     p2_chunks   = [data_lines[i:i+PASS2_CHUNK] for i in range(0, len(data_lines), PASS2_CHUNK)]
     p2_total    = len(p2_chunks)
 
@@ -1691,16 +1691,27 @@ def run_segmented_analysis(
         progress_bar.progress(0.5 + (p2_idx / p2_total) * 0.45)
 
         try:
-            response = completion(
+            # Phase 1: stream=True keeps the connection alive and prevents
+            # the 600s gateway timeout on large batches.
+            stream_resp = completion(
                 model=model_id,
-                stream=False,
+                stream=True,
                 temperature=TEMPERATURE,
+                timeout=900,
                 messages=[
                     {"role": "system", "content": _make_system_prompt(sys_context)},
                     {"role": "user",   "content": build_pass2_prompt(p2_csv, sys_context)}
                 ]
             )
-            raw_p2 = response.choices[0].message.content or ""
+            raw_p2 = ""
+            for chunk in stream_resp:
+                delta = (chunk.choices[0].delta.content or "") if chunk.choices else ""
+                raw_p2 += delta
+                if len(raw_p2) % 400 < len(delta) + 1:
+                    status_text.text(
+                        f"🔬 Pass 2 — batch {p2_idx+1}/{p2_total}: "
+                        f"generating... ({len(raw_p2):,} chars)"
+                    )
         except Exception as e:
             # FAIL-STOP: abort — do not produce a partial FRS/OQ
             raise SegmentFailureError(
@@ -3200,7 +3211,7 @@ _defaults = {
     "sys_uploader_key_n": 0,       # incremented to reset the sidebar sys-context uploader
     "user_ip":            "",      # client IP stored as separate audit column (v29)
     "esig_pending":       None,    # holds completed analysis awaiting e-signature
-    "pass2_chunk_size":   40,      # user-tunable batch size for Pass 2 (20/40/60)
+    "pass2_chunk_size":   8,       # Phase 1: reduced from 40→8 to prevent 600s timeout
     "show_esig_form":     False,   # True when user clicked a download button → show inline form
     "esig_target":        None,    # "xlsx" or "pdf" — which format triggered the e-sig form
     "app_mode":           "New Validation",   # sidebar mode selector
