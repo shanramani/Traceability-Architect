@@ -1432,7 +1432,7 @@ _PASS2_HEADERS = [
     r"^Req_ID[,\t]Gap_Type",
 ]
 
-_PASS1_HEADER = r"^Req_ID[,\t]Requirement_Description"
+_PASS1_HEADER = r"^Req_ID[,\t]"  # matches Req_ID as first column regardless of second column (Source_Req_ID added)
 
 
 def _strip_fences(raw: str) -> str:
@@ -2030,6 +2030,15 @@ def run_segmented_analysis(
                 _new_ids.append(_fid)
                 _id_ctr += 1
         urs_final["Req_ID"] = _new_ids
+        # FIX H1: If every ID is in LLM-generated URS-NNN format, the LLM
+        # may have started from the wrong number (e.g. URS-044 instead of
+        # URS-001). Force sequential renumbering from URS-001 in that case.
+        # IDs that are original document IDs (CAL01, SPEC01, REQ-003, etc.)
+        # do NOT match the URS-\d+ pattern and are intentionally preserved.
+        import re as _re_h1
+        if _new_ids and all(_re_h1.match(r"^URS-\d+$", str(v), _re_h1.IGNORECASE)
+                            for v in _new_ids if str(v).strip()):
+            urs_final["Req_ID"] = [f"URS-{i+1:03d}" for i in range(len(urs_final))]
 
     urs_final = _apply_confidence_flags(urs_final)
 
@@ -2659,13 +2668,23 @@ def run_deterministic_validation(
         "availability", "uptime", "sla", "response time", "throughput",
         "maintainability", "portability", "interoperability", "disaster recovery",
         "backup", "recovery time", "rto", "rpo", "capacity", "concurrency",
-        "load", "stress", "fault tolerance",
+        "load testing", "load test", "stress test", "stress testing", "fault tolerance",
+    ]
+    # Separate whole-word patterns for short terms that substring-match falsely
+    # e.g. "load" fires on "download", "upload", "PDF generation library"
+    NON_FUNCTIONAL_WORD_PATTERNS = [
+        r"\bload\b", r"\bstress\b",
     ]
     if desc_col:
+        import re as _re_r3c
         for _, row in frs_df.iterrows():
             desc = str(row.get(desc_col, "")).lower()
             fid  = str(row.get("ID", "")).strip()
-            nf_found = [kw for kw in NON_FUNCTIONAL_KEYWORDS if kw in desc]
+            nf_found = (
+                [kw for kw in NON_FUNCTIONAL_KEYWORDS if kw in desc] +
+                [p for p in NON_FUNCTIONAL_WORD_PATTERNS
+                 if _re_r3c.search(p, desc)]
+            )
             if nf_found:
                 issues.append({
                     "Rule":            "R3c",
@@ -11490,6 +11509,7 @@ def show_app():
                     st.session_state.pop("show_esig_form",     None)
                     st.session_state.pop("esig_target",        None)
                     st.session_state.pop("doc_validation_msg", None)
+                    st.session_state.pop("active_job_id",      None)  # FIX C1: clear job so old result cannot re-appear
                     log_audit(user, "NEW_ANALYSIS_STARTED", "SESSION",
                               reason="User cleared previous results and sidebar guide to start a new analysis")
                     st.rerun()
@@ -11534,6 +11554,7 @@ def show_app():
                         st.session_state.pop("show_esig_form",     None)
                         st.session_state.pop("esig_target",        None)
                         st.session_state.pop("doc_validation_msg", None)
+                        st.session_state.pop("active_job_id",      None)  # FIX C1: clear job so old result cannot re-appear
                         log_audit(user, "NEW_ANALYSIS_STARTED", "SESSION",
                                   reason="User cleared previous results to start a new analysis")
                         st.rerun()
