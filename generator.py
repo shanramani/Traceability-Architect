@@ -2004,20 +2004,44 @@ def run_segmented_analysis(
 
     urs_final = _combine(urs_frames)
 
-    # ── Cross-chunk URS ID resequencing ──────────────────────────────────────
-    # Each chunk's LLM may restart numbering at URS-001. Renumber globally.
+    # ── Cross-chunk URS ID deduplication ─────────────────────────────────────
+    # Each chunk's LLM may restart numbering (URS-001, URS-001…).
+    # Preserve any valid original IDs returned by the LLM (e.g. CAL01, SPEC01
+    # from a well-structured URS); only replace blank or duplicate IDs with
+    # sequential URS-NNN fallbacks. This prevents overwriting original document
+    # requirement IDs when the LLM correctly extracts them.
     if not urs_final.empty and "Req_ID" in urs_final.columns:
         urs_final = urs_final.copy()
-        urs_final["Req_ID"] = [f"URS-{i+1:03d}" for i in range(len(urs_final))]
+        _seen_ids  = set()
+        _new_ids   = []
+        _id_ctr    = 1
+        for _val in urs_final["Req_ID"]:
+            _raw = str(_val).strip()
+            _blank = not _raw or _raw.upper() in ("N/A", "NAN", "NONE")
+            if not _blank and _raw not in _seen_ids:
+                _seen_ids.add(_raw)
+                _new_ids.append(_raw)
+            else:
+                # Assign next unused sequential fallback
+                while f"URS-{_id_ctr:03d}" in _seen_ids:
+                    _id_ctr += 1
+                _fid = f"URS-{_id_ctr:03d}"
+                _seen_ids.add(_fid)
+                _new_ids.append(_fid)
+                _id_ctr += 1
+        urs_final["Req_ID"] = _new_ids
 
     urs_final = _apply_confidence_flags(urs_final)
 
-    # ── Filter fabricated rows from empty table shells ─────────────────────
-    # Pass 1 sometimes extracts section headers and empty table rows from
-    # sparse URS documents as fake requirements. Remove rows where:
+    # ── Filter fabricated rows from empty table shells and narrative sections ──
+    # Pass 1 sometimes extracts section headers, empty table rows, OR
+    # descriptive/process-description paragraphs as fake requirements. Remove rows where:
     #   (a) Requirement_Description is very short (< 15 chars) — section header
     #   (b) Requirement_Description matches known header patterns
-    #   (c) Req_ID is empty, N/A, or non-URS format
+    #   (c) Source_Text (verbatim quote from document) contains no "shall" or
+    #       "must" — meaning the LLM extracted a narrative/descriptive statement
+    #       (e.g. from §3 System Description, §5 Process Description, or
+    #       section preambles) rather than a formal requirement table row.
     if not urs_final.empty and "Requirement_Description" in urs_final.columns:
         _before = len(urs_final)
         _hdr_patterns = [
@@ -2028,29 +2052,54 @@ def run_segmented_analysis(
         ]
         import re as _re
         def _is_fabricated(row):
-            desc = str(row.get("Requirement_Description", "")).strip()
-            req_id = str(row.get("Req_ID", "")).strip()
+            desc     = str(row.get("Requirement_Description", "")).strip()
+            req_id   = str(row.get("Req_ID", "")).strip()
+            src_text = str(row.get("Source_Text", "")).strip()
             # Too short to be a real requirement
             if len(desc) < 15:
                 return True
             # Looks like a section sub-heading (no "shall" or "must")
-            if not _re.search(r"(shall|must|will)", desc, _re.IGNORECASE):
+            if not _re.search(r"\b(shall|must|will)\b", desc, _re.IGNORECASE):
                 if len(desc) < 60:
                     return True
             # Matches known empty-shell header patterns
             for pat in _hdr_patterns:
                 if _re.match(pat, desc.lower()):
                     return True
+            # Source_Text does not contain "shall" or "must": the verbatim
+            # quote from the document is a descriptive/narrative statement, not
+            # a formal requirement. Catches process descriptions (§5.x, §3.x)
+            # and scope/preamble text that contain action language but were
+            # never assigned a requirement ID in the source document.
+            if src_text and not _re.search(r"\b(shall|must)\b", src_text, _re.IGNORECASE):
+                return True
             return False
 
         mask = urs_final.apply(_is_fabricated, axis=1)
         urs_final = urs_final[~mask].reset_index(drop=True)
-        # Re-apply sequential IDs after filtering
-        urs_final["Req_ID"] = [f"URS-{i+1:03d}" for i in range(len(urs_final))]
+        # Re-sequence IDs after filtering: preserve any valid original IDs,
+        # only fill blanks or duplicates introduced by row removal.
+        _seen_pf = set()
+        _ids_pf  = []
+        _ctr_pf  = 1
+        for _v in urs_final["Req_ID"]:
+            _r = str(_v).strip()
+            _b = not _r or _r.upper() in ("N/A", "NAN", "NONE")
+            if not _b and _r not in _seen_pf:
+                _seen_pf.add(_r)
+                _ids_pf.append(_r)
+            else:
+                while f"URS-{_ctr_pf:03d}" in _seen_pf:
+                    _ctr_pf += 1
+                _fid_pf = f"URS-{_ctr_pf:03d}"
+                _seen_pf.add(_fid_pf)
+                _ids_pf.append(_fid_pf)
+                _ctr_pf += 1
+        urs_final["Req_ID"] = _ids_pf
         _after = len(urs_final)
         if _before != _after:
             st.caption(f"ℹ️ Pass 1 extracted {_before} rows — filtered {_before - _after} "
-                       f"section headers/empty rows → {_after} real requirements.")
+                       f"section headers/narrative rows → {_after} real requirements.")
 
     progress_bar.progress(0.5)
     status_text.text(f"✅ Pass 1 complete — {len(urs_final)} requirements found. Running Pass 2...")
