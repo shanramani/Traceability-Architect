@@ -3536,7 +3536,7 @@ st.markdown("""
 
 MODELS = {
     "Gemini 1.5 Pro":    "gemini/gemini-1.5-pro",
-    "Claude 3.5 Sonnet": "anthropic/claude-3-5-sonnet-20240620",
+    "Claude Sonnet 4.5":  "anthropic/claude-sonnet-4-5",
     "GPT-4o":            "openai/gpt-4o",
     "Groq (Llama 3.3)":  "groq/llama-3.3-70b-versatile"
 }
