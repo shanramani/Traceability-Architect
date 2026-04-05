@@ -55,7 +55,7 @@ except ImportError:
 # =============================================================================
 # 1. CONFIG
 # =============================================================================
-VERSION        = "63.0"
+VERSION        = "64.0"
 PROMPT_VERSION = "v19.0-esignature-test-type-r3c"
 TEMPERATURE    = 0.2
 CHUNK_SIZE     = 8
@@ -8501,6 +8501,10 @@ fixed, error, update, changed, correction, misc, ok, done, see above, as per,
 per request, modified, edit, n/a.
 **Not triggered by:** Short but specific comments — the rule requires a recognised
 vague term, not just brevity. "pH outlier" does NOT trigger this rule.
+**SOP reference exemption:** Comments that cite a procedure by reference
+(e.g. "per SOP-01", "as per WOI-003") are exempt from copy-paste escalation
+regardless of how many records share the same comment, provided the comment
+is not otherwise vague.
 **Regulatory basis:** 21 CFR Part 211.68; ALCOA+ Attributable and Legible.
 **Threshold justification:** Vague rationale terms leave GxP data changes
 unattributable and untraceable, making them impossible to evaluate during an audit.
@@ -8515,7 +8519,7 @@ unattributable and untraceable, making them impossible to evaluate during an aud
 Physiologically possible but statistically unusual for complex measurements.
 Threshold is conservative to minimise false positives on high-throughput workflows.
 **Deduplication note:** When this rule fires across multiple rows from the same
-burst, only one representative event appears in the Top 20 escalated list.
+burst, only one representative event appears in the Top Events escalated list.
 All events remain visible in the Full Audit Log sheet.
 
 ---
@@ -8563,6 +8567,7 @@ slow credential attacks.
 **Target:** All record types with a populated record_id column.
 **Trigger:** Same user deletes a record_id and creates a new record with the same
 record_id within 4 hours. Score: 9.0 on both the delete and recreate events.
+Also detects three-step sequences (UPDATE → DELETE → INSERT) on the same record_id.
 **Regulatory basis:** 21 CFR Part 11 §11.10(e); ALCOA+ Original.
 **Why Critical:** GxP systems typically lock approved records to prevent editing.
 Deleting and recreating the same record is a known method of modifying locked data
@@ -8600,19 +8605,14 @@ keywords and covers a broader range of tables.
 
 ---
 
-### Rule 9 — High-Volume Activity Burst [Risk: MEDIUM]
-**Trigger:** Same user performs the same action_type 5+ times within 60 minutes.
-**Distinction from Rule 2:** Rule 2 is INSERT-specific with a 15-minute window
-and a threshold of 10. Rule 9 applies to any action type with a 60-minute window
-and a threshold of 5. Both can fire independently.
-**Score:** Proportional to (count ÷ threshold × 3.5), capped at 10.0.
-**Regulatory basis:** ALCOA+ Contemporaneous.
-
----
-
 ### Rule 9 — Audit Trail Timestamp Gap [Risk: HIGH]
 **Trigger:** A gap of more than 2 hours between consecutive audit trail entries
 (sorted by timestamp). Score: 7.0 fixed, applied to the first event after the gap.
+**Escalation:** Gap during business hours (07:00–20:00 weekday) with another
+rule ≥7.0 firing within ±10 rows → escalated to Critical (score 9.0).
+Gap during business hours OR with a nearby rule firing → escalated to High (score 7.0).
+**SOP exemption:** Events whose comment cites a procedure reference (SOP/WOI/STP)
+are not escalated by this rule — the gap is considered a documented exception.
 **Regulatory basis:** 21 CFR Part 11 §11.10(e) — audit trail completeness.
 **Important note:** Gaps may occur legitimately overnight or during approved
 maintenance windows. The reviewer must verify whether the gap aligns with a
@@ -8680,31 +8680,19 @@ tuple in the engine code to match your organisation's naming conventions.
 
 ---
 
-
-
----
-
-### Rule 15 — Suspicious Action Sequence *(Retired — merged into Rule 6)*
-UPDATE → DELETE → INSERT three-step sequence detection was merged into Rule 6
-(Record Reconstruction Pattern). Rule 6 now covers both two-step and three-step
-reconstructions. This rule number is retired and will not appear in outputs.
-
----
-
-## Event Chain IDs
-
-When multiple events are causally linked, the engine assigns a shared Event Chain
-ID (format: EC-001, EC-002 etc.) to all related events. This allows reviewers to
-filter the Full Audit Log by chain ID and read the complete event story in sequence.
-
-Chains are assigned for:
-- **Rule 6** (Delete → Recreate and UPDATE → DELETE → INSERT): all linked events share one chain ID
-- **Rule 5** (Failed Login → Manipulation): all login attempts and the triggering
-  data action share one chain ID
-
-The Event_Chain_ID column appears in both the Events for Review sheet and the
-Full Audit Log sheet in the Excel output.
-
+### Rule 13 — Dormant Account Sudden Activity [Risk: HIGH]
+**Target:** All users with at least 4 events in the uploaded audit trail.
+**Trigger:** A user has no activity for 90 or more consecutive days, then
+performs a data action on a GxP-sensitive record type or performs
+update/modify/delete/insert/approve/release on any record. Score: 8.0.
+**Only the first re-activation event per user is flagged** to avoid filling
+the top events list with multiple events from the same dormant account.
+**Regulatory basis:** 21 CFR Part 11 §11.10(d) — access controls; access review
+best practice requiring deactivation of accounts inactive for 90+ days.
+**Limitation:** Requires the uploaded audit trail to cover at least 90+ days of
+history for reliable detection. Short-period extracts will not trigger this rule.
+**Minimum event count:** A user must have at least 3 prior events before the gap
+to be considered an established account (excludes newly created accounts).
 
 ---
 
@@ -8743,19 +8731,51 @@ upload audit trails covering at least 3 months.
 **Minimum prior events:** 5. Users with fewer than 5 recorded events are skipped
 to exclude newly created accounts where any action is technically a "first time."
 
-### Rule 13 — Dormant Account Sudden Activity [Risk: HIGH]
-**Target:** All users with at least 4 events in the uploaded audit trail.
-**Trigger:** A user has no activity for 90 or more consecutive days, then
-performs a data action on a GxP-sensitive record type or performs
-update/modify/delete/insert/approve/release on any record. Score: 8.0.
-**Only the first re-activation event per user is flagged** to avoid filling
-the Top 20 with multiple events from the same dormant account.
-**Regulatory basis:** 21 CFR Part 11 §11.10(d) — access controls; access review
-best practice requiring deactivation of accounts inactive for 90+ days.
-**Limitation:** Requires the uploaded audit trail to cover at least 90+ days of
-history for reliable detection. Short-period extracts will not trigger this rule.
-**Minimum event count:** A user must have at least 3 prior events before the gap
-to be considered an established account (excludes newly created accounts).
+---
+
+## Retired Rules
+
+The following rule numbers have been retired or merged. They will not appear in
+any output column. They are documented here for traceability and CSV purposes.
+
+**Rule 9 (retired) — High-Volume Activity Burst:** Velocity-based scoring for
+5+ same-action events within 60 minutes. Retired and superseded by Rule 2
+(Contemporaneous Burst), which provides tighter targeting with INSERT-specific
+logic and a stricter 15-minute window. Not implemented in the current engine.
+
+**Rule 15 (retired) — Suspicious Action Sequence (UPDATE → DELETE → INSERT):**
+Three-step record reconstruction detection merged into Rule 6 (Delete and Recreate
+Pattern), which now covers both two-step and three-step sequences. Not scored
+separately; Rule 6 handles all reconstruction patterns.
+
+---
+
+## Event Chain IDs
+
+When multiple events are causally linked, the engine assigns a shared Event Chain
+ID (format: EC-001, EC-002 etc.) to all related events. This allows reviewers to
+filter the Full Audit Log by chain ID and read the complete event story in sequence.
+
+Chains are assigned for:
+- **Rule 6** (Delete → Recreate): both the delete and recreate events share one chain ID
+- **Rule 5** (Failed Login → Manipulation): all login attempts and the triggering
+  data action share one chain ID
+
+The Event_Chain_ID column appears in both the Events for Review sheet and the
+Full Audit Log sheet in the Excel output.
+
+---
+
+## Out-of-Period Events
+
+When a Review Period (Start Date → End Date) is specified, events whose timestamp
+falls outside that window are tagged as **Out of Period** and excluded from all
+risk scoring. They appear in the Full Audit Log with Risk Level = "Out of Period"
+and are not included in the Events for Review sheet. The Summary sheet Scope Note
+reports the count of out-of-period events detected.
+
+This ensures risk tier counts, escalation rates, and the Events for Review list
+reflect only the declared review scope.
 
 ---
 
@@ -8806,6 +8826,7 @@ downgraded by a low composite score.
 | Rule 1 — blank comment | Escalate to CAPA |
 | Rule 1 — vague term | Justified — Amendment Required |
 | Rule 13 fired | Investigate — Verify Source Data |
+| Rule 14 fired | Investigate — Verify Source Data |
 | Rule 2 burst | Investigate — Verify Source Data |
 | Off-hours with comment | Justified — Document Rationale |
 | Off-hours, no comment | Escalate to CAPA |
@@ -8836,14 +8857,12 @@ Report Section 9.1.6 or used as a management summary.
 
 ---
 
----
-
 ## Not Yet Implemented — Planned Rules
 
 These checks were designed and scoped but not yet built into the engine.
 They are documented here for transparency and future CSV planning.
 
-### Planned Rule 16 — Shared Account / Same User, Two Locations
+### Planned — Shared Account / Concurrent Location Conflict
 **What it detects:** The same user_id performing actions from two different
 IP addresses within 30 minutes — physically impossible for one person.
 **Why not yet built:** Requires an IP address or workstation column in the
@@ -8851,14 +8870,14 @@ audit trail export. Many systems do not include this by default. Will be
 activated automatically when the column mapper detects an IP column.
 **Regulatory basis:** 21 CFR Part 11 §11.300.
 
-### Planned Rule 17 — Bulk Export Before Departure
+### Planned — Bulk Export Before Departure
 **What it detects:** A user exporting or printing large volumes of records
 (SELECT, EXPORT, PRINT actions) close to their account deactivation date.
 **Why not yet built:** Requires an HR termination date as a second input file.
 Cannot be determined from the audit trail alone.
 **Regulatory basis:** Data protection and confidentiality requirements.
 
-### Planned Rule 18 — Activity During Approved Maintenance Window
+### Planned — Activity During Approved Maintenance Window
 **What it detects:** User activity during a scheduled system maintenance
 window, indicating either the maintenance did not occur as planned, or
 unauthorised activity occurred during the maintenance period.
@@ -8866,7 +8885,7 @@ unauthorised activity occurred during the maintenance period.
 change control system) as a second input file.
 **Regulatory basis:** 21 CFR Part 11 §11.10(e).
 
-### Planned Rule 19 — Account Created and Used Same Day
+### Planned — Account Created and Used Same Day
 **What it detects:** A new user account that is created and then used to
 perform GxP data actions on the same day, before training records could
 have been completed.
@@ -8893,7 +8912,6 @@ the following test cases should be executed against the sample CSV template
 | DELETE then INSERT same record_id, 3 min | Rule 6 | Critical |
 | UPDATE AUDIT_TRAIL, new_value = DISABLED | Rule 7 | Critical |
 | admin_sys DELETE RESULTS | Rule 8 | High |
-| Same user, same action, 5+ times in 60 min | Rule 2 | Medium |
 | >2 hour gap in timestamps | Rule 9 | High |
 | Timestamp 02:14 AM weekday | Rule 10 | High |
 | Any event on 2024-07-04 | Rule 10 (Holiday) | Medium-High |
@@ -8906,6 +8924,7 @@ the following test cases should be executed against the sample CSV template
 represents the validated detection logic at the time of this release.
 Review and approve as part of the Computer System Validation package.*
 """
+
 
         def _detection_logic_pdf() -> bytes:
             """Return Detection Logic as a plain-text UTF-8 encoded file."""
@@ -10919,7 +10938,7 @@ def show_app():
         st.markdown(
             '<p style="color:#94a3b8;font-size:0.68rem;margin:-6px 0 4px;'
             'letter-spacing:0.5px;font-family:\'IBM Plex Mono\',monospace;">'
-            'Build v63 · Change Control Package coming Monday</p>',
+            'Build v64 · Change Control Package coming Monday</p>',
             unsafe_allow_html=True)
         st.divider()
         st.markdown('<p class="sb-sub">🔧 Analysis Mode</p>', unsafe_allow_html=True)
