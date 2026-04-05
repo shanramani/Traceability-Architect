@@ -55,7 +55,7 @@ except ImportError:
 # =============================================================================
 # 1. CONFIG
 # =============================================================================
-VERSION        = "62.0"
+VERSION        = "63.0"
 PROMPT_VERSION = "v19.0-esignature-test-type-r3c"
 TEMPERATURE    = 0.2
 CHUNK_SIZE     = 8
@@ -5604,12 +5604,12 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
     #   Rule 14    → Rule 13   (Dormant Account Sudden Activity)
     #   Rule 16    → Rule 13   (First-Time Behavior — grouped under client 13)
     _RULE_NUM_REMAP = {
-        "10": "9",
-        "11": "10",
-        "12": "11",
-        "13": "12",
-        "14": "13",
-        "16": "13",
+        "10": "9",    # Audit Trail Timestamp Gap
+        "11": "10",   # Off-Hours / Holiday Activity
+        "12": "11",   # Timestamp Reversal
+        "13": "12",   # Service / Shared Account GxP Action
+        "14": "13",   # Dormant Account Sudden Activity
+        "16": "14",   # First-Time Behavior Detection
     }
 
     def _relabel_rule(s: str) -> str:
@@ -6602,7 +6602,10 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
     # rewrites the bracket to match the final Risk_Tier so label and column agree.
     def _sync_gap_label_tier(row):
         label = str(row.get("Primary_Rule", ""))
-        if "Rule 9 — Audit Trail Timestamp Gap" not in label:
+        # At this point Primary_Rule still holds the pre-relabel internal label
+        # "Rule 10 — Audit Trail Timestamp Gap".  _relabel_rule runs after this
+        # pass and converts it to "Rule 9" for client output.
+        if "Rule 10 — Audit Trail Timestamp Gap" not in label:
             return label
         tier = str(row.get("Risk_Tier", ""))
         # Strip existing bracket and re-apply the correct one
@@ -7993,7 +7996,7 @@ def at_build_excel(top_df, scored_df, system_name, r_start, r_end, fname) -> byt
         f"The 'System-Proposed Disposition' column is informational only; the reviewer's determination "
         f"in the 'Reviewer Decision' column reflects independent human judgement and is the authoritative record. "
         f"Regulatory basis: 21 CFR Part 11 §11.10(e) and EU Annex 11 Clause 9.\n\n"
-        f"Timezone note: Off-hours scoring (Rule 11) assumes all timestamps in the uploaded "
+        f"Timezone note: Off-hours scoring (Rule 10) assumes all timestamps in the uploaded "
         f"file are in the same timezone. If your system exports timestamps in UTC or a "
         f"non-local timezone, off-hours flags should be interpreted accordingly. "
         f"Reviewers should verify local shift patterns before dispositing temporal anomalies."
@@ -8482,10 +8485,10 @@ This document describes every detection rule implemented in the engine.
 It supports Computer System Validation (CSV) of this tool and enables
 QA reviewers to understand the basis for every finding produced.
 
-**Total rules implemented: 16**
+**Total rules implemented: 14**
 Rules 1–5: Named AI Skill rules (targeted, specific violations)
-Rules 6–11: Dimension-based rules (pattern and behavioural anomalies)
-Rules 12–16: Advanced integrity rules (no second file required)
+Rules 6–10: Dimension-based rules (pattern and behavioural anomalies)
+Rules 11–14: Advanced integrity rules (no second file required)
 
 ---
 
@@ -8607,7 +8610,7 @@ and a threshold of 5. Both can fire independently.
 
 ---
 
-### Rule 10 — Audit Trail Timestamp Gap [Risk: HIGH]
+### Rule 9 — Audit Trail Timestamp Gap [Risk: HIGH]
 **Trigger:** A gap of more than 2 hours between consecutive audit trail entries
 (sorted by timestamp). Score: 7.0 fixed, applied to the first event after the gap.
 **Regulatory basis:** 21 CFR Part 11 §11.10(e) — audit trail completeness.
@@ -8617,7 +8620,7 @@ scheduled downtime before escalating.
 
 ---
 
-### Rule 11 — Off-Hours and Federal Holiday Activity [Risk: HIGH / MEDIUM]
+### Rule 10 — Off-Hours and Federal Holiday Activity [Risk: HIGH / MEDIUM]
 **Business hours definition:** Monday–Friday 07:00–20:00 local time.
 **Trigger (Weekend — +5.0):** Event falls on Saturday or Sunday.
 **Trigger (Federal Holiday — +4.0):** Event falls on a US Federal Holiday.
@@ -8634,7 +8637,7 @@ indicator requiring justification, not a violation per se.
 in the same timezone. If your system exports timestamps in UTC or a non-local
 timezone, off-hours flags must be interpreted accordingly. For global systems,
 reviewers should verify the local shift pattern for the user's site before
-dispositing any Rule 11 finding. A flag at 02:00 UTC may be 10:00 local time
+dispositing any Rule 10 finding. A flag at 02:00 UTC may be 10:00 local time
 for a user in a different region — not an anomaly at all.
 *Recommendation:* Add a note in your Periodic Review Report specifying which
 timezone the audit trail timestamps represent.
@@ -8643,7 +8646,7 @@ timezone the audit trail timestamps represent.
 
 ## Advanced Integrity Rules (No Second File Required)
 
-### Rule 12 — Timestamp Reversal [Risk: CRITICAL]
+### Rule 11 — Timestamp Reversal [Risk: CRITICAL]
 **Target:** Records where both a creation action and an approval/release action
 exist for the same record_id.
 **Trigger:** The approval/release timestamp is earlier than the creation timestamp
@@ -8660,7 +8663,7 @@ be parseable for this rule to fire.
 
 ---
 
-### Rule 13 — Service / Shared Account GxP Action [Risk: CRITICAL / HIGH]
+### Rule 12 — Service / Shared Account GxP Action [Risk: CRITICAL / HIGH]
 **Target:** User accounts whose username begins with a non-personal prefix.
 **Detected prefixes:** svc_, service_, shr_, share_, shared_, share., adm_,
 admin_, tec_, tech_, technical_, interface_, int_, batch_, sys_, system_,
@@ -8681,22 +8684,10 @@ tuple in the engine code to match your organisation's naming conventions.
 
 ---
 
-### Rule 15 — Suspicious Action Sequence: UPDATE → DELETE → INSERT [Risk: CRITICAL]
-**Target:** All record types with a populated record_id column.
-**Trigger:** Same user performs UPDATE (or MODIFY/EDIT/AMEND), then DELETE,
-then INSERT/CREATE on the same record_id, all within 30 minutes.
-Score: 10.0 on all three events. An Event Chain ID (EC-NNN) links all three rows.
-**Regulatory basis:** 21 CFR Part 11 §11.10(e); ALCOA+ Original.
-**Why Critical:** GxP systems lock approved records to prevent direct editing.
-This three-step sequence — modify, delete, recreate — is the primary method
-for altering a locked record while making the change appear as a new entry,
-obscuring the original modification from the audit trail.
-**Distinction from Rule 6 (Delete-Recreate):** Rule 6 detects DELETE → INSERT
-(two steps). Rule 15 detects UPDATE → DELETE → INSERT (three steps), which is
-more specific — it indicates the user first tried to modify the locked record,
-then switched to the delete-recreate method.
-**30-minute window:** Captures same-session sequences while excluding coincidental
-patterns across different working sessions.
+### Rule 15 — Suspicious Action Sequence *(Retired — merged into Rule 6)*
+UPDATE → DELETE → INSERT three-step sequence detection was merged into Rule 6
+(Record Reconstruction Pattern). Rule 6 now covers both two-step and three-step
+reconstructions. This rule number is retired and will not appear in outputs.
 
 ---
 
@@ -8707,10 +8698,9 @@ ID (format: EC-001, EC-002 etc.) to all related events. This allows reviewers to
 filter the Full Audit Log by chain ID and read the complete event story in sequence.
 
 Chains are assigned for:
-- **Rule 15** (UPDATE → DELETE → INSERT): all three steps share one chain ID
+- **Rule 6** (Delete → Recreate and UPDATE → DELETE → INSERT): all linked events share one chain ID
 - **Rule 5** (Failed Login → Manipulation): all login attempts and the triggering
   data action share one chain ID
-- **Rule 6** (Delete → Recreate): both events share one chain ID
 
 The Event_Chain_ID column appears in both the Events for Review sheet and the
 Full Audit Log sheet in the Excel output.
@@ -8718,7 +8708,7 @@ Full Audit Log sheet in the Excel output.
 
 ---
 
-### Rule 16 — First-Time Behavior Detection [Risk: HIGH]
+### Rule 14 — First-Time Behavior Detection [Risk: HIGH]
 **Target:** All users with at least 5 prior recorded events in the uploaded file.
 **Trigger:** A user performs an action_type they have never performed before
 in their recorded audit trail history. Score varies by prior history and action risk:
@@ -8753,7 +8743,7 @@ upload audit trails covering at least 3 months.
 **Minimum prior events:** 5. Users with fewer than 5 recorded events are skipped
 to exclude newly created accounts where any action is technically a "first time."
 
-### Rule 14 — Dormant Account Sudden Activity [Risk: HIGH]
+### Rule 13 — Dormant Account Sudden Activity [Risk: HIGH]
 **Target:** All users with at least 4 events in the uploaded audit trail.
 **Trigger:** A user has no activity for 90 or more consecutive days, then
 performs a data action on a GxP-sensitive record type or performs
@@ -8771,31 +8761,29 @@ to be considered an established account (excludes newly created accounts).
 
 ## Composite Scoring
 
-Each event receives scores across all 12 rules. A weighted composite (0–10):
+Each event receives scores across all 14 active rules. A weighted composite (0–10):
 
-| Rule | Dimension | Weight |
-|------|-----------|--------|
-| 11 | Temporal / Holiday | 6% |
-| 9  | Velocity burst | 7% |
-| 8  | Privilege | 9% |
-| 7  | Record sensitivity | 8% |
-| 6  | Delete-Recreate | 8% |
-| 10 | Timestamp gap | 6% |
+| Rule | Dimension / Name | Weight |
+|------|-----------------|--------|
 | 1  | Vague Rationale | 7% |
 | 2  | Contemporaneous Burst | 7% |
 | 3  | Admin/GxP Conflict | 10% |
 | 4  | Change Control Drift | 6% |
-| 5  | Failed Login | 8% |
-| 12 | Timestamp Reversal | 9% |
-| 13 | Service Account | 9% |
-| 14 | Dormant Account | 7% |
-| 15 | Suspicious Sequence | 9% |
-| 16 | First-Time Behavior | 7% |
-| | **Total** | **123%** |
+| 5  | Failed Login → Data Manipulation | 8% |
+| 6  | Record Reconstruction (Delete-Recreate) | 10% |
+| 7  | Audit Trail Integrity / Record Sensitivity | 8% |
+| 8  | Privileged User on GxP Data | 9% |
+| 9  | Timestamp Gap | 6% |
+| 10 | Off-Hours / Holiday Activity | 6% |
+| 11 | Timestamp Reversal | 9% |
+| 12 | Service / Shared Account GxP Action | 9% |
+| 13 | Dormant Account Sudden Activity | 7% |
+| 14 | First-Time Behavior Detection | 7% |
+| | **Total** | **109%** |
 
 *Note: Weights are normalised internally — the sum does not need to equal 100%.*
 
-**Named rule tier overrides:** Rules 3, 5, 12, and 13 at score ≥9 always produce
+**Named rule tier overrides:** Rules 3, 5, 11, and 12 at score ≥9 always produce
 a Critical tier, regardless of composite score. Rule 6 at ≥9 and Rule 7 at 10.0
 also produce Critical. This ensures named Critical violations are never
 downgraded by a low composite score.
@@ -8806,18 +8794,18 @@ downgraded by a low composite score.
 
 | Condition | Suggested Disposition |
 |---|---|
-| Rule 12 fired | Escalate to CAPA |
-| Rule 13 fired (Critical) | Escalate to CAPA |
+| Rule 11 fired | Escalate to CAPA |
+| Rule 12 fired (Critical) | Escalate to CAPA |
 | Rule 5 fired | Escalate to CAPA |
 | Rule 3 fired | Escalate to CAPA |
 | Rule 6 fired | Escalate to CAPA |
 | Rule 7 (audit ctrl) fired | Escalate to CAPA |
-| Rule 10 (gap) during business hours | Escalate to CAPA |
-| Rule 10 (gap) outside business hours | Investigate — Verify Source Data |
+| Rule 9 (gap) during business hours | Escalate to CAPA |
+| Rule 9 (gap) outside business hours | Investigate — Verify Source Data |
 | Rule 4 fired | Escalate to CAPA |
 | Rule 1 — blank comment | Escalate to CAPA |
 | Rule 1 — vague term | Justified — Amendment Required |
-| Rule 14 fired | Investigate — Verify Source Data |
+| Rule 13 fired | Investigate — Verify Source Data |
 | Rule 2 burst | Investigate — Verify Source Data |
 | Off-hours with comment | Justified — Document Rationale |
 | Off-hours, no comment | Escalate to CAPA |
@@ -8905,14 +8893,14 @@ the following test cases should be executed against the sample CSV template
 | DELETE then INSERT same record_id, 3 min | Rule 6 | Critical |
 | UPDATE AUDIT_TRAIL, new_value = DISABLED | Rule 7 | Critical |
 | admin_sys DELETE RESULTS | Rule 8 | High |
-| Same user, same action, 5+ times in 60 min | Rule 9 | Medium |
-| >2 hour gap in timestamps | Rule 10 | High |
-| Timestamp 02:14 AM weekday | Rule 11 | High |
-| Any event on 2024-07-04 | Rule 11 (Holiday) | Medium-High |
-| Approval timestamp before creation, same record | Rule 12 | Critical |
-| svc_batch INSERT RESULTS | Rule 13 | Critical |
-| Same user, 90+ day gap, then GxP action | Rule 14 | High |
-| User with 50+ events performs first-ever DELETE | Rule 16 | High |
+| Same user, same action, 5+ times in 60 min | Rule 2 | Medium |
+| >2 hour gap in timestamps | Rule 9 | High |
+| Timestamp 02:14 AM weekday | Rule 10 | High |
+| Any event on 2024-07-04 | Rule 10 (Holiday) | Medium-High |
+| Approval timestamp before creation, same record | Rule 11 | Critical |
+| svc_batch INSERT RESULTS | Rule 12 | Critical |
+| Same user, 90+ day gap, then GxP action | Rule 13 | High |
+| User with 50+ events performs first-ever DELETE | Rule 14 | High |
 
 *This document was generated by the Audit Trail Intelligence module and
 represents the validated detection logic at the time of this release.
@@ -10931,7 +10919,7 @@ def show_app():
         st.markdown(
             '<p style="color:#94a3b8;font-size:0.68rem;margin:-6px 0 4px;'
             'letter-spacing:0.5px;font-family:\'IBM Plex Mono\',monospace;">'
-            'Build v62 · Change Control Package coming Monday</p>',
+            'Build v63 · Change Control Package coming Monday</p>',
             unsafe_allow_html=True)
         st.divider()
         st.markdown('<p class="sb-sub">🔧 Analysis Mode</p>', unsafe_allow_html=True)
