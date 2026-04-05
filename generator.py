@@ -1610,7 +1610,11 @@ def _fill_missing_frs(urs_df: pd.DataFrame, frs_df: pd.DataFrame) -> pd.DataFram
 
     frs_urs_refs = set()
     if not frs_df.empty and "Source_URS_Ref" in frs_df.columns:
-        frs_urs_refs = set(frs_df["Source_URS_Ref"].dropna().astype(str).str.strip())
+        # Normalise to base URS ID only — strip any trailing " (SRC_ID)" annotation
+        frs_urs_refs = set(
+            re.sub(r'\s*\(.*?\)\s*$', '', s).strip()
+            for s in frs_df["Source_URS_Ref"].dropna().astype(str)
+        )
 
     placeholders = []
     for _, row in urs_df.iterrows():
@@ -2403,13 +2407,15 @@ def _build_traceability(urs_df: pd.DataFrame,
             if uid:
                 urs_desc[uid] = desc
 
-    # Build FRS lookup keyed by Source_URS_Ref → list of FRS rows
+    # Build FRS lookup keyed by base URS ID → list of FRS rows
     frs_by_urs: dict = {}
     if not frs_df.empty and "Source_URS_Ref" in frs_df.columns:
         for _, r in frs_df.iterrows():
             ref = str(r.get("Source_URS_Ref", "")).strip()
             if ref:
-                frs_by_urs.setdefault(ref, []).append(r)
+                # Normalise "URS-001 (CAL01)" → "URS-001"
+                base_ref = re.sub(r'\s*\(.*?\)\s*$', '', ref).strip()
+                frs_by_urs.setdefault(base_ref, []).append(r)
 
     # Build OQ lookup keyed by Requirement_Link (FRS_ID) → list of OQ Test_IDs
     oq_map: dict = {}
@@ -2586,10 +2592,13 @@ def run_deterministic_validation(
     if not frs_df.empty and "ID" in frs_df.columns:
         frs_ids = set(frs_df["ID"].dropna().astype(str).str.strip())
 
-    # FRS lookup by Source_URS_Ref for R0
+    # FRS lookup by Source_URS_Ref for R0 — normalise to base URS ID
     frs_urs_refs = set()
     if not frs_df.empty and "Source_URS_Ref" in frs_df.columns:
-        frs_urs_refs = set(frs_df["Source_URS_Ref"].dropna().astype(str).str.strip())
+        frs_urs_refs = set(
+            re.sub(r'\s*\(.*?\)\s*$', '', s).strip()
+            for s in frs_df["Source_URS_Ref"].dropna().astype(str)
+        )
 
     oq_req_links = set()
     oq_test_ids  = set()
@@ -5700,7 +5709,13 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
     # is kept (it's already flagged). If it had NOT fired (comment was deemed
     # adequate), the copy-paste pattern overrides with 7.5 HIGH.
     if "comments" in df.columns and "record_type" in df.columns:
-        _CP_THRESHOLD = 3   # 3+ identical comments = copy-paste finding
+        _CP_THRESHOLD = 20  # requires meaningful volume before flagging
+        _SOP_REF_PAT  = re.compile(
+            r'\b(per|per\s+sop|per\s+stp|per\s+woi|per\s+procedure|'
+            r'as\s+per\s+sop|sop[-\s]?\w+|stp[-\s]?\w+|woi[-\s]?\w+|'
+            r'standard\s+operating|procedure\s+\w+)\b',
+            re.IGNORECASE
+        )
         # Build count of each (table, comment) combination
         from collections import Counter as _Counter
         _combo_counts = _Counter()
@@ -5718,7 +5733,7 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
             if not any(t in _tbl for t in _RULE1_GXP_TABLES):
                 continue
             _cnt = _combo_counts.get((_tbl, _cmt), 0)
-            if _cnt >= _CP_THRESHOLD:
+            if _cnt >= _CP_THRESHOLD and not _SOP_REF_PAT.search(_cmt):
                 _cp_rationale = (
                     f"Rule 1 — Copy-Paste Rationale Reuse [HIGH]: "
                     f"The comment '{_cmt}' appears identically on {_cnt} records "
@@ -11346,7 +11361,10 @@ def show_app():
                 urs_ids_all  = set(urs_df["Req_ID"].dropna().astype(str).str.strip())
                 frs_urs_refs = set()
                 if not frs_df.empty and "Source_URS_Ref" in frs_df.columns:
-                    frs_urs_refs = set(frs_df["Source_URS_Ref"].dropna().astype(str).str.strip())
+                    frs_urs_refs = set(
+                        re.sub(r'\s*\(.*?\)\s*$', '', s).strip()
+                        for s in frs_df["Source_URS_Ref"].dropna().astype(str)
+                    )
                 uncovered_urs = urs_ids_all - frs_urs_refs
                 if uncovered_urs:
                     log_audit(user, "URS_FRS_GAP_DETECTED", "URS_FILE",
