@@ -55,7 +55,7 @@ except ImportError:
 # =============================================================================
 # 1. CONFIG
 # =============================================================================
-VERSION        = "37.0"
+VERSION        = "62.0"
 PROMPT_VERSION = "v19.0-esignature-test-type-r3c"
 TEMPERATURE    = 0.2
 CHUNK_SIZE     = 8
@@ -478,6 +478,22 @@ def _run_job(job_id: str, file_bytes: bytes, sys_ctx_bytes,
     import io as _io
     import datetime as _dt
 
+    # ── FIX 1: Recover real file_name from jobs table ─────────────────────────
+    # submit_job() stores the original filename when the job is queued.
+    # Read it back here so all downstream calls use the real name instead of
+    # the placeholder literal "async_job".
+    try:
+        _fn_conn = db_connect()
+        _fn_row  = _fn_conn.execute(
+            "SELECT file_name, sys_ctx_name FROM jobs WHERE job_id = ?", (job_id,)
+        ).fetchone()
+        _fn_conn.close()
+        _real_file_name   = _fn_row[0] if _fn_row and _fn_row[0] else "async_job"
+        _real_sys_ctx_name = _fn_row[1] if _fn_row and len(_fn_row) > 1 and _fn_row[1] else ""
+    except Exception:
+        _real_file_name    = "async_job"
+        _real_sys_ctx_name = ""
+
     _job_update(job_id,
                 status="running",
                 started_at=_dt.datetime.utcnow().isoformat())
@@ -521,20 +537,20 @@ def _run_job(job_id: str, file_bytes: bytes, sys_ctx_bytes,
             _df.replace("", "N/A", inplace=True)
 
         _job_update(job_id, progress=80, progress_msg="Saving documents...")
-        save_document("URS_Extraction", urs_df.to_csv(index=False),  user, "async_job")
-        save_document("FRS",            frs_df.to_csv(index=False),  user, "async_job")
-        save_document("OQ",             oq_df.to_csv(index=False),   user, "async_job")
-        save_document("Traceability",   trace_df.to_csv(index=False),user, "async_job")
-        save_document("Gap_Analysis",   gap_df.to_csv(index=False),  user, "async_job")
-        save_document("Det_Validation", det_df.to_csv(index=False),  user, "async_job")
+        save_document("URS_Extraction", urs_df.to_csv(index=False),  user, _real_file_name)
+        save_document("FRS",            frs_df.to_csv(index=False),  user, _real_file_name)
+        save_document("OQ",             oq_df.to_csv(index=False),   user, _real_file_name)
+        save_document("Traceability",   trace_df.to_csv(index=False),user, _real_file_name)
+        save_document("Gap_Analysis",   gap_df.to_csv(index=False),  user, _real_file_name)
+        save_document("Det_Validation", det_df.to_csv(index=False),  user, _real_file_name)
 
         _job_update(job_id, progress=88, progress_msg="Building validation workbook...")
         audit_df     = build_audit_log_sheet(
-            user, "async_job", model_id,
+            user, _real_file_name, model_id,
             frs_df, oq_df, gap_df, det_df, 1, 1, ""
         )
         dashboard_df = build_dashboard_sheet(
-            frs_df, oq_df, gap_df, det_df, trace_df, "async_job", model_id
+            frs_df, oq_df, gap_df, det_df, trace_df, _real_file_name, model_id
         )
         dataframes = {
             "Dashboard":      dashboard_df,
@@ -547,8 +563,8 @@ def _run_job(job_id: str, file_bytes: bytes, sys_ctx_bytes,
             "Audit_Log":      audit_df,
         }
         xlsx_bytes = build_styled_excel(
-            dataframes, user=user, file_name="async_job",
-            model_name=model_id, sys_context_name="",
+            dataframes, user=user, file_name=_real_file_name,
+            model_name=model_id, sys_context_name=_real_sys_ctx_name,
             dashboard_df=dashboard_df
         )
 
@@ -1298,7 +1314,7 @@ def _make_system_prompt(sys_context: str = "") -> str:
           "Use the following product documentation to inform ALL outputs with accurate "
           "screen names, field names, module names, and workflow terminology. "
           "Do NOT copy this text verbatim; use it to ground your engineering descriptions.\n\n"
-        + sys_context[:4000]
+        + sys_context[:8000]
     )
 
 # ── PASS 1 PROMPT: extract a clean, structured URS table ─────────────────────
@@ -1315,7 +1331,7 @@ def build_pass2_prompt(urs_csv: str, sys_context: str = "") -> str:
     if sys_context:
         context_block = (
             f"SYSTEM USER GUIDE (product manual uploaded by user — use this to shape "
-            f"implementation details in FRS descriptions):\n{sys_context[:3000]}\n\n"
+            f"implementation details in FRS descriptions):\n{sys_context[:6000]}\n\n"
         )
         system_guidance = (
             "Use the System User Guide above to determine the specific screens, fields, "
@@ -1352,33 +1368,45 @@ def build_pass2_prompt(urs_csv: str, sys_context: str = "") -> str:
 
 def _summarise_sys_context(sys_context: str) -> str:
     """
-    Phase 2: condense the system guide to ~500 chars of key vocabulary.
+    Phase 2: condense the system guide to ~3000 chars of key vocabulary.
     Called ONCE before the per-requirement loop. Reused across all calls
     to avoid sending the full guide with every individual requirement.
+    Specifically extracts screen names, module names, and navigation paths
+    so that OQ test steps can reference real UI terminology.
     """
     if not sys_context:
         return ""
-    # Take first 3000 chars, extract unique noun phrases (screens, modules)
-    # Simple heuristic: lines containing capitalised compound words are likely
-    # screen/module names — include them verbatim, truncate everything else.
-    lines = sys_context[:3000].split("\n")
+    # Scan up to 50 000 chars of guide text, extract lines that look like
+    # screen names, navigation paths, module names, and field labels.
+    lines = sys_context[:50000].split("\n")
     key_lines = []
     for line in lines:
         stripped = line.strip()
         if not stripped:
             continue
-        # Include lines that look like navigation paths, module names, or
-        # screen names (contain capitals + LIMS-specific keywords)
-        if any(kw in stripped for kw in [
+        # Broad keyword set — covers LIMS, ELN, MES, QMS, and general enterprise app vocabulary
+        if any(kw.lower() in stripped.lower() for kw in [
+            # LabVantage / LIMS-specific
             "Tramline", "Tramstop", "SDC", "SDI", "Parameter List",
-            "Data Entry", "Sample", "Stability", "Instrument", "Audit",
+            "Sample Login", "Sample Type", "Result Entry", "Sample Management",
+            "Stability", "Instrument", "Audit Trail", "Specification",
+            "Worklist", "Worksheet", "Batch", "Login Group", "Role",
+            # Generic UI navigation vocabulary
             "navigate", "screen", "page", "module", "tab", "button",
+            "menu", "click", "select", "field", "form", "panel",
+            "dashboard", "toolbar", "sidebar", "wizard", "dialog",
+            # Action vocabulary
+            "enter", "save", "submit", "approve", "reject", "review",
+            "search", "filter", "export", "import", "print", "sign",
+            # LIMS workflow vocabulary
+            "aliquot", "container", "location", "storage", "test",
+            "result", "analysis", "method", "protocol", "SOP", "procedure",
         ]):
             key_lines.append(stripped)
-        if len("\n".join(key_lines)) > 500:
+        if len("\n".join(key_lines)) > 3000:
             break
-    summary = "\n".join(key_lines)[:500]
-    return summary if summary else sys_context[:500]
+    summary = "\n".join(key_lines)[:3000]
+    return summary if summary else sys_context[:3000]
 
 
 def build_pass2_single_prompt(req_row: str, header: str,
@@ -1608,6 +1636,18 @@ def _fill_missing_frs(urs_df: pd.DataFrame, frs_df: pd.DataFrame) -> pd.DataFram
     if urs_df.empty or "Req_ID" not in urs_df.columns:
         return frs_df
 
+    # ── FIX 4: Drop any rows where ID is NaN, blank, or not a valid FRS-NNN pattern
+    # These are phantom rows introduced when the LLM emits a trailing blank CSV line
+    # or when a prior pass concat'd an all-NaN row (the "FRS-009 blank" problem).
+    if not frs_df.empty and "ID" in frs_df.columns:
+        _valid_id = frs_df["ID"].astype(str).str.strip()
+        frs_df = frs_df[
+            _valid_id.notna() &
+            (_valid_id != "") &
+            (_valid_id.str.upper() != "NAN") &
+            (_valid_id.str.upper() != "NONE")
+        ].copy()
+
     frs_urs_refs = set()
     if not frs_df.empty and "Source_URS_Ref" in frs_df.columns:
         # Normalise to base URS ID only — strip any trailing " (SRC_ID)" annotation
@@ -1627,7 +1667,7 @@ def _fill_missing_frs(urs_df: pd.DataFrame, frs_df: pd.DataFrame) -> pd.DataFram
             uid_display = uid
         desc = str(row.get("Requirement_Description", "")).strip()
         if uid and uid not in frs_urs_refs:
-            # Determine next FRS number
+            # Determine next FRS number — only scan real, parseable IDs
             if not frs_df.empty and "ID" in frs_df.columns:
                 existing_nums = []
                 for fid in frs_df["ID"].dropna().astype(str):
@@ -1658,6 +1698,12 @@ def _fill_missing_frs(urs_df: pd.DataFrame, frs_df: pd.DataFrame) -> pd.DataFram
     placeholder_df = pd.DataFrame(placeholders)
     result = pd.concat([frs_df, placeholder_df], ignore_index=True)
     result.fillna("N/A", inplace=True)
+    # Final defensive pass: drop any row that still has a blank/NaN ID after concat
+    if "ID" in result.columns:
+        _vid = result["ID"].astype(str).str.strip()
+        result = result[
+            _vid.notna() & (_vid != "") & (_vid.str.upper() != "NAN")
+        ].reset_index(drop=True)
     return result
 
 
@@ -1820,7 +1866,7 @@ DOCUMENT A — USER REQUIREMENTS SPECIFICATION (URS):
 {urs_text[:4000]}
 
 DOCUMENT B — SYSTEM USER GUIDE / PRODUCT MANUAL ('{sys_context_name}'):
-{sys_context_text[:4000]}
+{sys_context_text[:8000]}
 
 TASK: Perform a bidirectional gap analysis between the two documents.
 
@@ -1956,7 +2002,7 @@ def run_segmented_analysis(
     if sys_context_bytes:
         try:
             sys_pages   = extract_pages(sys_context_bytes)
-            sys_context = "\n\n".join(sys_pages[:6])   # first 6 pages ≈ 4-8k chars
+            sys_context = "\n\n".join(sys_pages[:100])   # up to 100 pages — full guide ingestion
             status_text.text("📖 User Guide loaded — injecting into analysis context...")
         except Exception as e:
             st.warning(f"⚠️ Could not extract User Guide context: {e} — proceeding without it.")
@@ -3007,17 +3053,33 @@ def build_dashboard_sheet(frs_df: pd.DataFrame, oq_df: pd.DataFrame,
                            trace_df: pd.DataFrame,
                            file_name: str, model_name: str) -> pd.DataFrame:
     """Build a KPI summary table for the Dashboard sheet."""
-    total_reqs  = len(frs_df) if not frs_df.empty else 0
-    total_tests = len(oq_df)  if not oq_df.empty  else 0
+    # ── FIX 3: Exclude cross-source XFRS rows from coverage denominator ───────
+    # XFRS rows (ID starts with "XFRS") are added by Pass 3 bidirectional gap
+    # analysis. They inflate the FRS count and push coverage % down even when
+    # all real URS requirements are fully covered. They must never count as
+    # uncovered requirements — they are supplementary, not URS-derived.
+    _is_xfrs = lambda df: df["ID"].astype(str).str.upper().str.startswith("XFRS") \
+                          if not df.empty and "ID" in df.columns \
+                          else pd.Series(False, index=df.index)
 
-    # Coverage: from Python-built traceability — the only reliable source
+    frs_real_df  = frs_df[~_is_xfrs(frs_df)] if not frs_df.empty else frs_df
+    total_reqs   = len(frs_real_df)
+    total_tests  = len(oq_df) if not oq_df.empty else 0
+
+    # Coverage: from Python-built traceability — filter out XFRS rows so only
+    # real URS-derived FRS requirements count toward the coverage denominator.
     covered  = 0
     partial  = 0
     missing  = 0
     if not trace_df.empty and "Coverage_Status" in trace_df.columns:
-        covered  = int((trace_df["Coverage_Status"] == "Covered").sum())
-        partial  = int((trace_df["Coverage_Status"] == "Partial").sum())
-        missing  = int((trace_df["Coverage_Status"].isin(
+        _trace_real = trace_df
+        if "FRS_ID" in trace_df.columns:
+            _trace_real = trace_df[
+                ~trace_df["FRS_ID"].astype(str).str.upper().str.startswith("XFRS")
+            ]
+        covered  = int((_trace_real["Coverage_Status"] == "Covered").sum())
+        partial  = int((_trace_real["Coverage_Status"] == "Partial").sum())
+        missing  = int((_trace_real["Coverage_Status"].isin(
                         ["Not Covered", "Missing FRS"])).sum())
 
     # Coverage % = (Covered + Partial) / total  — reflects that tests exist even if incomplete
@@ -3029,10 +3091,10 @@ def build_dashboard_sheet(frs_df: pd.DataFrame, oq_df: pd.DataFrame,
     ai_gaps  = len(gap_df) if not gap_df.empty else 0
     det_gaps = len(det_df) if not det_df.empty else 0
 
-    # Risk breakdown
+    # Risk breakdown — real FRS only (XFRS rows are not risk-classified requirements)
     high_risk = med_risk = low_risk = 0
-    if not frs_df.empty and "Risk" in frs_df.columns:
-        rc = frs_df["Risk"].str.strip().str.lower().value_counts()
+    if not frs_real_df.empty and "Risk" in frs_real_df.columns:
+        rc = frs_real_df["Risk"].str.strip().str.lower().value_counts()
         high_risk = int(rc.get("high",   0))
         med_risk  = int(rc.get("medium", 0))
         low_risk  = int(rc.get("low",    0))
@@ -5528,6 +5590,35 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
     """
     df = df.copy()
 
+    # ── FIX 8: Sequential client-facing rule label map ────────────────────────
+    # Internal code variables (score_rule14, score_rule16 …) keep their names.
+    # All output-facing strings shown to QA reviewers are renumbered 1–13 to
+    # remove gaps where old rules 9 and 15 were retired/merged.
+    #
+    # Internal → Client mapping:
+    #   Rule 1-8   → Rule 1-8  (unchanged)
+    #   Rule 10    → Rule 9    (Audit Trail Timestamp Gap)
+    #   Rule 11    → Rule 10   (Off-Hours / Holiday Activity)
+    #   Rule 12    → Rule 11   (Timestamp Reversal)
+    #   Rule 13    → Rule 12   (Service / Shared Account)
+    #   Rule 14    → Rule 13   (Dormant Account Sudden Activity)
+    #   Rule 16    → Rule 13   (First-Time Behavior — grouped under client 13)
+    _RULE_NUM_REMAP = {
+        "10": "9",
+        "11": "10",
+        "12": "11",
+        "13": "12",
+        "14": "13",
+        "16": "13",
+    }
+
+    def _relabel_rule(s: str) -> str:
+        """Replace internal Rule N numbers in any output string with client labels."""
+        def _sub(m):
+            n = m.group(1)
+            return f"Rule {_RULE_NUM_REMAP.get(n, n)}"
+        return re.sub(r'\bRule (\d+)\b', _sub, str(s))
+
     # ── Timestamp parsing ─────────────────────────────────────────────────────
     if "timestamp" in df.columns:
         df["timestamp_parsed"] = pd.to_datetime(
@@ -6486,6 +6577,16 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
                     lambda a: any(k in a for k in _R10_BURST_KW)).sum()
                 if _burst_count >= 5:
                     _followed_burst = True
+
+        # ── FIX 5: SOP-referenced comments are exempt from Rule 9 escalation ─
+        # A comment explicitly citing a procedure (SOP/STP/WOI) is a documented
+        # rationale. Escalating it to High produces false positives (e.g. the
+        # "Standard value entry per SOP-01" pattern that flooded results).
+        # Check the comment on the gap row itself.
+        _gap_comment = str(df.at[_gi, "comments"]) if "comments" in df.columns else ""
+        if _SOP_REF_PAT.search(_gap_comment):
+            continue   # skip escalation — documented procedure reference
+
         # Apply escalation
         if _is_biz_gap and _nearby_firing:
             df.at[_gi, "score_gap"] = 9.0
@@ -6494,6 +6595,24 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
             df.at[_gi, "score_gap"] = 7.0
             if df.at[_gi, "Risk_Tier"] in ("Low", "Medium"):
                 df.at[_gi, "Risk_Tier"] = "High"
+
+    # ── FIX 6: Sync Primary_Rule bracket tag to Risk_Tier after BQ-008 ────────
+    # BQ-008 can raise a gap row from Medium→High or →Critical AFTER
+    # Primary_Rule has been set with a "[MEDIUM]" bracket. This post-pass
+    # rewrites the bracket to match the final Risk_Tier so label and column agree.
+    def _sync_gap_label_tier(row):
+        label = str(row.get("Primary_Rule", ""))
+        if "Rule 9 — Audit Trail Timestamp Gap" not in label:
+            return label
+        tier = str(row.get("Risk_Tier", ""))
+        # Strip existing bracket and re-apply the correct one
+        label_base = re.sub(r'\s*\[(MEDIUM|HIGH|CRITICAL|LOW)\]', '', label).strip()
+        if tier == "Critical":
+            return label_base + " [CRITICAL]"
+        elif tier == "High":
+            return label_base + " [HIGH]"
+        return label   # Medium stays as-is
+    # Applied below after Primary_Rule column is fully populated
 
     # ── Deduplicate burst events — keep one representative per user+action burst
     # so the Top 20 isn't dominated by 11 identical Rule 2 rows
@@ -6836,6 +6955,8 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
         return "; ".join(supporting) if supporting else "—"
 
     df["Primary_Rule"]       = df.apply(_primary_rule, axis=1)
+    # ── FIX 6: Sync Rule 9 bracket tag to final Risk_Tier after BQ-008 ────────
+    df["Primary_Rule"]       = df.apply(_sync_gap_label_tier, axis=1)
     df["Supporting_Signals"] = df.apply(_supporting_signals, axis=1)
     df["Evidence_Strength"]  = df.apply(_evidence_strength, axis=1)
     df["Regulatory_Basis"]   = df.apply(_reg_basis, axis=1)
@@ -7200,6 +7321,19 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
         sugg_rat.append(r)
     df["Suggested_Disposition"]          = sugg_disp
     df["Suggested_Disposition_Rationale"] = sugg_rat
+
+    # ── FIX 8: Apply sequential client label renumbering to all output columns ─
+    # Rewrites Rule 10→9, 11→10, 12→11, 13→12, 14→13, 16→13 in every
+    # human-readable string column. Score columns (score_rule14 etc.) untouched.
+    _RELABEL_COLS = [
+        "Primary_Rule", "Supporting_Signals", "Triggered_Rules",
+        "rule1_rationale", "Rationale", "System_Narrative",
+        "Suggested_Disposition", "Suggested_Disposition_Rationale",
+        "Action_Required", "Regulatory_Basis", "Sequence_Context",
+    ]
+    for _col in _RELABEL_COLS:
+        if _col in df.columns:
+            df[_col] = df[_col].astype(str).apply(_relabel_rule)
 
     return df.sort_values("Risk_Score", ascending=False).reset_index(drop=True)
 
@@ -10176,16 +10310,51 @@ match your system's export column names to the fields above — rename nothing i
                 prog.progress(0.15)
                 scored = at_score_events(df)
 
-                st.write(f"⚡ Step 2: Scoring {len(scored):,} events across 12 rules...")
+                # ── FIX 7: Tag out-of-period events ───────────────────────────
+                # Events whose timestamp falls outside the declared review window
+                # must NOT be scored or escalated — they appear in the Full Audit
+                # Log for completeness but are excluded from Events for Review and
+                # do not contribute to risk tier counts.
+                _r_start_str = st.session_state.get("at_review_start", "").strip()
+                _r_end_str   = st.session_state.get("at_review_end",   "").strip()
+                _missing_str = "(review period dates not specified)"
+                _oop_mask    = pd.Series(False, index=scored.index)
+                if (_r_start_str and _r_end_str
+                        and _r_start_str != _missing_str
+                        and _r_end_str   != _missing_str
+                        and "timestamp_parsed" in scored.columns):
+                    try:
+                        _r_s = pd.to_datetime(_r_start_str, dayfirst=True, errors="coerce")
+                        _r_e = pd.to_datetime(_r_end_str,   dayfirst=True, errors="coerce")
+                        if pd.notna(_r_s) and pd.notna(_r_e):
+                            _ts  = pd.to_datetime(scored["timestamp_parsed"], errors="coerce")
+                            _oop_mask = _ts.notna() & ((_ts < _r_s) | (_ts > _r_e))
+                            if _oop_mask.any():
+                                # Zero out all risk scores for out-of-period rows
+                                _score_cols = [c for c in scored.columns
+                                               if c.startswith("score_")]
+                                scored.loc[_oop_mask, _score_cols] = 0.0
+                                scored.loc[_oop_mask, "Risk_Score"] = 0.0
+                                scored.loc[_oop_mask, "Risk_Tier"]  = "Out of Period"
+                                scored.loc[_oop_mask, "Primary_Rule"] = \
+                                    "Out of Period — excluded from review scope"
+                                n_oop = int(_oop_mask.sum())
+                                st.info(f"ℹ️ {n_oop:,} event(s) fall outside the declared "
+                                        f"review period and have been excluded from scoring.")
+                    except Exception:
+                        pass   # date parse failure — treat all rows as in-period
+
+                st.write(f"⚡ Step 2: Scoring {len(scored):,} events across 13 rules...")
                 prog.progress(0.45)
-                # ── Select Top 20 with two filters ────────────────────────────
-                # Filter 1: Remove burst duplicates (already built)
-                # Filter 2: Named rule gate — events only enter Top 20 if at
-                #   least one named rule (Rules 1–15) fired above minimum score.
+                # ── Select Top N with three filters ───────────────────────────
+                # Filter 1: Remove out-of-period rows (Risk_Tier == "Out of Period")
+                # Filter 2: Remove burst duplicates (already built in scoring)
+                # Filter 3: Named rule gate — events only enter Top N if at
+                #   least one named rule fired above minimum score.
                 #   Pure dimension-score events with no named rule are noise
                 #   and erode reviewer trust in the tool.
-                # ── High-signal rules only qualify events for Top N ─────────
-                # Rule 11 (temporal) and Rule 2 (burst) are excluded from the gate
+                # ── High-signal rules only qualify events for Top N ───────────
+                # Rule 10 (temporal) and Rule 2 (burst) are excluded from the gate
                 # — they can boost composite score but cannot independently qualify
                 # an event. This prevents off-hours and burst floods in rows 13–20.
                 _NAMED_RULE_COLS = [
@@ -10212,11 +10381,14 @@ match your system's export column names to the fields above — rename nothing i
                         if c in row.index
                     )
 
-                # Deduplicate burst events (Rule 2)
-                non_dup = scored[~scored.get("_is_burst_dup",
-                                 pd.Series(False, index=scored.index))]
+                # Filter 1: exclude out-of-period rows from Events for Review
+                in_period = scored[scored["Risk_Tier"] != "Out of Period"]
 
-                # Deduplicate Rule 11 (off-hours) — keep only the highest-scoring
+                # Filter 2: Deduplicate burst events (Rule 2)
+                non_dup = in_period[~in_period.get("_is_burst_dup",
+                                 pd.Series(False, index=in_period.index))]
+
+                # Deduplicate Rule 10 (off-hours) — keep only the highest-scoring
                 # off-hours event per user to prevent temporal floods
                 _TEMPORAL_KEY = non_dup["user_id"].astype(str) + "||temporal"
                 temporal_mask = non_dup["score_temporal"] > 0
@@ -10230,6 +10402,7 @@ match your system's export column names to the fields above — rename nothing i
                         (non_dup["_temporal_rank"] <= 1)
                     ]
 
+                # Filter 3: Named rule gate
                 has_rule  = non_dup.apply(_has_named_rule, axis=1)
                 qualified = non_dup[has_rule].head(_AT_TOP_N)
                 # No fill padding — if fewer than TOP_N genuine findings exist,
@@ -10263,14 +10436,17 @@ match your system's export column names to the fields above — rename nothing i
 
     # ── STEP 3: Results ───────────────────────────────────────────────────────
     else:
-        scored = st.session_state["at_scored_df"]
-        top20  = st.session_state["at_top20_df"]
+        scored  = st.session_state["at_scored_df"]
+        top20   = st.session_state["at_top20_df"]
         n_total = st.session_state["at_total_events"]
         n_esc   = len(top20)
-        n_crit  = int((scored["Risk_Tier"]=="Critical").sum())
-        n_high  = int((scored["Risk_Tier"]=="High").sum())
-        n_med   = int((scored["Risk_Tier"]=="Medium").sum())
-        n_low   = int((scored["Risk_Tier"]=="Low").sum())
+        # Exclude out-of-period rows from risk distribution counts
+        _scored_ip = scored[scored["Risk_Tier"] != "Out of Period"]
+        n_crit  = int((_scored_ip["Risk_Tier"]=="Critical").sum())
+        n_high  = int((_scored_ip["Risk_Tier"]=="High").sum())
+        n_med   = int((_scored_ip["Risk_Tier"]=="Medium").sum())
+        n_low   = int((_scored_ip["Risk_Tier"]=="Low").sum())
+        n_oop   = int((scored["Risk_Tier"]=="Out of Period").sum())
         pct_clr = round((n_total-n_esc)/n_total*100,1) if n_total>0 else 0
 
         # ── Hero banner ───────────────────────────────────────────────────────
@@ -10343,11 +10519,18 @@ match your system's export column names to the fields above — rename nothing i
 
         # ── Risk Distribution ─────────────────────────────────────────────────
         st.markdown("### Risk Distribution — Full Dataset")
+        _dist_tiers  = ["Critical", "High", "Medium", "Low"]
+        _dist_counts = [n_crit, n_high, n_med, n_low]
+        _dist_esc    = ["Yes", "Yes" if n_high > 0 else "No", "No", "No"]
+        if n_oop > 0:
+            _dist_tiers.append("Out of Period")
+            _dist_counts.append(n_oop)
+            _dist_esc.append("Excluded")
         st.dataframe(pd.DataFrame({
-            "Risk Tier":  ["Critical","High","Medium","Low"],
-            "Count":      [n_crit,n_high,n_med,n_low],
-            "% of Total": [round(v/n_total*100,1) for v in [n_crit,n_high,n_med,n_low]],
-            "Escalated":  ["Yes","Yes" if n_high>0 else "No","No","No"],
+            "Risk Tier":  _dist_tiers,
+            "Count":      _dist_counts,
+            "% of Total": [round(v/n_total*100,1) for v in _dist_counts],
+            "Escalated":  _dist_esc,
         }), use_container_width=True, hide_index=True)
 
         # ── Download ──────────────────────────────────────────────────────────
@@ -10748,7 +10931,7 @@ def show_app():
         st.markdown(
             '<p style="color:#94a3b8;font-size:0.68rem;margin:-6px 0 4px;'
             'letter-spacing:0.5px;font-family:\'IBM Plex Mono\',monospace;">'
-            'Build v60 · Audit Trail Module</p>',
+            'Build v62 · Change Control Package coming Monday</p>',
             unsafe_allow_html=True)
         st.divider()
         st.markdown('<p class="sb-sub">🔧 Analysis Mode</p>', unsafe_allow_html=True)
@@ -10756,7 +10939,6 @@ def show_app():
             "New Validation",
             "Change Impact Analysis",
             "Periodic Review",
-            "Delta Generation (coming soon)",
         ]
         app_mode = st.radio(
             "Mode", _modes,
@@ -10913,11 +11095,6 @@ def show_app():
 
     if _mode == "Periodic Review":
         show_periodic_review(user, role, MODELS[st.session_state.selected_model])
-        return
-
-    if _mode == "Delta Generation (coming soon)":
-        st.title("Delta Generation")
-        st.info("🚧 Coming soon. Select another mode in the sidebar to continue.")
         return
 
     # ── Main area — New Validation ────────────────────────────────────────────
