@@ -1,0 +1,63 @@
+You don't want our but one that will open the chicken or is it a a a quintet a little at a review 0808 where at all live or Corey Italy editor at all below Bonneville and it all at the Alden 00 and had a pip install -r requirements.txt
+
+# In your local repo folder - store the input file in git
+copy valintel_sample_audit_log_template.xlsx .
+git add valintel_sample_audit_log_template.xlsx
+git commit -m "add: sample audit trail test file"
+git push origin main
+
+
+git add .
+git commit -m "describe your change"
+git push origin main
+
+
+cd "C:\Users\HP\Documents\Learn\AI Project\Traceability-Architect" && git add app_v37.py && git commit -m "fixed OQ bug" && git push origin main
+
+cd "C:\Users\HP\Documents\Learn\AI Project\Traceability-Architect" && copy app_v37.py generator.py && git add generator.py && git commit -m "sync generator with app_v37" && git push origin main
+
+cd "C:\Users\HP\Documents\Learn\AI Project\Traceability-Architect" && git add app_v37.py prompts/cia_pass2_impact_mapping.md && git commit -m "feat: CIA confidence level, risk category, trace coverage" && git push origin main
+
+
+git status
+
+git add generator.py 
+
+git  Traceability_Matrix_REQ-102.xlsx
+
+git commit -m "Feature: Implement Multi-URS processing with Gemini 2.5 and Excel RTM export"
+
+git push
+
+
+
+
+"Here is my manually edited file. Use str_replace only — do not rewrite the full file. Only change what I am asking for. retain all my tagged MANUAL EDIT
+# ── MANUAL EDIT v29-custom — DO NOT OVERWRITE ──────────────
+my_custom_logic_here = True
+  st.markdown("<br>", unsafe_allow_html=True)
+
+# ── END MANUAL EDIT ────────────────────────────────────────
+
+
+AI-powered validation accelerator that generates FRS, OQ tests, and traceability matrices from URS and system documentation, while identifying validation gaps.
+
+
+
+Test_ID,Step_Description,Expected_Result,FRS_Link
+OQ-LAB-01,"Login as Lab Tech, type 'SAMPLE-001'","System accepts and saves ID","FRS-101"
+OQ-LAB-02,"Click 'Print Label' on Dashboard","Printer outputs plain text label","FRS-102"
+OQ-LAB-03,"Open Audit Log for last entry","Entry shows User/Date/Time","FRS-103"
+OQ-LAB-04,"Try to enter 'SAMPLE-001' again","System shows 'Duplicate ID' error","FRS-104"
+
+
+URS_ID,FRS_ID,OQ_ID,Notes
+URS-112,FRS-101,OQ-LAB-01,Standard manual entry path
+URS-112,FRS-104,OQ-LAB-04,Duplicate prevention
+URS-115,FRS-102,OQ-LAB-02,Labeling hardware
+URS-200,FRS-103,OQ-LAB-03,Basic audit compliance
+
+
+
+
+
