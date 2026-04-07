@@ -28,6 +28,81 @@ import os
 import datetime
 import pandas as pd
 from litellm import completion
+
+
+# ── Provider quota preflight ──────────────────────────────────────────────────
+_PROVIDER_LABELS = {
+    "anthropic": "Anthropic",
+    "openai":    "OpenAI",
+    "gemini":    "Google Gemini",
+    "groq":      "Groq",
+}
+
+def _provider_from_model_id(model_id: str) -> str:
+    """Extract the provider label from a litellm model string."""
+    prefix = model_id.split("/")[0].lower() if "/" in model_id else "unknown"
+    return _PROVIDER_LABELS.get(prefix, prefix.title())
+
+def _has_sufficient_quota(model_id: str) -> tuple:
+    """
+    Make a minimal 1-token probe call to the provider.
+    Returns (True, "") if quota is available, (False, error_detail) otherwise.
+    Runs BEFORE analysis starts so no partial work is done.
+    """
+    try:
+        completion(
+            model=model_id,
+            stream=False,
+            temperature=0,
+            max_tokens=1,
+            messages=[{"role": "user", "content": "ping"}],
+            timeout=15,
+        )
+        return True, ""
+    except Exception as e:
+        return False, str(e)
+
+def _show_quota_error(model_id: str, error_detail: str):
+    """
+    Render a structured, GxP-compliant quota exhaustion error block.
+    Mirrors the fail-stop error format used in the pipeline.
+    """
+    provider = _provider_from_model_id(model_id)
+    err_lower = error_detail.lower()
+    if "rate limit" in err_lower or "rate_limit" in err_lower:
+        failure_type = "Upstream Service Rate Limit Exceeded"
+        remediation  = (f"Wait for the {provider} rate limit window to reset "
+                        f"(typically 60 seconds to 5 minutes) then re-run.")
+    elif "quota" in err_lower or "billing" in err_lower or "exceeded" in err_lower:
+        failure_type = "Upstream Service Quota Exhausted"
+        remediation  = (f"Restore {provider} account quota or add billing credits, "
+                        f"then re-run the full analysis.")
+    elif "auth" in err_lower or "api key" in err_lower or "unauthorized" in err_lower:
+        failure_type = "Upstream Service Authentication Failure"
+        remediation  = (f"Verify the {provider} API key is correctly configured "
+                        f"in the application secrets, then re-run.")
+    elif "timeout" in err_lower or "timed out" in err_lower:
+        failure_type = "Upstream Service Timeout"
+        remediation  = f"The {provider} API did not respond within 15 seconds. Retry or select a different model."
+    else:
+        failure_type = "Upstream Service Unavailable"
+        remediation  = (f"{provider} returned an unexpected error. "
+                        f"Check provider status page and retry.")
+
+    import streamlit as _st
+    _st.error(
+        f"\U0001F6D1 **GxP Fail-Stop Protocol Activated — Analysis Not Started**\n\n"
+        f"| Field | Detail |\n"
+        f"|---|---|\n"
+        f"| **Failure Type** | {failure_type} |\n"
+        f"| **Provider** | {provider} |\n"
+        f"| **Impact** | Complete analysis not generated |\n"
+        f"| **GxP Status** | Invalid artifact — fail-stop enforced |\n"
+        f"| **Remediation** | {remediation} |\n\n"
+        f"*No partial output has been produced. Per ALCOA+ and 21 CFR Part 11 §11.10(e), "
+        f"an incomplete analysis cannot be used as a validation artifact.*"
+    )
+
 import tempfile
 import io
 import sqlite3
@@ -55,7 +130,7 @@ except ImportError:
 # =============================================================================
 # 1. CONFIG
 # =============================================================================
-VERSION        = "68.0"
+VERSION        = "69.0"
 PROMPT_VERSION = "v19.0-esignature-test-type-r3c"
 TEMPERATURE    = 0.2
 CHUNK_SIZE     = 8
@@ -4395,11 +4470,243 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
+# ── Demo Output Dataset ───────────────────────────────────────────────────────
+# Pre-baked high-quality output for a 12-requirement LIMS URS subset.
+# Used by the "📊 Demo Output" button — zero API cost, always consistent.
+# Shows: full AI-generated FRS (no HITL), 3 OQ tests per High FRS,
+#        realistic gap findings, 100% coverage, professional quality.
+def _build_demo_validation_package():
+    """
+    Returns the same dict structure as esig_pending so the existing
+    display/download pipeline renders it without any code changes.
+    """
+    import pandas as _pd
+    import io as _io
+    import datetime as _dt
+
+    # ── URS ──────────────────────────────────────────────────────────────────
+    urs_data = [
+        ("URS-001","URS-001","The system shall maintain a secure, computer-generated, time-stamped, and non-editable audit trail for all GxP-relevant user actions.",
+         "Compliance","Yes","The system shall maintain a secure...","Page 4","0.98","","High"),
+        ("URS-002","URS-002","The audit trail shall record who performed the action, what was changed, when it occurred, and the reason for the change.",
+         "Compliance","Yes","The audit trail shall record...","Page 4","0.97","","High"),
+        ("URS-003","URS-003","The system shall prevent modification or deletion of audit trail records by any user role including System Administrator.",
+         "Compliance","Yes","The system shall prevent modification...","Page 4","0.99","","High"),
+        ("URS-004","URS-004","The system shall support electronic signatures for result approvals, compliant with 21 CFR Part 11.",
+         "Compliance","Yes","The system shall support electronic signatures...","Page 5","0.98","","High"),
+        ("URS-005","URS-005","The system shall allow users to log a single sample with required metadata including sample ID, source, collection date, and receiving user.",
+         "Functional","Yes","The system shall allow users to log...","Page 2","0.95","","High"),
+        ("URS-006","URS-006","The system shall generate or assign a unique sample identifier and prevent duplicate sample IDs.",
+         "Functional","Yes","The system shall generate or assign...","Page 2","0.97","","High"),
+        ("URS-007","URS-007","The system shall allow assignment of one or more tests to a sample and support predefined test methods with configurable specification limits.",
+         "Functional","Yes","The system shall allow assignment...","Page 3","0.93","","High"),
+        ("URS-008","URS-008","The system shall allow users to manually enter test results and enforce required fields and basic validation checks.",
+         "Functional","Yes","The system shall allow users to manually enter...","Page 3","0.95","","High"),
+        ("URS-009","URS-009","The system shall maintain secure, role-based access controls with clear segregation of duties.",
+         "Security","Yes","The system shall maintain secure, role-based...","Page 1","0.96","","High"),
+        ("URS-010","URS-010","The system shall allow users to generate worklists based on samples, tests, or instruments with filtering criteria.",
+         "Functional","Yes","The system shall allow users to generate worklists...","Page 3","0.90","","Medium"),
+        ("URS-011","URS-011","The system shall support traceability of all sample-related activities from login to final disposition.",
+         "Compliance","Yes","The system shall support traceability...","Page 1","0.95","","High"),
+        ("URS-012","URS-012","The system shall support regulatory compliance including FDA 21 CFR Part 11 and EU Annex 11 requirements for electronic records.",
+         "Compliance","Yes","The system shall support regulatory compliance...","Page 5","0.97","","High"),
+    ]
+    urs_cols = ["Req_ID","Source_Req_ID","Requirement_Description","Category","Testable",
+                "Source_Text","Source_Page","Confidence","Confidence_Flag","Risk_Level"]
+    urs_df = _pd.DataFrame(urs_data, columns=urs_cols)
+
+    # ── FRS ──────────────────────────────────────────────────────────────────
+    frs_data = [
+        ("FRS-001","The Audit Trail module shall capture every INSERT, UPDATE, DELETE, APPROVE, and REJECT action on GxP tables; each entry shall record: user_id (from auth session), action_type, table_name, record_id, old_value, new_value, change_reason, and server-generated UTC timestamp. Entries shall be stored in a tamper-evident append-only log table. No user role shall have DELETE or UPDATE privileges on the audit trail table.","Critical","High","Direct","URS-001","Page 4","0.98",""),
+        ("FRS-002","The audit trail entry schema shall enforce four mandatory fields: user_id (FK to Users, non-null), action_timestamp (UTC, server-generated, non-editable), action_type (ENUM: INSERT/UPDATE/DELETE/APPROVE/REJECT/LOGIN/LOGOUT), and change_reason (VARCHAR 500, mandatory for UPDATE and DELETE on GxP records). The system shall reject any audit trail write that omits a mandatory field with error AT-001.","Critical","High","Direct","URS-002","Page 4","0.97",""),
+        ("FRS-003","The audit trail storage engine shall use a write-once, append-only database table (audit_log) with row-level permissions: INSERT only for the application service account; no UPDATE or DELETE for any user including DBA or System Administrator. The system shall expose a SHA-256 hash of each audit trail row available via Admin > Data Integrity Check to detect post-write tampering.","Critical","High","Direct","URS-003","Page 4","0.99",""),
+        ("FRS-004","The e-Signature widget shall capture: Signer_ID (from session), Password (re-entry, validated against bcrypt hash per 21 CFR Part 11 §11.200(a)(1)), Meaning (dropdown: Approved / Reviewed / Rejected / Authorised), and Timestamp (UTC, server-generated). On submission, the system shall write an immutable audit trail entry with e-sig hash (SHA-256 of signer+timestamp+meaning+record_id) and lock the signed record against further modification.","Critical","High","Direct","URS-004","Page 5","0.98",""),
+        ("FRS-005","The Sample Login screen shall expose mandatory fields: Sample_Description (VARCHAR 255, unique per active study), Matrix_Type (ENUM dropdown), Sample_Type (ENUM dropdown), Priority (Routine/STAT/QC), Received_By (FK Users, auto-populated from session), and Received_Date (datetime, auto-populated). On Save, the system shall validate all mandatory fields and reject incomplete submissions with field-level error messages.","High","High","Direct","URS-005","Page 2","0.95",""),
+        ("FRS-006","The Sample Registration module shall generate a globally unique Sample_ID in the format LV-YYYY-NNNNN on first Save. The ID shall be immutable after generation. The system shall validate uniqueness against the sample master table before committing and return error SAM-001 on collision. A Code 128 barcode label shall be queued for printing upon successful ID generation.","High","High","Direct","URS-006","Page 2","0.97",""),
+        ("FRS-007","The Test Assignment module shall allow selection of one or more tests from the Test Library for each sample or aliquot. Each test definition shall include: method reference, specification limits (upper and lower), required instrument type, and minimum replicate count. The system shall validate that at least one test is assigned before a sample can transition to In Testing status.","High","High","Direct","URS-007","Page 3","0.93",""),
+        ("FRS-008","The Result Entry screen shall expose mandatory fields: result_value (DECIMAL 12,4), result_units (ENUM matching test definition), analyst_id (auto-populated from session, non-editable), entry_datetime (server UTC, non-editable). The system shall evaluate result_value against spec_lower_limit and spec_upper_limit and set OOS_Flag = TRUE with a red visual indicator if the value is outside specification.","High","High","Direct","URS-008","Page 3","0.95",""),
+        ("FRS-009","The User Management module shall enforce role-based access control using a Roles table with minimum roles: Lab Analyst, Senior Analyst, QA Reviewer, QA Manager, Lab Manager, System Administrator. Each role shall define permitted screens, permitted actions (read/write/approve/delete), and signature authority. The System Administrator role shall be explicitly prohibited from modifying production sample, result, or audit trail records.","Critical","High","Direct","URS-009","Page 1","0.96",""),
+        ("FRS-010","The Worklist Generation module shall provide filter criteria: Sample_Type (multi-select), Test_Code (multi-select), Priority (dropdown), Instrument_Type (dropdown), and Date_Range (date-picker). Generated worklists shall display Sample_ID, Test_Code, Spec_Limits, Instrument_ID, and Analyst_ID. The system shall validate that all selected samples are in Received status before generating the worklist.","Medium","Medium","Indirect","URS-010","Page 3","0.90",""),
+        ("FRS-011","The Traceability module shall maintain a complete chain-of-custody record for each sample from Login through Disposition. Every container transfer, aliquot creation, status change, and custody event shall generate an immutable audit trail entry. The Traceability screen shall display the full chronological event history for any sample, filterable by event type and date range.","High","High","Direct","URS-011","Page 1","0.95",""),
+        ("FRS-012","The system shall implement 21 CFR Part 11 §11.10 controls: (a) validation per §11.10(a), (b) accurate copies per §11.10(b), (c) record protection per §11.10(c), (d) access limitation per §11.10(d), (e) audit trail per §11.10(e), (f) operational checks per §11.10(f), (g) authority checks per §11.10(g), (h) device checks per §11.10(h), (i) training per §11.10(i), (j) accountability per §11.10(j), (k) documentation per §11.10(k). EU Annex 11 clauses 9 and 12 shall be satisfied by audit trail and access control implementations respectively.","Critical","High","Direct","URS-012","Page 5","0.97",""),
+    ]
+    frs_cols = ["ID","Requirement_Description","Priority","Risk","GxP_Impact",
+                "Source_URS_Ref","Source_Page","Confidence","Confidence_Flag"]
+    frs_df = _pd.DataFrame(frs_data, columns=frs_cols)
+
+    # ── OQ ───────────────────────────────────────────────────────────────────
+    oq_data = [
+        # FRS-001 (High — 3 tests)
+        ("OQ-001","FRS-001","FRS","Data_Integrity","Navigate to Admin > Audit Trail Configuration; verify audit trail is Active; perform an INSERT on the Samples table; navigate to Admin > Audit Trail View; verify entry exists with user_id, action_type=INSERT, table_name=SAMPLES, record_id, old_value=null, new_value=populated, UTC timestamp within 2 seconds of action.","Audit trail entry present with all required fields populated; timestamp in UTC","Pass: all 8 mandatory fields present; timestamp delta < 2 sec","Screenshot of audit trail entry with all fields visible; DB query confirming row count increased","Derived from URS-001","0.98",""),
+        ("OQ-002","FRS-001","FRS","Negative_Test","Attempt to execute UPDATE on audit_log table directly using DBA credentials via database client; attempt DELETE on audit_log table using System Administrator role credentials.","System rejects both operations with permission denied error; audit_log row count unchanged","Pass: both UPDATE and DELETE operations rejected; no rows modified","Screenshot of permission denied error from DB client; audit_log row count before and after","Derived from URS-001","0.97",""),
+        ("OQ-003","FRS-001","FRS","Security","Navigate to Admin > Data Integrity Check; select a sample record; verify SHA-256 hash displayed; modify the audit_log row directly in the database; re-run integrity check on the same record.","First check shows valid hash; second check flags tamper-evident mismatch with alert","Pass: integrity check detects modification and displays mismatch alert","Screenshot of integrity check pass result; screenshot of mismatch alert after DB modification","Derived from URS-001","0.95",""),
+        # FRS-002 (High — 3 tests)
+        ("OQ-004","FRS-002","FRS","Data_Integrity","Perform UPDATE on a sample record with change_reason populated; verify audit trail entry includes user_id, action_timestamp (UTC), action_type=UPDATE, and change_reason.","Audit entry present with all 4 mandatory fields; change_reason matches input","Pass: all mandatory fields non-null; change_reason stored correctly","Screenshot of audit trail entry; DB query showing field values","Derived from URS-002","0.97",""),
+        ("OQ-005","FRS-002","FRS","Negative_Test","Attempt UPDATE on a GxP record without entering a change_reason; submit the form.","System rejects submission with error AT-001; record not modified; no audit trail entry created","Pass: rejection displayed; record unchanged; audit trail shows no entry for this action","Screenshot of AT-001 error message; audit trail showing no new entry","Derived from URS-002","0.96",""),
+        ("OQ-006","FRS-002","FRS","Data_Integrity","Execute APPROVE action on a result record; verify audit trail entry is created with action_type=APPROVE and e-signature hash populated.","Audit entry present with action_type=APPROVE and non-null sig_hash","Pass: action_type=APPROVE; sig_hash is 64-character SHA-256 string","Screenshot of audit trail approve entry; DB query showing sig_hash value","Derived from URS-002","0.95",""),
+        # FRS-003 (High — 3 tests)
+        ("OQ-007","FRS-003","FRS","Security","Log in as System Administrator; navigate to database management tool; attempt to UPDATE a row in audit_log; attempt to DELETE a row in audit_log.","Both operations rejected with insufficient privileges error; audit_log unchanged","Pass: both operations denied; row count unchanged; error message displayed","Screenshot of permission denied errors; audit_log row count query before/after","Derived from URS-003","0.99",""),
+        ("OQ-008","FRS-003","FRS","Data_Integrity","Navigate to Admin > Data Integrity Check; run integrity check on 10 recent audit trail entries; verify all hashes valid.","All 10 entries show Valid hash status; no integrity failures","Pass: 10/10 entries show Valid; no mismatch detected","Screenshot of integrity check results showing all Valid status","Derived from URS-003","0.97",""),
+        ("OQ-009","FRS-003","FRS","Negative_Test","Directly modify a single character in an audit_log row using DB admin tool; run integrity check on that entry.","System flags the entry as Integrity Mismatch with a red alert and the affected record_id","Pass: mismatch detected; alert displayed with correct record_id","Screenshot of integrity mismatch alert; comparison of original vs modified hash","Derived from URS-003","0.96",""),
+        # FRS-004 (High — 3 tests)
+        ("OQ-010","FRS-004","FRS","Functional","Navigate to Results > Approve Result; click Approve; verify e-signature dialog opens; enter correct Signer_ID and Password; select Meaning=Approved; submit.","E-signature accepted; result record status changes to Approved; audit trail entry created with sig_hash","Pass: status=Approved; sig_hash is 64-char string; audit entry present with Meaning=Approved","Screenshot of e-sig dialog; screenshot of approved result; audit trail entry","Derived from URS-004","0.98",""),
+        ("OQ-011","FRS-004","FRS","Negative_Test","Navigate to Results > Approve Result; enter incorrect password in e-signature dialog; submit.","System rejects signature with Authentication Failed error; result remains In Review; no approval audit entry created","Pass: rejection displayed; result status unchanged; no spurious audit entry","Screenshot of auth failed error; result status still In Review","Derived from URS-004","0.97",""),
+        ("OQ-012","FRS-004","FRS","Data_Integrity","Complete a successful e-signature approval; navigate to audit trail; locate the approval entry; verify sig_hash is a 64-character SHA-256 string and timestamp is UTC.","Sig_hash is 64 hex chars; timestamp is UTC format YYYY-MM-DD HH:MM:SS UTC","Pass: hash length=64; timestamp format correct; Meaning=Approved present","Screenshot of audit trail approval entry with all fields; hash character count verified","Derived from URS-004","0.96",""),
+        # FRS-005 (High — 3 tests)
+        ("OQ-013","FRS-005","FRS","Functional","Navigate to Samples > Sample Login; click New Sample; complete all mandatory fields (Sample_Description, Matrix_Type, Sample_Type, Priority); click Save.","Sample saved successfully; Sample_ID generated in LV-YYYY-NNNNN format; success message displayed","Pass: sample created; Sample_ID matches format; no error messages","Screenshot of completed form; screenshot of success message with Sample_ID","Derived from URS-005","0.95",""),
+        ("OQ-014","FRS-005","FRS","Negative_Test","Navigate to Samples > Sample Login; click New Sample; leave Sample_Description blank; attempt to save.","System displays field-level error on Sample_Description; save rejected; no record created","Pass: error message displayed on mandatory field; record count unchanged","Screenshot of field-level error message","Derived from URS-005","0.94",""),
+        ("OQ-015","FRS-005","FRS","Functional","Navigate to Samples > Sample Login; click New Sample; complete form; verify Received_By auto-populates from session and Received_Date auto-populates with current UTC datetime.","Received_By shows logged-in user; Received_Date shows current UTC datetime within 5 seconds of form open","Pass: Received_By matches session user; Received_Date delta < 5 sec","Screenshot showing auto-populated fields; comparison with session user identity","Derived from URS-005","0.93",""),
+        # FRS-006 (High — 3 tests)
+        ("OQ-016","FRS-006","FRS","Functional","Register two samples in sequence; note Sample_IDs generated for each.","Both Sample_IDs follow LV-YYYY-NNNNN format; IDs are unique; sequential numeric suffix","Pass: both IDs match format; IDs are different; no collision","Screenshot of both Sample_ID values","Derived from URS-006","0.97",""),
+        ("OQ-017","FRS-006","FRS","Negative_Test","Attempt to register a sample with a manually entered Sample_ID that already exists in the database.","System rejects submission with error SAM-001 duplicate ID; record not created","Pass: SAM-001 error displayed; no duplicate record in database","Screenshot of SAM-001 error; DB query confirming no duplicate","Derived from URS-006","0.96",""),
+        ("OQ-018","FRS-006","FRS","Functional","Register a sample successfully; navigate to Samples > Label Queue; verify barcode label was queued.","Label queue shows pending label for the new Sample_ID; label format includes Code 128 barcode","Pass: label visible in queue; Sample_ID in barcode field","Screenshot of label queue entry","Derived from URS-006","0.92",""),
+        # FRS-007 (High — 3 tests)
+        ("OQ-019","FRS-007","FRS","Functional","Navigate to sample record in Received status; click Assign Tests; select test TST-0041 from Test Library; click Save.","Test TST-0041 assigned to sample; test appears in Test Assignment screen with method, spec limits, and instrument type","Pass: test assigned; method, spec_lower_limit, spec_upper_limit, instrument_type all populated","Screenshot of Test Assignment screen with TST-0041 row","Derived from URS-007","0.93",""),
+        ("OQ-020","FRS-007","FRS","Negative_Test","Attempt to transition sample from Received to In Testing without assigning any tests.","System blocks transition with error: at least one test must be assigned before testing can begin","Pass: error displayed; sample status remains Received","Screenshot of error message; sample status unchanged","Derived from URS-007","0.92",""),
+        ("OQ-021","FRS-007","FRS","Functional","Assign a test with predefined method M-001 to a sample; verify spec limits are auto-populated from Test Library.","Spec_Lower_Limit and Spec_Upper_Limit match values defined in Test Library for M-001","Pass: spec limits match Test Library values; no manual entry required","Screenshot showing spec limits auto-populated; Test Library entry for M-001","Derived from URS-007","0.90",""),
+        # FRS-008 (High — 3 tests)
+        ("OQ-022","FRS-008","FRS","Functional","Navigate to Results > Enter Results; enter a valid result value within specification; verify OOS_Flag not set.","Result saved; OOS_Flag=FALSE; no red indicator; result_units validated against test definition","Pass: OOS_Flag=FALSE; no OOS indicator displayed; result_units match test definition","Screenshot of result entry with value within spec; status=Passed","Derived from URS-008","0.95",""),
+        ("OQ-023","FRS-008","FRS","Functional","Navigate to Results > Enter Results; enter a result value outside the specification upper limit.","OOS_Flag=TRUE; red OOS indicator displayed; OOS investigation record automatically created","Pass: OOS indicator visible; OOS_Flag=TRUE in DB; OOS investigation record created","Screenshot of red OOS indicator; OOS investigation record in OOS module","Derived from URS-008","0.94",""),
+        ("OQ-024","FRS-008","FRS","Negative_Test","Navigate to Results > Enter Results; attempt to modify the analyst_id field or entry_datetime field.","Fields are read-only; system does not permit modification; values remain session user and server UTC","Pass: fields non-editable; analyst_id = session user; datetime = server UTC","Screenshot showing read-only fields","Derived from URS-008","0.93",""),
+        # FRS-009 (High — 3 tests)
+        ("OQ-025","FRS-009","FRS","Security","Log in as Lab Analyst; attempt to access Admin > User Management screen.","System denies access with insufficient privileges error; screen not displayed","Pass: access denied; error message displayed; no user management data visible","Screenshot of access denied error for Lab Analyst","Derived from URS-009","0.96",""),
+        ("OQ-026","FRS-009","FRS","Security","Log in as System Administrator; navigate to Samples; attempt to INSERT a new sample record; attempt to DELETE an existing result record.","Both actions blocked with error: System Administrator role is prohibited from modifying production records","Pass: both operations denied; records unchanged; error message references role restriction","Screenshot of prohibition error for both actions","Derived from URS-009","0.97",""),
+        ("OQ-027","FRS-009","FRS","Functional","Log in as QA Reviewer; navigate to Results > Pending Approval; approve a result; verify e-signature dialog appears and approval succeeds.","QA Reviewer can access Pending Approval and successfully approve with e-signature","Pass: approval screen accessible; e-sig dialog appears; approval succeeds; audit entry created","Screenshot of successful approval by QA Reviewer","Derived from URS-009","0.95",""),
+        # FRS-010 (Medium — 2 tests)
+        ("OQ-028","FRS-010","FRS","Functional","Navigate to Worklists > Create Worklist; apply filters: Sample_Type=Clinical, Priority=STAT; generate worklist.","Worklist displays only Clinical/STAT samples in Received status; other samples excluded","Pass: worklist contains only matching samples; samples in non-Received status excluded","Screenshot of filtered worklist; comparison with sample register","Derived from URS-010","0.90",""),
+        ("OQ-029","FRS-010","FRS","Negative_Test","Attempt to generate a worklist including samples not in Received status (e.g. In Testing or Approved).","System excludes non-Received samples or displays warning; worklist contains only Received samples","Pass: non-Received samples excluded; warning displayed if any were filtered","Screenshot showing exclusion of non-Received samples","Derived from URS-010","0.88",""),
+        # FRS-011 (High — 3 tests)
+        ("OQ-030","FRS-011","FRS","Data_Integrity","Register a sample; assign tests; enter results; approve; navigate to Traceability screen for that sample.","Full chain-of-custody history displayed: Login, Received, Test Assigned, Result Entered, Approved — all with timestamps and user attribution","Pass: all 5+ events present; each has user_id, action_timestamp, event_type","Screenshot of complete traceability history","Derived from URS-011","0.95",""),
+        ("OQ-031","FRS-011","FRS","Functional","Perform a container transfer for a sample; navigate to Traceability screen; filter by event_type=TRANSFER.","Transfer event displayed with: from_location, to_location, transferred_by, UTC timestamp, reason","Pass: transfer event visible; all transfer fields populated","Screenshot of transfer event in traceability history","Derived from URS-011","0.94",""),
+        ("OQ-032","FRS-011","FRS","Data_Integrity","Create an aliquot from a parent sample; navigate to Traceability screen for the parent sample.","Aliquot creation event shown with aliquot_id, volume_allocated, parent_sample_id, user, UTC timestamp","Pass: aliquot event visible; aliquot_id and volume fields populated","Screenshot of aliquot event in parent traceability","Derived from URS-011","0.93",""),
+        # FRS-012 (High — 3 tests)
+        ("OQ-033","FRS-012","FRS","Functional","Navigate to Admin > System Configuration; verify 21 CFR Part 11 §11.10 controls are listed as active: audit trail, access control, e-signatures, operational checks.","All Part 11 §11.10 controls show Active status in configuration","Pass: all controls listed and active; configuration export shows enabled state","Screenshot of §11.10 control status screen; configuration export","Derived from URS-012","0.97",""),
+        ("OQ-034","FRS-012","FRS","Security","Verify EU Annex 11 Clause 9 (audit trail) compliance: run audit trail integrity check across 50 records.","All 50 records show valid SHA-256 hash; no integrity failures","Pass: 50/50 valid; zero mismatch","Screenshot of integrity check showing 50/50 valid","Derived from URS-012","0.96",""),
+        ("OQ-035","FRS-012","FRS","Security","Verify EU Annex 11 Clause 12 (access) compliance: attempt to access 5 screens with insufficient role; verify all blocked.","All 5 access attempts blocked with role-based permission error","Pass: 5/5 access attempts denied; error messages reference required role","Screenshots of 5 access denied errors","Derived from URS-012","0.95",""),
+    ]
+    oq_cols = ["Test_ID","Requirement_Link","Requirement_Link_Type","Test_Type","Test_Step",
+               "Expected_Result","Pass_Fail_Criteria","Suggested_Evidence","Source","Confidence","Confidence_Flag"]
+    oq_df = _pd.DataFrame(oq_data, columns=oq_cols)
+
+    # ── GAP ANALYSIS ─────────────────────────────────────────────────────────
+    gap_data = [
+        ("URS-010","Ambiguous","Requirement uses 'filtering criteria' without specifying which fields are mandatory vs optional, or the expected response time for worklist generation.",
+         "Define specific mandatory filter fields and add a performance criterion: worklist generation shall complete within 3 seconds for up to 500 samples.","Medium",""),
+        ("URS-011","Non_Functional","Traceability requirement does not specify the retention period for chain-of-custody records or the archival process.",
+         "Add retention period (minimum 10 years per 21 CFR Part 211.68) and specify archival procedure reference.","Medium",""),
+        ("URS-012","No_Test_Coverage","Regulatory compliance requirement references §11.10 subsections (a)–(k) collectively; each subsection should have individual OQ test coverage.",
+         "Create individual OQ test cases for each §11.10 subsection to demonstrate granular compliance.","High",""),
+        ("FRS-010","Ambiguous","Worklist description does not define the maximum worklist size or behaviour when the result set exceeds system display limits.",
+         "Add: worklist shall support a maximum of 500 samples per batch; results beyond this limit shall be paginated with 25 rows per page.","Low",""),
+    ]
+    gap_cols = ["Req_ID","Gap_Type","Description","Recommendation","Severity","Confidence_Flag"]
+    gap_df = _pd.DataFrame(gap_data, columns=gap_cols)
+
+    # ── TRACEABILITY ─────────────────────────────────────────────────────────
+    trace_data = []
+    frs_map = {
+        "URS-001":"FRS-001","URS-002":"FRS-002","URS-003":"FRS-003",
+        "URS-004":"FRS-004","URS-005":"FRS-005","URS-006":"FRS-006",
+        "URS-007":"FRS-007","URS-008":"FRS-008","URS-009":"FRS-009",
+        "URS-010":"FRS-010","URS-011":"FRS-011","URS-012":"FRS-012",
+    }
+    oq_map = {
+        "FRS-001":"OQ-001; OQ-002; OQ-003","FRS-002":"OQ-004; OQ-005; OQ-006",
+        "FRS-003":"OQ-007; OQ-008; OQ-009","FRS-004":"OQ-010; OQ-011; OQ-012",
+        "FRS-005":"OQ-013; OQ-014; OQ-015","FRS-006":"OQ-016; OQ-017; OQ-018",
+        "FRS-007":"OQ-019; OQ-020; OQ-021","FRS-008":"OQ-022; OQ-023; OQ-024",
+        "FRS-009":"OQ-025; OQ-026; OQ-027","FRS-010":"OQ-028; OQ-029",
+        "FRS-011":"OQ-030; OQ-031; OQ-032","FRS-012":"OQ-033; OQ-034; OQ-035",
+    }
+    oq_count = {"FRS-001":3,"FRS-002":3,"FRS-003":3,"FRS-004":3,
+                "FRS-005":3,"FRS-006":3,"FRS-007":3,"FRS-008":3,
+                "FRS-009":3,"FRS-010":2,"FRS-011":3,"FRS-012":3}
+
+    for ur in urs_data:
+        uid = ur[0]; udesc = ur[2]
+        fid = frs_map.get(uid,"—")
+        tids = oq_map.get(fid,"")
+        cnt = oq_count.get(fid,0)
+        risk = ur[9]
+        min_t = 3 if risk == "High" else 2 if risk == "Medium" else 1
+        if cnt == 0:
+            status, gap = "Not Covered", f"[GAP] {fid} has no OQ test case."
+        elif cnt < min_t:
+            status = "Partial"
+            gap = f"[PARTIAL GAP] {fid} has {cnt}/{min_t} tests for {risk} risk."
+        else:
+            status, gap = "Covered", ""
+        trace_data.append((uid, udesc[:80], fid, tids, str(cnt), status, gap, ""))
+
+    trace_df = _pd.DataFrame(trace_data,
+        columns=["URS_Req_ID","URS_Description","FRS_Ref","Test_IDs",
+                 "Test_Count","Coverage_Status","Gap_Analysis","Notes"])
+
+    # ── DET VALIDATION ───────────────────────────────────────────────────────
+    det_data = [
+        ("R3d","URS-010","Non_Testable_Requirement",
+         "Contains ambiguous term 'filtering criteria' — does not define specific measurable filter parameters.",
+         "Replace with: 'The system shall provide filter criteria including: Sample_Type (multi-select), Priority (dropdown), Date_Range (date-picker), and Instrument_Type (dropdown).'",
+         "High",""),
+        ("R3d","URS-011","Non_Testable_Requirement",
+         "Requirement does not specify retention period for traceability records — cannot be objectively validated.",
+         "Add quantitative retention criterion: 'Records shall be retained for a minimum of 10 years per 21 CFR Part 211.68.'",
+         "High",""),
+        ("R3","FRS-010","Untestable",
+         "Non-functional language detected: 'filtering criteria' — vague without specific field definitions.",
+         "Define each filter field with data type, whether mandatory or optional, and the expected result set behaviour.",
+         "High",""),
+    ]
+    det_df = _pd.DataFrame(det_data,
+        columns=["Rule","Req_ID","Gap_Type","Description","Recommendation","Severity","Confidence_Flag"])
+
+    # ── Build Excel workbook ─────────────────────────────────────────────────
+    buf = _io.BytesIO()
+    with _pd.ExcelWriter(buf, engine="openpyxl") as writer:
+        urs_df.to_excel(writer,   sheet_name="URS_Extraction", index=False)
+        frs_df.to_excel(writer,   sheet_name="FRS",            index=False)
+        oq_df.to_excel(writer,    sheet_name="OQ",             index=False)
+        trace_df.to_excel(writer, sheet_name="Traceability",   index=False)
+        gap_df.to_excel(writer,   sheet_name="Gap_Analysis",   index=False)
+        det_df.to_excel(writer,   sheet_name="Det_Validation", index=False)
+    buf.seek(0)
+    xlsx_bytes = buf.read()
+
+    # ── Return esig_pending-compatible dict ───────────────────────────────────
+    return {
+        "xlsx_bytes_presig": xlsx_bytes,
+        "doc_hash":          "DEMO-MODE-NO-HASH",
+        "dataframes": {
+            "URS_Extraction": urs_df,
+            "FRS":            frs_df,
+            "OQ":             oq_df,
+            "Traceability":   trace_df,
+            "Gap_Analysis":   gap_df,
+            "Det_Validation": det_df,
+        },
+        "frs_review":        frs_df,
+        "oq_review":         oq_df,
+        "total_reqs":        len(frs_df),
+        "total_tests":       len(oq_df),
+        "total_urs":         len(urs_df),
+        "covered":           11,
+        "cov_pct":           91.7,
+        "gap_count":         len(gap_df),
+        "det_count":         len(det_df),
+        "non_testable_count": 2,
+        "file_name":         "LIMS_Generic_URS_Sample_DEMO.pdf",
+        "model_name":        "Demo Mode — No API calls made",
+        "doc_ids":           "DEMO",
+        "_is_demo":          True,
+    }
+
+
 MODELS = {
-    "Gemini 1.5 Pro":    "gemini/gemini-1.5-pro",
+    "Gemini 1.5 Flash ⚡ (Recommended)": "gemini/gemini-1.5-flash",
     "Claude Sonnet 4.5":  "anthropic/claude-sonnet-4-5",
+    "Gemini 1.5 Pro":    "gemini/gemini-1.5-pro",
     "GPT-4o":            "openai/gpt-4o",
-    "Groq (Llama 3.3)":  "groq/llama-3.3-70b-versatile"
+    "Groq (Llama 3.3)":  "groq/llama-3.3-70b-versatile",
 }
 
 
@@ -11099,7 +11406,7 @@ def show_app():
         st.markdown(
             '<p style="color:#94a3b8;font-size:0.68rem;margin:-6px 0 4px;'
             'letter-spacing:0.5px;font-family:\'IBM Plex Mono\',monospace;">'
-            'Build v68 · Change Control Package coming Monday</p>',
+            'Build v69 · Change Control Package coming Monday</p>',
             unsafe_allow_html=True)
         st.divider()
         st.markdown('<p class="sb-sub">🔧 Analysis Mode</p>', unsafe_allow_html=True)
@@ -11595,11 +11902,46 @@ def show_app():
             # Do not render the upload/button UI while a job is active
             return
 
-    if st.button("🚀 Run Analysis", key="run_analysis_btn", disabled=not is_ready):
+    _btn_col1, _btn_col2 = st.columns([3, 1])
+    with _btn_col1:
+        _run_clicked = st.button(
+            "🚀 Run Analysis", key="run_analysis_btn",
+            disabled=not is_ready, use_container_width=True
+        )
+    with _btn_col2:
+        _demo_clicked = st.button(
+            "📊 Demo Output", key="demo_output_btn",
+            use_container_width=True,
+            help="Load a pre-built high-quality demo package — no API calls, zero cost. "
+                 "Shows 12-requirement LIMS URS with full AI-quality FRS, OQ tests, "
+                 "traceability, and gap analysis. Use for demos and UI testing."
+        )
+
+    if _demo_clicked:
+        with st.spinner("📊 Loading demo validation package..."):
+            _demo_pkg = _build_demo_validation_package()
+        st.session_state["esig_pending"] = _demo_pkg
+        st.info(
+            "📊 **Demo Mode Active** — showing pre-built sample output for a 12-requirement LIMS URS. "
+            "This output was not generated by the AI pipeline and cannot be used as a GxP validation artifact. "
+            "For a real validation package, upload your URS and click **Run Analysis**."
+        )
+        st.rerun()
+
+    if _run_clicked:
         file_bytes = st.session_state.sop_file_bytes
         file_name  = st.session_state.sop_file_name or "unknown.pdf"
         model_id   = MODELS[st.session_state.selected_model]
         sys_ctx    = st.session_state.get("sys_context_bytes", None)
+
+        # ── Quota preflight — check provider BEFORE doing any work ───────────
+        # If the provider is out of credits the error is surfaced immediately
+        # with a GxP-compliant fail-stop message. No partial analysis is started.
+        with st.spinner(f"⚡ Checking {_provider_from_model_id(model_id)} availability..."):
+            _quota_ok, _quota_err = _has_sufficient_quota(model_id)
+        if not _quota_ok:
+            _show_quota_error(model_id, _quota_err)
+            st.stop()
 
         # ── Stage 2: LLM document pre-flight ─────────────────────────────────
         with st.spinner("🔍 Validating document type..."):
