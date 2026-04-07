@@ -45,22 +45,38 @@ def _provider_from_model_id(model_id: str) -> str:
 
 def _has_sufficient_quota(model_id: str) -> tuple:
     """
-    Make a minimal 1-token probe call to the provider.
-    Returns (True, "") if quota is available, (False, error_detail) otherwise.
-    Runs BEFORE analysis starts so no partial work is done.
+    Make a lightweight probe call to the provider.
+    Returns (True, "", False) if quota is available.
+    Returns (False, error_detail, is_definitive) otherwise.
+    is_definitive=True  → hard quota/auth failure → block and show error
+    is_definitive=False → ambiguous error (bad request, model unavailable etc.)
+                          → warn but proceed; let the real pipeline surface the error
+
+    max_tokens=1 + 'ping' is rejected by Gemini and some other providers as
+    an invalid request. Use a small but realistic prompt instead.
     """
     try:
         completion(
             model=model_id,
             stream=False,
             temperature=0,
-            max_tokens=1,
-            messages=[{"role": "user", "content": "ping"}],
+            max_tokens=10,
+            messages=[{"role": "user",
+                       "content": "Reply with the single word: ready"}],
             timeout=15,
         )
-        return True, ""
+        return True, "", False
     except Exception as e:
-        return False, str(e)
+        err = str(e)
+        err_lower = err.lower()
+        # Only treat as definitive failures worth blocking on:
+        #   quota exhausted, billing issue, authentication failure
+        is_definitive = any(kw in err_lower for kw in (
+            "quota", "billing", "exceeded your",
+            "api key", "unauthorized", "invalid_api_key",
+            "authentication", "permission_denied",
+        ))
+        return False, err, is_definitive
 
 def _show_quota_error(model_id: str, error_detail: str):
     """
@@ -130,7 +146,7 @@ except ImportError:
 # =============================================================================
 # 1. CONFIG
 # =============================================================================
-VERSION        = "69.0"
+VERSION        = "70.0"
 PROMPT_VERSION = "v19.0-esignature-test-type-r3c"
 TEMPERATURE    = 0.2
 CHUNK_SIZE     = 8
@@ -4684,8 +4700,8 @@ def _build_demo_validation_package():
             "Gap_Analysis":   gap_df,
             "Det_Validation": det_df,
         },
-        "frs_review":        frs_df,
-        "oq_review":         oq_df,
+        "frs_review":        0,   # integer count of low-confidence FRS rows (0 = all confident in demo)
+        "oq_review":         0,   # integer count of low-confidence OQ rows
         "total_reqs":        len(frs_df),
         "total_tests":       len(oq_df),
         "total_urs":         len(urs_df),
@@ -7774,7 +7790,7 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
                     "retrospective justification is required before this event "
                     "can be closed.")
         if r1 >= 6:
-            return ("Amendment Required",
+            return ("Justified — Amendment Required",
                     "The change reason recorded is insufficient or uses "
                     "non-descriptive language — a retrospective written amendment "
                     "from the analyst is required.")
@@ -7801,7 +7817,7 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
         # TIER 5 — Temporal: all four combinations explicit
         if rt >= 9:
             return (
-                "Document Rationale" if has_cmt else "Investigate — Verify Source Data",
+                "Justified — Document Rationale" if has_cmt else "Investigate — Verify Source Data",
                 ("Activity at an unusually late or early hour was detected with a "
                  "comment on file — confirm a corresponding approved overtime record "
                  "or maintenance window covers this period.")
@@ -7812,7 +7828,7 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
             )
         if rt >= 5:
             return (
-                "Document Rationale" if has_cmt else "Investigate — Verify Source Data",
+                "Justified — Document Rationale" if has_cmt else "Investigate — Verify Source Data",
                 ("Off-hours activity was detected with a comment on file — confirm "
                  "a corresponding approved overtime record or maintenance window "
                  "covers this period.")
@@ -7835,7 +7851,7 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
                     "A risk indicator was detected that warrants documented "
                     "reviewer investigation before this event can be closed.")
 
-        return ("No Action Required",
+        return ("Justified — No Action Required",
                 "No significant risk indicator was detected — a brief review "
                 "and documented disposition is sufficient.")
 
@@ -7861,7 +7877,17 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
         if _col in df.columns:
             df[_col] = df[_col].astype(str).apply(_relabel_rule)
 
-    return df.sort_values("Risk_Score", ascending=False).reset_index(drop=True)
+    # FIX 2: Sort by Risk_Score descending then timestamp ascending as tiebreaker.
+    # Without a stable secondary sort, equal-scoring events appear in different
+    # orders across runs on the same input — producing the 00:40 vs 00:45 timestamp
+    # inconsistency observed between runs. timestamp_parsed provides a deterministic
+    # tiebreaker that is stable regardless of pandas internal ordering.
+    _sort_cols = ["Risk_Score"]
+    _sort_asc  = [False]
+    if "timestamp_parsed" in df.columns:
+        _sort_cols.append("timestamp_parsed")
+        _sort_asc.append(True)
+    return df.sort_values(_sort_cols, ascending=_sort_asc).reset_index(drop=True)
 
 
 def _at_deterministic_justification(row: dict) -> str:
@@ -8113,13 +8139,25 @@ def at_build_excel(top_df, scored_df, system_name, r_start, r_end, fname) -> byt
         ws.column_dimensions["D"].width = 22
         row += 1
 
-        # FIX AT-2: Sort so chain members appear adjacent — prevents misleading
+        # FIX AT-2 / FIX 3: Sort so chain members appear adjacent — prevents misleading
         # visual grouping where an unrelated event (e.g. admin_sys Rule 3)
         # appears between two linked analyst_y chain events.
+        # FIX 3: Use deterministic fallback for unchained events (timestamp string)
+        # instead of id(c) which is non-deterministic across Python sessions and
+        # caused unchained Critical events to appear in different positions each run.
         if not critical_events.empty and "Event_Chain_ID" in critical_events.columns:
             critical_events = critical_events.copy()
-            critical_events["_chain_sort"] = critical_events["Event_Chain_ID"].apply(
-                lambda c: str(c) if str(c) not in ("", "None", "nan") else f"zz_{id(c)}"
+            def _chain_sort_key(row):
+                cid = str(row.get("Event_Chain_ID", "")).strip()
+                if cid and cid not in ("", "None", "nan"):
+                    # Chained: sort by chain ID so members are adjacent
+                    return f"aa_{cid}"
+                else:
+                    # Unchained: sort by timestamp for deterministic stable order
+                    ts = str(row.get("timestamp_parsed", "")) or str(row.get("timestamp", ""))
+                    return f"zz_{ts}"
+            critical_events["_chain_sort"] = critical_events.apply(
+                _chain_sort_key, axis=1
             )
             critical_events = critical_events.sort_values(
                 ["_chain_sort", "timestamp_parsed"], na_position="last"
@@ -9049,6 +9087,27 @@ def show_audit_trail(user: str, role: str, model_id: str):
     with mc3:
         _parse_date_input("at_rend_picker",   "at_review_end",
                           "Review Period End",   _pq_end)
+
+    # FIX 4: Warn if review period end date is more than 30 days in the future.
+    # A review period ending in 2027 or 2028 makes the report look wrong —
+    # "reviewed from 2020 to 2028" covers dates that haven't happened yet.
+    # Default date picker behaviour lets users set any future date unchecked.
+    _rend_str = st.session_state.get("at_review_end", "").strip()
+    if _rend_str and _rend_str != "(review period dates not specified)":
+        try:
+            _rend_dt = pd.to_datetime(_rend_str, dayfirst=True, errors="coerce")
+            _today   = pd.Timestamp.utcnow().normalize()
+            if pd.notna(_rend_dt) and (_rend_dt - _today).days > 30:
+                st.warning(
+                    f"⚠️ **Review Period End is {(_rend_dt - _today).days} days in the future "
+                    f"({_rend_dt.strftime('%d-%b-%Y')}).** "
+                    f"A periodic review report should cover a completed period. "
+                    f"For a current review, set the end date to today or the last completed quarter-end. "
+                    f"An auditor reading 'reviewed to {_rend_dt.strftime('%d-%b-%Y')}' "
+                    f"will question the scope."
+                )
+        except Exception:
+            pass
 
     st.markdown("---")
 
@@ -11097,8 +11156,8 @@ match your system's export column names to the fields above — rename nothing i
         # where disposition is Justified (low urgency) are grouped into a single
         # summary card so the reviewer sees intelligent aggregation, not repetition.
         _COLLAPSIBLE_DISPOSITIONS = {
-            "No Action Required",
-            "Document Rationale",
+            "Justified — No Action Required",
+            "Justified — Document Rationale",
         }
         _COLLAPSIBLE_TIERS = {"Medium", "Low"}
 
@@ -11406,7 +11465,7 @@ def show_app():
         st.markdown(
             '<p style="color:#94a3b8;font-size:0.68rem;margin:-6px 0 4px;'
             'letter-spacing:0.5px;font-family:\'IBM Plex Mono\',monospace;">'
-            'Build v69 · Change Control Package coming Monday</p>',
+            'Build v70 · Change Control Package coming Monday</p>',
             unsafe_allow_html=True)
         st.divider()
         st.markdown('<p class="sb-sub">🔧 Analysis Mode</p>', unsafe_allow_html=True)
@@ -11934,14 +11993,25 @@ def show_app():
         model_id   = MODELS[st.session_state.selected_model]
         sys_ctx    = st.session_state.get("sys_context_bytes", None)
 
-        # ── Quota preflight — check provider BEFORE doing any work ───────────
-        # If the provider is out of credits the error is surfaced immediately
-        # with a GxP-compliant fail-stop message. No partial analysis is started.
+        # ── Provider quota preflight — check provider BEFORE doing any work ───────────
+        # Hard-blocks on confirmed quota/auth failures.
+        # Ambiguous errors (model unavailable, bad request format, etc.) get a
+        # warning but do NOT block — let the real pipeline surface the error with
+        # full context. This prevents false positives e.g. Gemini rejecting a
+        # minimal probe call while real analysis calls work fine.
         with st.spinner(f"⚡ Checking {_provider_from_model_id(model_id)} availability..."):
-            _quota_ok, _quota_err = _has_sufficient_quota(model_id)
+            _quota_ok, _quota_err, _is_definitive = _has_sufficient_quota(model_id)
         if not _quota_ok:
-            _show_quota_error(model_id, _quota_err)
-            st.stop()
+            if _is_definitive:
+                _show_quota_error(model_id, _quota_err)
+                st.stop()
+            else:
+                st.warning(
+                    f"⚠️ **Provider pre-check returned an unexpected response** "
+                    f"({_provider_from_model_id(model_id)}). "
+                    f"Proceeding with analysis — if the provider is genuinely unavailable "
+                    f"the pipeline will surface the error with full detail."
+                )
 
         # ── Stage 2: LLM document pre-flight ─────────────────────────────────
         with st.spinner("🔍 Validating document type..."):
