@@ -55,7 +55,7 @@ except ImportError:
 # =============================================================================
 # 1. CONFIG
 # =============================================================================
-VERSION        = "66.0"
+VERSION        = "68.0"
 PROMPT_VERSION = "v19.0-esignature-test-type-r3c"
 TEMPERATURE    = 0.2
 CHUNK_SIZE     = 8
@@ -7762,7 +7762,7 @@ def at_build_excel(top_df, scored_df, system_name, r_start, r_end, fname) -> byt
 
     ws.merge_cells(f"A{row}:B{row}")
     c = ws.cell(row=row, column=1,
-                value="Periodic Review — Section 9.1.6 Technical Review of Audit Trail")
+                value="GxP Audit Trail Evidence Package")
     c.font      = Font(bold=False, color="94A3B8", name="Calibri", size=10)
     c.fill      = _fill(C_HEADER_BG)
     c.alignment = Alignment(horizontal="center", vertical="center")
@@ -8469,7 +8469,7 @@ def at_build_excel(top_df, scored_df, system_name, r_start, r_end, fname) -> byt
     ws3.freeze_panes    = "A2"
 
     # ══════════════════════════════════════════════════════════════════════════
-    # SHEET 4 — Detection Logic Reference (full 12-rule specification)
+    # SHEET 4 — Detection Logic Reference (14-rule specification)
     # ══════════════════════════════════════════════════════════════════════════
     ws4 = wb.create_sheet("Detection Logic")
     ws4.sheet_properties.tabColor = "374151"
@@ -8558,7 +8558,7 @@ def show_periodic_review(user: str, role: str, model_id: str):
             "title":   "Audit Trail Review",
             "section": "21 CFR Part 11 §11.10(e) · EU Annex 11 Cl. 9",
             "desc":    (
-                "Upload your audit trail log file to run the 12-rule detection engine. "
+                "Upload your audit trail log file to run the 14-rule detection engine. "
                 "Escalates the 20 highest-risk events with a evidence package for "
                 "your Periodic Review Report."
             ),
@@ -8754,263 +8754,150 @@ def show_audit_trail(user: str, role: str, model_id: str):
         )
 
         # ── Detection Logic Reference Page ────────────────────────────────────
-        DETECTION_LOGIC = """# Audit Trail Intelligence — Detection Logic Reference
-## GxP Operational Anomaly Detection Engine v1.0
-
-This document describes every detection rule implemented in the engine.
-It supports Computer System Validation (CSV) of this tool and enables
-QA reviewers to understand the basis for every finding produced.
-
-**Total rules implemented: 14**
-Rules 1–5: Named AI Skill rules (targeted, specific violations)
-Rules 6–10: Dimension-based rules (pattern and behavioural anomalies)
-Rules 11–14: Advanced integrity rules (no second file required)
+        DETECTION_LOGIC = """# Audit Trail Intelligence — Detection Logic
+## GxP Audit Trail Anomaly Detection Engine
+14 rules implemented. Rules 1–5 target named violation patterns. Rules 6–10 detect
+behavioural and structural anomalies. Rules 11–14 require no second input file.
+Each rule maps to a specific regulatory failure mode from FDA 483 observations and
+MHRA/EU GMP inspection findings.
 
 ---
 
-## Named AI Skill Rules
+## Rules 1–5: Named Violation Rules
 
-### Rule 1 — Vague Rationale [Risk: HIGH]
-**Target:** UPDATE or MODIFY on RESULTS or BATCH record types.
-**Trigger:** Change reason field is blank, OR contains a non-descriptive term:
-fixed, error, update, changed, correction, misc, ok, done, see above, as per,
-per request, modified, edit, n/a.
-**Not triggered by:** Short but specific comments — the rule requires a recognised
-vague term, not just brevity. "pH outlier" does NOT trigger this rule.
-**SOP reference exemption:** Comments that cite a procedure by reference
-(e.g. "per SOP-01", "as per WOI-003") are exempt from copy-paste escalation
-regardless of how many records share the same comment, provided the comment
-is not otherwise vague.
-**Regulatory basis:** 21 CFR Part 211.68; ALCOA+ Attributable and Legible.
-**Threshold justification:** Vague rationale terms leave GxP data changes
-unattributable and untraceable, making them impossible to evaluate during an audit.
+### Rule 1 — Vague Rationale [HIGH]
+**Trigger:** UPDATE or DELETE on a GxP record where the change reason is blank or
+contains a non-specific term: fixed, error, correction, update, misc, ok, n/a, etc.
+**Exempt:** Comments that cite a procedure reference (per SOP-01, per WOI-003) are
+not flagged regardless of how many records share the same comment.
+**Reg basis:** 21 CFR Part 211.68; ALCOA+ Attributable and Legible.
 
 ---
 
-### Rule 2 — Contemporaneous Burst [Risk: MEDIUM]
-**Target:** INSERT, RESULT_INSERT, CREATE, ADD actions by any single user.
-**Trigger:** More than 10 such actions by the same user within any 15-minute window.
-**Regulatory basis:** ALCOA+ Contemporaneous; EU Annex 11 Clause 9.
-**Threshold justification:** 10 entries in 15 minutes = one every 90 seconds.
-Physiologically possible but statistically unusual for complex measurements.
-Threshold is conservative to minimise false positives on high-throughput workflows.
-**Deduplication note:** When this rule fires across multiple rows from the same
-burst, only one representative event appears in the Top Events escalated list.
-All events remain visible in the Full Audit Log sheet.
+### Rule 2 — Contemporaneous Burst [MEDIUM]
+**Trigger:** Same user performs more than 10 INSERT or CREATE actions within
+any 15-minute window. Batch-style automated uploads by service accounts are excluded.
+**Reg basis:** ALCOA+ Contemporaneous; EU Annex 11 Clause 9.
 
 ---
 
-### Rule 3 — Admin / GxP Conflict [Risk: CRITICAL]
-**Target:** Users with roles containing Admin, DBA, Administrator, Sysadmin.
-**Trigger:** That user performs INSERT, UPDATE, CREATE, or MODIFY on:
-SAMPLE_DATA, BATCH_RELEASE, BATCH, RESULTS, or RESULT.
-**Regulatory basis:** 21 CFR Part 11 §11.10(d); Segregation of Duties.
-**Why Critical:** Admin accounts are authorised for system configuration only.
-Direct modification of production records bypasses the standard review workflow,
-creating an uncontrolled change pathway with no independent oversight.
+### Rule 3 — Admin/GxP Conflict [CRITICAL]
+**Trigger:** A user with Admin, DBA, Sysadmin, or Administrator in their role performs
+INSERT, UPDATE, CREATE, or MODIFY on SAMPLE_DATA, BATCH_RELEASE, BATCH, or RESULTS.
+**Why:** Admin accounts are for system configuration only. Direct modification of
+production records bypasses review workflow and violates Segregation of Duties.
+**Reg basis:** 21 CFR Part 11 §11.10(d).
 
 ---
 
-### Rule 4 — Change Control Drift [Risk: HIGH]
-**Target:** Events with a populated new_value column containing numeric data.
-**Trigger:** Numeric new_value deviates by more than 3 standard deviations from
-the mean of all new_values for the same record_type in the uploaded file.
-**Regulatory basis:** 21 CFR Part 820.70(b); validated state requirements.
-**Threshold justification:** 3 standard deviations is a statistically robust
-outlier threshold. The reference distribution is computed from the uploaded file
-itself, making the rule system-agnostic.
-**Limitation:** Only numeric new_value data is scored. Status values such as
-RELEASED or PENDING are not evaluated by this rule.
+### Rule 4 — Change Control Drift [HIGH]
+**Trigger:** A numeric new_value deviates more than 3 standard deviations from the
+mean of all values for the same record_type in the uploaded file.
+**Reg basis:** 21 CFR Part 820.70(b); validated state requirements.
 
 ---
 
-### Rule 5 — Failed Login → Data Manipulation [Risk: CRITICAL]
-**Target:** All users.
-**Trigger:** 3+ LOGIN_FAILED / AUTHENTICATION_FAILED events within 120 minutes
-before a successful LOGIN, followed by DELETE, UPDATE, MODIFY, or INSERT on a
-GxP record within 30 minutes of that login.
-**Regulatory basis:** 21 CFR Part 11 §11.300; ALCOA+ Original.
-**Threshold justification:** 3 failed attempts is the industry-standard threshold
-for flagging a brute-force or credential-stuffing attempt. The 30-minute post-login
-window captures immediate post-access manipulation. The 120-minute lookback covers
-slow credential attacks.
+### Rule 5 — Failed Login → Data Manipulation [CRITICAL]
+**Trigger:** 3 or more LOGIN_FAILED events within 120 minutes before a successful
+login, followed by a DELETE, UPDATE, MODIFY, or INSERT on a GxP record within
+30 minutes of that login.
+**Reg basis:** 21 CFR Part 11 §11.300; ALCOA+ Original and Attributable.
 
 ---
 
-## Dimension-Based Rules
+## Rules 6–10: Behavioural and Structural Rules
 
-### Rule 6 — Delete and Recreate Pattern [Risk: CRITICAL]
-**Target:** All record types with a populated record_id column.
-**Trigger:** Same user deletes a record_id and creates a new record with the same
-record_id within 4 hours. Score: 9.0 on both the delete and recreate events.
-Also detects three-step sequences (UPDATE → DELETE → INSERT) on the same record_id.
-**Regulatory basis:** 21 CFR Part 11 §11.10(e); ALCOA+ Original.
-**Why Critical:** GxP systems typically lock approved records to prevent editing.
-Deleting and recreating the same record is a known method of modifying locked data
-while making the change appear as a new entry.
-**4-hour window:** Set to capture same-session recreation while excluding legitimate
-archival or system migration workflows that occur over longer periods.
+### Rule 6 — Record Reconstruction [CRITICAL]
+**Trigger:** Same user deletes a record_id then creates a new record with the same
+record_id within 4 hours. Also detects UPDATE → DELETE → INSERT on the same record.
+**Why:** Deleting and recreating is the primary method for altering locked GxP records
+while making the change appear as a new entry, hiding the modification from auditors.
+**Reg basis:** 21 CFR Part 11 §11.10(e); ALCOA+ Original.
 
 ---
 
-### Rule 7 — Audit Trail Integrity Event [Risk: CRITICAL / HIGH / MEDIUM]
-**Trigger (Critical — 10.0):** action_type or record_type contains keywords
-indicating audit trail configuration was changed: audit trail, audit log,
-log enabled, log disabled, audit enabled, audit disabled, configuration change,
-system setting.
-**Trigger (High — 8.0):** A delete action on a GxP-sensitive record type.
-**Note:** Non-destructive read/access actions on GxP-sensitive record types
-(SELECT, VIEW, READ) are no longer scored. Only audit trail integrity events
-(Critical) and sensitive record deletions (High) produce a Rule 7 score.
-This prevents routine system use from appearing as false positives.
-**GxP-sensitive record types include:** batch record, audit trail, electronic
-signature, test result, clinical, raw data, master data, configuration, user
-account, role, permission, quality record, change control, deviation, CAPA, OOS.
-**Regulatory basis:** 21 CFR Part 11 §11.10(e).
+### Rule 7 — Audit Trail Integrity Event [CRITICAL / HIGH]
+**Trigger (Critical):** Any action on the audit trail configuration table itself —
+keywords: audit trail, audit log, log enabled, log disabled, audit enabled, configuration change.
+**Trigger (High):** A DELETE action on a GxP-sensitive record type.
+**Reg basis:** 21 CFR Part 11 §11.10(e).
 
 ---
 
-### Rule 8 — Privileged User on GxP Data [Risk: HIGH]
-**Trigger:** A user with an admin-keyword role (admin, sysadmin, DBA, root,
-service, superuser, power user) performs a modify or delete on a GxP-sensitive
-record. Score: 8.0 if record is sensitive; 7.0 otherwise.
-**Distinction from Rule 3:** Rule 3 fires on specific high-risk table names
-(BATCH_RELEASE, SAMPLE_DATA etc.). Rule 8 fires on record type sensitivity
-keywords and covers a broader range of tables.
-**Regulatory basis:** 21 CFR Part 11 §11.10(d); Segregation of Duties.
+### Rule 8 — Privileged User on GxP Data [HIGH]
+**Trigger:** A user with an admin-type role (admin, sysadmin, DBA, root, superuser)
+performs a modify or delete on a GxP-sensitive record type.
+**Distinct from Rule 3:** Rule 3 fires on specific table names. Rule 8 fires on
+record sensitivity keywords across a broader range of tables.
+**Reg basis:** 21 CFR Part 11 §11.10(d).
 
 ---
 
-### Rule 9 — Audit Trail Timestamp Gap [Risk: HIGH]
+### Rule 9 — Timestamp Gap [HIGH]
 **Trigger:** A gap of more than 2 hours between consecutive audit trail entries
-(sorted by timestamp). Score: 7.0 fixed, applied to the first event after the gap.
-**Escalation:** Gap during business hours (07:00–20:00 weekday) with another
-rule ≥7.0 firing within ±10 rows → escalated to Critical (score 9.0).
-Gap during business hours OR with a nearby rule firing → escalated to High (score 7.0).
-**SOP exemption:** Events whose comment cites a procedure reference (SOP/WOI/STP)
-are not escalated by this rule — the gap is considered a documented exception.
-**Regulatory basis:** 21 CFR Part 11 §11.10(e) — audit trail completeness.
-**Important note:** Gaps may occur legitimately overnight or during approved
-maintenance windows. The reviewer must verify whether the gap aligns with a
-scheduled downtime before escalating.
+(sorted by timestamp). Score 7.0 applied to the first event after the gap.
+Escalated to Critical when the gap occurs during business hours and another rule
+≥7.0 fires within 10 rows.
+**Note:** Gaps may occur legitimately overnight or during approved maintenance windows.
+Verify against the change control schedule before escalating.
+**Reg basis:** 21 CFR Part 11 §11.10(e) — audit trail completeness.
 
 ---
 
-### Rule 10 — Off-Hours and Federal Holiday Activity [Risk: HIGH / MEDIUM]
-**Business hours definition:** Monday–Friday 07:00–20:00 local time.
-**Trigger (Weekend — +5.0):** Event falls on Saturday or Sunday.
-**Trigger (Federal Holiday — +4.0):** Event falls on a US Federal Holiday.
-Holidays detected: New Year's Day, MLK Day, Presidents Day, Memorial Day,
-Juneteenth, Independence Day, Labor Day, Columbus Day, Veterans Day,
-Thanksgiving, Christmas Day.
-**Trigger (Outside business hours — +4.0):** Event before 07:00 or after 20:00
-on a weekday.
-**Trigger (Deep night — additional +1.0):** Event between 00:00 and 04:59.
-**Score cap:** 10.0 maximum regardless of how many triggers combine.
-**Regulatory basis:** 21 CFR Part 11 §11.10(e). Off-hours activity is a risk
-indicator requiring justification, not a violation per se.
-**Timezone assumption:** This rule assumes all timestamps in the uploaded file are
-in the same timezone. If your system exports timestamps in UTC or a non-local
-timezone, off-hours flags must be interpreted accordingly. For global systems,
-reviewers should verify the local shift pattern for the user's site before
-dispositing any Rule 10 finding. A flag at 02:00 UTC may be 10:00 local time
-for a user in a different region — not an anomaly at all.
-*Recommendation:* Add a note in your Periodic Review Report specifying which
-timezone the audit trail timestamps represent.
+### Rule 10 — Off-Hours and Holiday Activity [HIGH / MEDIUM]
+**Business hours:** Monday–Friday 07:00–20:00 local time.
+**Triggers:** Weekend (+5.0), US Federal Holiday (+4.0), outside business hours
+(+4.0), between 00:00–04:59 (+1.0). Score capped at 10.0.
+**Note:** This rule assumes all timestamps are in the same timezone. If your system
+exports UTC timestamps, verify the local shift before dispositing any Rule 10 finding.
+**Reg basis:** 21 CFR Part 11 §11.10(e).
 
 ---
 
-## Advanced Integrity Rules (No Second File Required)
+## Rules 11–14: Advanced Integrity Rules
 
-### Rule 11 — Timestamp Reversal [Risk: CRITICAL]
-**Target:** Records where both a creation action and an approval/release action
-exist for the same record_id.
-**Trigger:** The approval/release timestamp is earlier than the creation timestamp
-for the same record_id. Score: 10.0 on the approval event.
-**Creation keywords detected:** insert, create, add, result_insert, new.
-**Approval keywords detected:** approve, release, authorise, authorize, sign,
-submit, batch_release, approve_result.
-**Regulatory basis:** 21 CFR Part 11 §11.10(e); ALCOA+ Contemporaneous (O).
-**Why this matters:** Chronological impossibility in a correctly functioning system.
-Indicates server clock manipulation, system migration error, or direct database
-alteration. No legitimate explanation exists for an approval preceding creation.
-**Requirements:** record_id column must be populated and timestamp column must
-be parseable for this rule to fire.
+### Rule 11 — Timestamp Reversal [CRITICAL]
+**Trigger:** For any record_id where both a creation event and an approval event
+exist, the approval timestamp is earlier than the creation timestamp.
+Score 10.0 on the approval event.
+**Why:** Chronologically impossible in a correctly functioning system. Indicates
+server clock manipulation, system migration error, or direct database alteration.
+**Reg basis:** 21 CFR Part 11 §11.10(e); ALCOA+ Contemporaneous.
 
 ---
 
-### Rule 12 — Service / Shared Account GxP Action [Risk: CRITICAL / HIGH]
-**Target:** User accounts whose username begins with a non-personal prefix.
-**Detected prefixes:** svc_, service_, shr_, share_, shared_, share., adm_,
-admin_, tec_, tech_, technical_, interface_, int_, batch_, sys_, system_,
-robot_, auto_, automation_, script_, api_, sa_, dba_, root, daemon, guest, test_
-**Trigger (Critical — 10.0):** Non-personal account performs a GxP data action
-(insert, update, modify, delete, approve, release) on a GxP-sensitive record type.
-**Trigger (High — 7.0):** Non-personal account performs a data action on any table.
-**Regulatory basis:** 21 CFR Part 11 §11.300 — electronic signatures must be
-unique to one individual; ALCOA+ Attributable.
-**Why this matters:** Non-personal accounts cannot be attributed to a specific
-individual, making any data they create or modify non-ALCOA+ compliant.
-**Configuration note:** Add or remove prefixes from the _NONPERSONAL_PREFIXES
-tuple in the engine code to match your organisation's naming conventions.
+### Rule 12 — Service / Shared Account GxP Action [CRITICAL / HIGH]
+**Trigger (Critical):** Non-personal account (svc_, dba_, sys_, batch_, auto_,
+robot_, api_, root, daemon, guest, test_, etc.) performs a GxP data action on a
+GxP-sensitive record type.
+**Trigger (High):** Same account performs any data action on any table.
+**Why:** Non-personal accounts cannot be attributed to a specific individual — a
+direct ALCOA+ Attributable violation.
+**Reg basis:** 21 CFR Part 11 §11.300.
 
 ---
 
-### Rule 13 — Dormant Account Sudden Activity [Risk: HIGH]
-**Target:** All users with at least 4 events in the uploaded audit trail.
-**Trigger:** A user has no activity for 90 or more consecutive days, then
-performs a data action on a GxP-sensitive record type or performs
-update/modify/delete/insert/approve/release on any record. Score: 8.0.
-**Only the first re-activation event per user is flagged** to avoid filling
-the top events list with multiple events from the same dormant account.
-**Regulatory basis:** 21 CFR Part 11 §11.10(d) — access controls; access review
-best practice requiring deactivation of accounts inactive for 90+ days.
-**Limitation:** Requires the uploaded audit trail to cover at least 90+ days of
-history for reliable detection. Short-period extracts will not trigger this rule.
-**Minimum event count:** A user must have at least 3 prior events before the gap
-to be considered an established account (excludes newly created accounts).
+### Rule 13 — Dormant Account Sudden Activity [HIGH]
+**Trigger:** A user with 4 or more prior events has no activity for 90 or more
+consecutive days, then performs a data action. Only the first re-activation event
+per user is escalated.
+**Requirement:** Audit trail must cover 90+ days of history for reliable detection.
+**Reg basis:** 21 CFR Part 11 §11.10(d) — access controls.
 
 ---
 
-### Rule 14 — First-Time Behavior Detection [Risk: HIGH]
-**Target:** All users with at least 5 prior recorded events in the uploaded file.
-**Trigger:** A user performs an action_type they have never performed before
-in their recorded audit trail history. Score varies by prior history and action risk:
-
-| Prior events | Action type | Score |
-|---|---|---|
-| ≥50 | First-time DELETE/APPROVE on GxP table | 9.0 |
-| ≥20 | First-time DELETE/APPROVE on any table | 8.0 |
-| ≥20 | First-time any action | 6.0 |
-| ≥5  | First-time high-risk action | 5.0 |
-| <5  | (not enough history — skipped) | 0.0 |
-
-**High-risk action types detected:** delete, del, remove, purge, void, cancel,
-approve, release, authorise, authorize, sign, override, batch_release, approve_result.
-**Regulatory basis:** 21 CFR Part 11 §11.10(d) access controls; ALCOA+ Attributable.
-**Why this matters:** An established user who suddenly performs an action they
-have never done before — especially a high-risk action like delete or approve —
-is a meaningful insider risk signal. This pattern may indicate:
-- Unauthorised escalation of access or responsibilities
-- Credential sharing (someone else used the account)
-- A data integrity incident being covered up
-
-**Confidence labelling:** The rationale always states the number of prior events
-observed, so the reviewer can judge statistical significance. A user with 200 prior
-events performing their first-ever delete is far more anomalous than a user with 6.
-
-**Important limitation:** This rule requires sufficient history in the uploaded file.
-Short-period exports (under 30 days) will produce many "first-time" flags that
-are simply normal activity not captured in the window. For reliable detection,
-upload audit trails covering at least 3 months.
-
-**Minimum prior events:** 5. Users with fewer than 5 recorded events are skipped
-to exclude newly created accounts where any action is technically a "first time."
+### Rule 14 — First-Time Behavior [HIGH]
+**Trigger:** An established user (5+ prior events) performs an action_type they have
+never performed before. Score increases with prior history and action risk level.
+Threshold scores: first-ever DELETE/APPROVE with 50+ events = 9.0; with 20+ = 8.0;
+first-ever high-risk action with 5+ events = 5.0.
+**Note:** Short audit trail exports produce many first-time flags for normal activity.
+Upload at least 3 months of history for reliable detection.
+**Reg basis:** 21 CFR Part 11 §11.10(d); ALCOA+ Attributable.
 
 ---
 
-
-## Suggested Disposition Logic
+## Suggested Disposition
 
 | Condition | Suggested Disposition |
 |---|---|
@@ -9019,57 +8906,108 @@ to exclude newly created accounts where any action is technically a "first time.
 | Rule 5 fired | Escalate to CAPA |
 | Rule 3 fired | Escalate to CAPA |
 | Rule 6 fired | Escalate to CAPA |
-| Rule 7 (audit ctrl) fired | Escalate to CAPA |
-| Rule 9 (gap) during business hours | Escalate to CAPA |
-| Rule 9 (gap) outside business hours | Investigate — Verify Source Data |
+| Rule 7 — audit trail config changed | Escalate to CAPA |
+| Rule 9 — gap during business hours + nearby rule ≥7 | Escalate to CAPA |
 | Rule 4 fired | Escalate to CAPA |
 | Rule 1 — blank comment | Escalate to CAPA |
-| Rule 1 — vague term | Justified — Amendment Required |
+| Rule 7 — sensitive deletion | Investigate — Verify Source Data |
+| Rule 9 — gap outside business hours | Investigate — Verify Source Data |
+| Rule 1 — vague term | Amendment Required |
 | Rule 13 fired | Investigate — Verify Source Data |
 | Rule 14 fired | Investigate — Verify Source Data |
 | Rule 2 burst | Investigate — Verify Source Data |
-| Off-hours with comment | Justified — Document Rationale |
-| Off-hours, no comment | Escalate to CAPA |
-| No rule triggered significantly | Justified — No Action Required |
+| Rule 8 fired | Investigate — Verify Source Data |
+| Off-hours with documented reason | Document Rationale |
+| Off-hours, no reason on record | Escalate to CAPA |
+| No named rule triggered | No Action Required |
 
 ---
 
+## Validation Test Cases
 
-## Validation Evidence
-
-This document constitutes part of the functional specification for the
-Audit Trail Intelligence module. For Computer System Validation purposes,
-the following test cases should be executed against the sample CSV template
-(downloadable from the tool's upload screen) to verify each rule fires correctly:
-
-| Test Case | Expected Rule | Expected Tier |
+| Test Input | Expected Rule | Expected Tier |
 |---|---|---|
-| UPDATE RESULTS with comment "fixed" | Rule 1 | High |
-| 12 RESULT_INSERT in 12 minutes, same user | Rule 2 | Medium |
+| UPDATE RESULTS, comment = "fixed" | Rule 1 | High |
+| 12 RESULT_INSERT in 12 min, same user | Rule 2 | Medium |
 | admin_sys INSERT BATCH_RELEASE | Rule 3 | Critical |
-| new_value = 147.3 when mean ≈ 7.1 | Rule 4 | High |
-| 3x LOGIN_FAILED → LOGIN → DELETE, 18 min | Rule 5 | Critical |
-| DELETE then INSERT same record_id, 3 min | Rule 6 | Critical |
+| new_value = 147.3, mean ≈ 7.1 | Rule 4 | High |
+| 3x LOGIN_FAILED → LOGIN → DELETE within 18 min | Rule 5 | Critical |
+| DELETE then INSERT same record_id within 3 min | Rule 6 | Critical |
 | UPDATE AUDIT_TRAIL, new_value = DISABLED | Rule 7 | Critical |
 | admin_sys DELETE RESULTS | Rule 8 | High |
-| >2 hour gap in timestamps | Rule 9 | High |
-| Timestamp 02:14 AM weekday | Rule 10 | High |
-| Any event on 2024-07-04 | Rule 10 (Holiday) | Medium-High |
-| Approval timestamp before creation, same record | Rule 11 | Critical |
+| Gap > 2 hours between consecutive entries | Rule 9 | High |
+| Event timestamp 02:14 AM weekday | Rule 10 | High |
+| Event on US Federal Holiday | Rule 10 | Medium |
+| Approval timestamp before creation timestamp | Rule 11 | Critical |
 | svc_batch INSERT RESULTS | Rule 12 | Critical |
-| Same user, 90+ day gap, then GxP action | Rule 13 | High |
+| User inactive 90+ days then GxP action | Rule 13 | High |
 | User with 50+ events performs first-ever DELETE | Rule 14 | High |
 
-*This document was generated by the Audit Trail Intelligence module and
-represents the validated detection logic at the time of this release.
-Review and approve as part of the Computer System Validation package.*
+*Generated by the Audit Trail Intelligence module. Review and approve as part
+of the Computer System Validation package for this tool.*
 """
 
 
+
         def _detection_logic_pdf() -> bytes:
-            """Return Detection Logic as a plain-text UTF-8 encoded file."""
+            """Return Detection Logic as a plain-text UTF-8 encoded file,
+            with the regulatory reference table prepended."""
             st.session_state["at_detection_logic_text"] = DETECTION_LOGIC
-            return DETECTION_LOGIC.encode("utf-8")
+            reg_table_text = (
+                "## Regulatory Reference — All 14 Rules\n\n"
+                f"{'#':<4} {'Rule Name':<35} {'What It Catches':<58} {'FDA Regulation':<42} {'EU Annex 11'}\n"
+                f"{'-'*4} {'-'*35} {'-'*58} {'-'*42} {'-'*20}\n"
+            )
+            rows_rt = [
+                ("1",  "Vague Rationale",
+                 "Blank or non-specific change reason — cannot attribute why record was modified",
+                 "21 CFR Part 211.68; ALCOA+ Attributable", "Clause 9"),
+                ("2",  "Contemporaneous Burst",
+                 "Mass data entry in short window — backdating or batch manipulation",
+                 "ALCOA+ Contemporaneous; 21 CFR Part 11 §11.10(e)", "Clause 9"),
+                ("3",  "Admin/GxP Conflict",
+                 "Admin/DBA directly modifying production GxP records",
+                 "21 CFR Part 11 §11.10(d)", "Clause 12"),
+                ("4",  "Change Control Drift",
+                 "Numeric value deviates >3 SD from historical mean for record type",
+                 "21 CFR Part 820.70(b)", "Clause 10"),
+                ("5",  "Failed Login → Data Action",
+                 "3+ failed logins before login then immediate GxP data modification",
+                 "21 CFR Part 11 §11.300", "Clause 12"),
+                ("6",  "Record Reconstruction",
+                 "Delete then recreate same record_id within 4 hrs — hides locked-record changes",
+                 "21 CFR Part 11 §11.10(e); ALCOA+ Original", "Clause 9"),
+                ("7",  "Audit Trail Integrity Event",
+                 "Audit trail config changed, or GxP record deleted outright",
+                 "21 CFR Part 11 §11.10(e)", "Clause 9"),
+                ("8",  "Privileged User on GxP Data",
+                 "Admin-role user modifies/deletes GxP-sensitive record",
+                 "21 CFR Part 11 §11.10(d)", "Clause 12"),
+                ("9",  "Timestamp Gap",
+                 "Gap >2 hrs between consecutive audit trail entries",
+                 "21 CFR Part 11 §11.10(e)", "Clause 9"),
+                ("10", "Off-Hours / Holiday",
+                 "GxP data action outside business hours, weekends, public holidays",
+                 "21 CFR Part 211.68", "Clause 9"),
+                ("11", "Timestamp Reversal",
+                 "Approval timestamp earlier than creation timestamp — impossible in valid system",
+                 "21 CFR Part 11 §11.10(e); ALCOA+ Contemporaneous", "Clause 9"),
+                ("12", "Service / Shared Account",
+                 "Non-personal account (svc_, batch_, api_) performs GxP action",
+                 "21 CFR Part 11 §11.300", "Clause 12"),
+                ("13", "Dormant Account",
+                 "User inactive 90+ days then performs GxP data action",
+                 "21 CFR Part 11 §11.10(d); 21 CFR Part 211.68", "Clause 12"),
+                ("14", "First-Time Behavior",
+                 "Established user performs action type never done before",
+                 "21 CFR Part 11 §11.10(d)", "Clause 12"),
+            ]
+            for num, name, catches, fda, eu in rows_rt:
+                reg_table_text += (
+                    f"{num:<4} {name:<35} {catches:<58} {fda:<42} {eu}\n"
+                )
+            reg_table_text += "\n" + "="*160 + "\n\n"
+            return (reg_table_text + DETECTION_LOGIC).encode("utf-8")
 
         with st.expander(
             "🔬 Detection Logic Reference — How does the engine work? (click to expand)",
@@ -9080,6 +9018,89 @@ Review and approve as part of the Computer System Validation package.*
                 unsafe_allow_html=True
             )
             st.session_state["at_detection_logic_text"] = DETECTION_LOGIC
+
+            # ── Regulatory Reference Table — UI only, not in Excel sheet ────
+            st.markdown("### 📋 Regulatory Reference — All 14 Rules")
+            reg_table_data = {
+                "Rule": [
+                    "1 — Vague Rationale",
+                    "2 — Contemporaneous Burst",
+                    "3 — Admin/GxP Conflict",
+                    "4 — Change Control Drift",
+                    "5 — Failed Login → Data Action",
+                    "6 — Record Reconstruction",
+                    "7 — Audit Trail Integrity Event",
+                    "8 — Privileged User on GxP Data",
+                    "9 — Timestamp Gap",
+                    "10 — Off-Hours / Holiday",
+                    "11 — Timestamp Reversal",
+                    "12 — Service / Shared Account",
+                    "13 — Dormant Account",
+                    "14 — First-Time Behavior",
+                ],
+                "What It Catches": [
+                    "Change reasons that are blank or non-specific — cannot attribute why a GxP record was modified",
+                    "Mass data entry in a short window — suggests backdating or batch manipulation",
+                    "System administrators directly modifying production data — violates segregation of duties",
+                    "Numeric values deviating significantly from historical norms — flags potential data manipulation",
+                    "Brute-force access followed immediately by a data modification action",
+                    "Delete then recreate of the same record — primary technique for hiding changes to locked records",
+                    "Changes to audit trail configuration itself, or outright deletion of GxP records",
+                    "Admin-role users modifying or deleting GxP-sensitive records outside approved configuration",
+                    "Unexplained gaps in the audit trail — may indicate deleted entries or undocumented downtime",
+                    "GxP data actions outside business hours, weekends, or public holidays",
+                    "Approval timestamp earlier than creation timestamp — chronologically impossible in valid system",
+                    "Non-personal accounts (svc_, batch_, api_) performing GxP actions — cannot be attributed",
+                    "Inactive accounts silent for 90+ days suddenly performing GxP data actions",
+                    "Established users performing an action type they have never performed before",
+                ],
+                "FDA Regulation": [
+                    "21 CFR Part 211.68; ALCOA+ Attributable",
+                    "ALCOA+ Contemporaneous; 21 CFR Part 11 §11.10(e)",
+                    "21 CFR Part 11 §11.10(d) — Limiting System Access",
+                    "21 CFR Part 820.70(b) — Production Controls",
+                    "21 CFR Part 11 §11.300 — Controls for Identification Codes",
+                    "21 CFR Part 11 §11.10(e); ALCOA+ Original",
+                    "21 CFR Part 11 §11.10(e) — Audit Trail Protection",
+                    "21 CFR Part 11 §11.10(d) — Limiting System Access",
+                    "21 CFR Part 11 §11.10(e) — Sequential Record Completeness",
+                    "21 CFR Part 211.68 — Automatic Equipment",
+                    "21 CFR Part 11 §11.10(e); ALCOA+ Contemporaneous",
+                    "21 CFR Part 11 §11.300 — Individual Accountability",
+                    "21 CFR Part 11 §11.10(d); 21 CFR Part 211.68",
+                    "21 CFR Part 11 §11.10(d) — Limiting System Access",
+                ],
+                "EU Annex 11": [
+                    "Clause 9 — Audit Trail",
+                    "Clause 9 — Audit Trail",
+                    "Clause 12 — Access",
+                    "Clause 10 — Change and Configuration Management",
+                    "Clause 12 — Access",
+                    "Clause 9 — Audit Trail",
+                    "Clause 9 — Audit Trail",
+                    "Clause 12 — Access",
+                    "Clause 9 — Audit Trail",
+                    "Clause 9 — Audit Trail",
+                    "Clause 9 — Audit Trail",
+                    "Clause 12 — Access",
+                    "Clause 12 — Access",
+                    "Clause 12 — Access",
+                ],
+            }
+            import pandas as _pd_reg
+            _reg_df = _pd_reg.DataFrame(reg_table_data)
+            st.dataframe(
+                _reg_df,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "Rule":            st.column_config.TextColumn("Rule", width=180),
+                    "What It Catches": st.column_config.TextColumn("What It Catches", width=320),
+                    "FDA Regulation":  st.column_config.TextColumn("FDA Regulation", width=230),
+                    "EU Annex 11":     st.column_config.TextColumn("EU Annex 11", width=180),
+                },
+            )
+            st.markdown("---")
             st.markdown(DETECTION_LOGIC)
             st.markdown("</div>", unsafe_allow_html=True)
             st.download_button(
@@ -10427,7 +10448,7 @@ match your system's export column names to the fields above — rename nothing i
             padding:8px 16px;margin-bottom:16px;">
   <span style="color:#16a34a;font-size:0.88rem;">●</span>
   <span style="color:#15803d;font-size:0.82rem;font-weight:600;">
-    12-Rule Detection Engine Ready
+    14-Rule Detection Engine Ready
   </span>
 </div>""", unsafe_allow_html=True)
 
@@ -10721,7 +10742,7 @@ match your system's export column names to the fields above — rename nothing i
                     "<b style='color:#e2e8f0;'>Events for Review</b> · "
                     "<b style='color:#e2e8f0;'>Full Audit Log</b> · "
                     "<b style='color:#e2e8f0;'>Detection Logic</b>"
-                    "<br>Attach to Periodic Review Report Section 9.1.6.</p>",
+                    "<br>Attach to your Periodic Review Report as the audit trail evidence package.</p>",
                     unsafe_allow_html=True
                 )
 
@@ -10731,7 +10752,7 @@ match your system's export column names to the fields above — rename nothing i
   <b style="color:#94a3b8;">Content for your Periodic Review Report:</b><br>
   <i style="color:#cbd5e1;">
   "System-assisted audit trail review identified the {n_esc} highest-risk events from
-  {n_total:,} total entries using a 12-rule anomaly detection engine. {pct_clr}% of
+  {n_total:,} total entries using a 14-rule anomaly detection engine. {pct_clr}% of
   events were auto-cleared as low risk. All {n_esc} escalated events are available
   for human review and have been dispositioned by the undersigned as documented in
   the attached Appendix. Complies with 21 CFR Part 11 §11.10(e) and EU Annex 11 Clause 9."
@@ -11078,7 +11099,7 @@ def show_app():
         st.markdown(
             '<p style="color:#94a3b8;font-size:0.68rem;margin:-6px 0 4px;'
             'letter-spacing:0.5px;font-family:\'IBM Plex Mono\',monospace;">'
-            'Build v66 · Change Control Package coming Monday</p>',
+            'Build v68 · Change Control Package coming Monday</p>',
             unsafe_allow_html=True)
         st.divider()
         st.markdown('<p class="sb-sub">🔧 Analysis Mode</p>', unsafe_allow_html=True)
