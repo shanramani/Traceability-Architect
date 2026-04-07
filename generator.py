@@ -55,7 +55,7 @@ except ImportError:
 # =============================================================================
 # 1. CONFIG
 # =============================================================================
-VERSION        = "64.0"
+VERSION        = "65.0"
 PROMPT_VERSION = "v19.0-esignature-test-type-r3c"
 TEMPERATURE    = 0.2
 CHUNK_SIZE     = 8
@@ -1812,6 +1812,13 @@ def _apply_confidence_flags(df: pd.DataFrame) -> pd.DataFrame:
     - Confidence < 0.70  → "⚠️ Review Required"
     - Confidence >= 0.70 → ""   (blank — never None)
     - Missing/unparseable → ""
+
+    FIX 8: For OQ rows, additionally flags steps that lack any navigation
+    context (no Tab / screen / navigate / click / button / field reference).
+    A test step with no navigation path cannot be executed by a tester who
+    is unfamiliar with the system — it fails the executability bar set by
+    GAMP 5 OQ guidance. Flag: "⚠️ Navigation Path Missing".
+
     Python enforces this independently of whatever the LLM wrote.
     """
     if df.empty:
@@ -1834,6 +1841,43 @@ def _apply_confidence_flags(df: pd.DataFrame) -> pd.DataFrame:
             return ""
 
     df["Confidence_Flag"] = df["Confidence"].apply(_flag)
+
+    # ── FIX 8: OQ-specific navigation path check ─────────────────────────────
+    # Only applied when the dataframe has Test_Step column (i.e. OQ sheet).
+    # A RULE A infrastructure test legitimately has no UI navigation — exclude
+    # those (Test_Type = Performance or step contains "simulate"/"failover").
+    if "Test_Step" in df.columns:
+        _NAV_KEYWORDS = re.compile(
+            r'\b(navigate|click|select|open|tab\b|screen|button|field|'
+            r'menu|form|panel|page|dialog|window|go\s+to|login|log\s+in)\b',
+            re.IGNORECASE
+        )
+        _INFRA_INDICATORS = re.compile(
+            r'\b(simulate|failover|restart|server|node|load\s+test|'
+            r'stress\s+test|command\s+line|cli|api|database|sql|'
+            r'network|latency|throughput)\b',
+            re.IGNORECASE
+        )
+        for idx, row in df.iterrows():
+            step      = str(row.get("Test_Step", "") or "")
+            test_type = str(row.get("Test_Type", "") or "").lower()
+            flag_now  = str(row.get("Confidence_Flag", "") or "")
+
+            # Skip infrastructure tests — they intentionally have no UI nav
+            if test_type == "performance" or _INFRA_INDICATORS.search(step):
+                continue
+            # Skip SCREEN UNVERIFIED rows — already flagged
+            if "[SCREEN UNVERIFIED]" in step:
+                continue
+            # Skip blank steps
+            if not step.strip() or step.strip().lower() in ("n/a", "nan"):
+                continue
+
+            if not _NAV_KEYWORDS.search(step):
+                if flag_now and flag_now != "N/A":
+                    df.at[idx, "Confidence_Flag"] = flag_now + "; ⚠️ Navigation Path Missing"
+                else:
+                    df.at[idx, "Confidence_Flag"] = "⚠️ Navigation Path Missing"
 
     # Replace any NaN/None in ALL columns with empty string for clean Excel output
     df = df.fillna("")
@@ -1878,7 +1922,7 @@ For each, generate one FRS row with Source_URS_Ref = "[GAP-SOURCE: User Guide On
 PART 2 — URS Requirements NOT supported by User Guide:
 Identify URS requirements that describe functionality NOT described anywhere in the
 User Guide. These suggest the system may not support the requirement.
-Generate one gap row for each with Gap_Type = "URS_Not_In_UserGuide".
+Generate one gap row for each with Gap_Type = "Document_Mismatch".
 
 Output EXACTLY 2 CSV datasets separated by |||.
 Include the header row in EACH dataset. Wrap comma-containing values in double-quotes.
@@ -1894,9 +1938,14 @@ ID,Requirement_Description,Priority,Risk,GxP_Impact,Source_URS_Ref,Source_Text,S
 Dataset 2 (cross-source gap rows):
 Req_ID,Gap_Type,Description,Recommendation,Severity
 - Req_ID: use the URS Req_ID if known, otherwise "URS-UNMATCHED-NNN"
-- Gap_Type: URS_Not_In_UserGuide
-- Description: what the URS requires and why the User Guide doesn't cover it
-- Recommendation: specific action (e.g. contact vendor, raise a change request, or add to URS)
+- Gap_Type: Document_Mismatch
+- Description: what the URS requires and why the User Guide doesn't cover it.
+  IMPORTANT: If the two documents appear to describe DIFFERENT systems entirely
+  (e.g. URS names LabVantage but guide is for a different product), start the
+  description with "⚠️ System identity mismatch — URS and User Guide appear to
+  describe different systems:" and explain clearly. Set Severity = Critical.
+- Recommendation: specific action (e.g. contact vendor, raise a change request,
+  obtain correct documentation, or add requirement to URS)
 - Severity: Critical / High / Medium
 
 If no gaps exist in either direction, output two CSV headers with no data rows.
@@ -2382,6 +2431,35 @@ def run_segmented_analysis(
     oq_final  = _apply_confidence_flags(oq_final)
     urs_final = _apply_confidence_flags(urs_final)
 
+    # ── FIX 6: Back-populate Risk_Level in URS_Extraction from FRS ───────────
+    # The URS extraction pass doesn't assign risk — that happens in Pass 2 FRS.
+    # Build a URS_ID → FRS_Risk mapping and write it back so the URS sheet
+    # shows meaningful risk assignments rather than blank/N/A for every row.
+    if (not urs_final.empty and "Req_ID" in urs_final.columns
+            and not frs_final.empty and "Source_URS_Ref" in frs_final.columns
+            and "Risk" in frs_final.columns):
+        _urs_risk_map: dict = {}
+        for _, _fr in frs_final.iterrows():
+            _src_ref = str(_fr.get("Source_URS_Ref", "")).strip()
+            _risk    = str(_fr.get("Risk", "")).strip()
+            if _src_ref and _risk and not _src_ref.startswith("[GAP"):
+                # Normalise "URS-001 (CAL01)" → "URS-001"
+                _base = re.sub(r'\s*\(.*?\)\s*$', '', _src_ref).strip()
+                # Take the highest risk among multiple FRS for same URS
+                _priority = {"High": 3, "Medium": 2, "Low": 1}
+                _existing = _urs_risk_map.get(_base, "Low")
+                if _priority.get(_risk, 0) >= _priority.get(_existing, 0):
+                    _urs_risk_map[_base] = _risk
+
+        if _urs_risk_map:
+            # Add/update Risk_Level column
+            _new_risks = []
+            for _, _ur in urs_final.iterrows():
+                _uid = str(_ur.get("Req_ID", "")).strip()
+                _new_risks.append(_urs_risk_map.get(_uid, "N/A"))
+            urs_final = urs_final.copy()
+            urs_final["Risk_Level"] = _new_risks
+
     for df in [frs_final, oq_final, urs_final]:
         df.fillna("N/A", inplace=True)
         df.replace("", "N/A", inplace=True)
@@ -2404,8 +2482,58 @@ def run_segmented_analysis(
         )
         # Append cross-source FRS rows to main FRS table
         if not xfrs_df.empty:
-            frs_final = pd.concat([frs_final, xfrs_df], ignore_index=True)
-            frs_final.fillna("N/A", inplace=True)
+            # ── FIX 3: Remove obsolete-technology XFRS rows ───────────────────
+            # When the uploaded guide is an old product manual, Pass 3 faithfully
+            # extracts legacy hardware/software specs as XFRS requirements.
+            # These erode reviewer trust — "minimum 128 MB RAM" has no place in
+            # a modern LIMS validation package.
+            _OBSOLETE_TECH_PATTERNS = re.compile(
+                r'\b('
+                r'windows\s+nt|windows\s+2000|windows\s+98|windows\s+me|'
+                r'internet\s+explorer|ie\s+5|ie\s+6|mdac|'
+                r'\d+\s*mhz|mhz\s+processor|minimum\s+\d+\s*mhz|'
+                r'\d+\s*mb\s+ram|minimum\s+\d+\s*mb|minimum\s+128|'
+                r'netscape|windows\s+xp\s+sp[12]|'
+                r'microsoft\s+data\s+access\s+components|'
+                r'genearray\s+scanner|affymetrix\s+microarray\s+suite|'
+                r'genechip\s+analysis'
+                r')\b',
+                re.IGNORECASE
+            )
+            if "Requirement_Description" in xfrs_df.columns:
+                _obs_mask = xfrs_df["Requirement_Description"].astype(str).apply(
+                    lambda d: bool(_OBSOLETE_TECH_PATTERNS.search(d))
+                )
+                _n_obs = int(_obs_mask.sum())
+                if _n_obs:
+                    xfrs_df = xfrs_df[~_obs_mask].reset_index(drop=True)
+
+            # ── FIX 4: Remove Research-Use-Only / non-requirement XFRS rows ──
+            # Title-page disclaimers and labeling notices extracted from product
+            # manuals are not implementable requirements. Exclude rows where
+            # GxP_Impact=No AND Risk=N/A, or description contains the disclaimer.
+            _RUO_PATTERN = re.compile(
+                r'research\s+use\s+only|not\s+for\s+(?:use\s+in\s+)?diagnostic|'
+                r'for\s+research\s+purposes\s+only|not\s+intended\s+for\s+clinical',
+                re.IGNORECASE
+            )
+            if "Requirement_Description" in xfrs_df.columns:
+                _ruo_desc_mask = xfrs_df["Requirement_Description"].astype(str).apply(
+                    lambda d: bool(_RUO_PATTERN.search(d))
+                )
+                _ruo_risk_mask = (
+                    (xfrs_df.get("Risk", pd.Series("", index=xfrs_df.index))
+                     .astype(str).str.strip().str.upper() == "N/A") &
+                    (xfrs_df.get("GxP_Impact", pd.Series("", index=xfrs_df.index))
+                     .astype(str).str.strip().str.lower() == "no")
+                )
+                _ruo_mask = _ruo_desc_mask | _ruo_risk_mask
+                if _ruo_mask.any():
+                    xfrs_df = xfrs_df[~_ruo_mask].reset_index(drop=True)
+
+            if not xfrs_df.empty:
+                frs_final = pd.concat([frs_final, xfrs_df], ignore_index=True)
+                frs_final.fillna("N/A", inplace=True)
         # Append cross-source gap rows to main gap table
         if not xgap_df.empty:
             # Ensure matching columns
@@ -2567,7 +2695,8 @@ def _token_overlap(a: str, b: str) -> float:
 
 VALID_GAP_TYPES = {"Untestable", "No_Test_Coverage", "Orphan_Test",
                    "Ambiguous", "Duplicate", "Missing_FRS",
-                   "Non_Functional", "Missing_Test", "Non_Testable_Requirement"}
+                   "Non_Functional", "Missing_Test", "Non_Testable_Requirement",
+                   "Document_Mismatch"}
 
 def _clean_gap_analysis(gap_df: pd.DataFrame) -> pd.DataFrame:
     """
@@ -2598,8 +2727,15 @@ def _clean_gap_analysis(gap_df: pd.DataFrame) -> pd.DataFrame:
     # Fix Gap_Type values that contain severity words instead of gap type enum
     if "Gap_Type" in df.columns:
         severity_words = {"critical", "high", "medium", "low"}
+        # Legacy rename: old cross-source gap label → new client-facing label
+        _GAP_TYPE_ALIASES = {
+            "URS_Not_In_UserGuide": "Document_Mismatch",
+            "urs_not_in_userguide": "Document_Mismatch",
+        }
         def _fix_gap_type(v):
             v_str = str(v).strip()
+            if v_str in _GAP_TYPE_ALIASES:
+                return _GAP_TYPE_ALIASES[v_str]
             if v_str in VALID_GAP_TYPES:
                 return v_str
             if v_str.lower() in severity_words:
@@ -2634,9 +2770,25 @@ def run_deterministic_validation(
     """
     issues = []
 
+    # ── FIX 2: XFRS rows are supplementary cross-source output from Pass 3.
+    # They were never URS-derived requirements and will never have OQ tests
+    # generated for them in the same pass. R1 ("no OQ test") and R4
+    # ("insufficient tests for risk level") must not fire against them —
+    # they produce 100+ false-positive High findings that bury real issues.
+    # R3 (ambiguous/non-testable language) CAN fire on XFRS — those are
+    # genuine description quality checks that apply to any FRS row.
+    _is_xfrs_id = lambda fid: str(fid).strip().upper().startswith("XFRS")
+
     frs_ids = set()
     if not frs_df.empty and "ID" in frs_df.columns:
         frs_ids = set(frs_df["ID"].dropna().astype(str).str.strip())
+
+    # Subsets used for R1/R4 — real URS-derived FRS rows only
+    frs_df_real = frs_df[
+        ~frs_df["ID"].astype(str).str.strip().str.upper().str.startswith("XFRS")
+    ].copy() if not frs_df.empty and "ID" in frs_df.columns else frs_df
+    frs_ids_real = set(frs_df_real["ID"].dropna().astype(str).str.strip()) \
+                   if not frs_df_real.empty and "ID" in frs_df_real.columns else set()
 
     # FRS lookup by Source_URS_Ref for R0 — normalise to base URS ID
     frs_urs_refs = set()
@@ -2672,7 +2824,8 @@ def run_deterministic_validation(
 
     # ── R1: FRS req without any OQ test ──────────────────────────────────────
     # Source of truth is the actual OQ rows — never the traceability matrix.
-    for frs_id in sorted(frs_ids):
+    # Only fires on real URS-derived FRS rows (XFRS rows excluded — Fix 2).
+    for frs_id in sorted(frs_ids_real):
         if frs_id not in oq_req_links:
             issues.append({
                 "Rule":            "R1",
@@ -2728,18 +2881,37 @@ def run_deterministic_validation(
                 }])], ignore_index=True)
 
             elif amb_found:
+                # ── FIX 5: Show the matched term IN context (up to 40 chars
+                # around it) so the reviewer knows exactly what triggered the flag.
+                def _amb_context(desc_str, term):
+                    idx = desc_str.lower().find(term)
+                    if idx == -1:
+                        return term
+                    start = max(0, idx - 15)
+                    end   = min(len(desc_str), idx + len(term) + 15)
+                    snip  = desc_str[start:end].strip()
+                    return f'"{snip}"'
+                _amb_contexts = [_amb_context(str(row.get(desc_col, "")), kw)
+                                 for kw in amb_found]
+                _amb_display  = ", ".join(
+                    f"{kw} (in: {ctx})" for kw, ctx in zip(amb_found, _amb_contexts)
+                )
                 issues.append({
                     "Rule":            "R3b",
                     "Req_ID":          fid,
                     "Gap_Type":        "Ambiguous",
-                    "Description":     f"Ambiguous language detected: {', '.join(amb_found)}",
-                    "Recommendation":  "Clarify intent with specific, unambiguous wording.",
+                    "Description":     f"Ambiguous language detected — trigger term(s): {_amb_display}. "
+                                       f"Reviewers cannot objectively verify a requirement that uses "
+                                       f"undefined relative terms.",
+                    "Recommendation":  "Replace each flagged term with a specific, measurable criterion "
+                                       "(e.g. replace 'appropriate' with a defined threshold or enumerated list).",
                     "Severity":        "Medium",
                 })
                 gap_df = pd.concat([gap_df, pd.DataFrame([{
                     "Req_ID":          fid,
                     "Gap_Type":        "Ambiguous",
-                    "Description":     f"Ambiguous keywords: {', '.join(amb_found)}",
+                    "Description":     f"Ambiguous term(s): {', '.join(amb_found)} — "
+                                       f"context: {_amb_contexts[0]}",
                     "Recommendation":  "Clarify requirement with precise, unambiguous language.",
                     "Severity":        "Medium",
                 }])], ignore_index=True)
@@ -2849,10 +3021,11 @@ def run_deterministic_validation(
                     }])], ignore_index=True)
 
     # ── R4: High-risk reqs with insufficient OQ test count ───────────────────
-    if not frs_df.empty and "Risk" in frs_df.columns and not oq_df.empty:
+    # Only fires on real URS-derived FRS rows (XFRS excluded — Fix 2).
+    if not frs_df_real.empty and "Risk" in frs_df_real.columns and not oq_df.empty:
         req_link_col = "Requirement_Link" if "Requirement_Link" in oq_df.columns else None
         if req_link_col:
-            for _, row in frs_df.iterrows():
+            for _, row in frs_df_real.iterrows():
                 fid       = str(row.get("ID", "")).strip()
                 risk      = str(row.get("Risk", "")).strip().lower()
                 min_tests = {"high": 3, "medium": 2, "low": 1}.get(risk, 1)
@@ -3091,6 +3264,19 @@ def build_dashboard_sheet(frs_df: pd.DataFrame, oq_df: pd.DataFrame,
     ai_gaps  = len(gap_df) if not gap_df.empty else 0
     det_gaps = len(det_df) if not det_df.empty else 0
 
+    # ── FIX 7: Split det_gaps into real FRS issues vs cross-source advisory ──
+    # XFRS rows are excluded from R1/R4 (Fix 2), so all remaining det_gaps
+    # are genuine URS-derived FRS findings. Cross-source advisory items come
+    # from R3 applied to XFRS rows (ambiguous language checks, which still
+    # fire on XFRS). Separate these so the dashboard is immediately readable.
+    det_real_issues   = 0   # Rules R0, R1, R2, R4, R5, R6 — always on real FRS
+    det_xfrs_advisory = 0   # R3 on XFRS rows — language quality notes
+    if not det_df.empty and "Rule" in det_df.columns and "Req_ID" in det_df.columns:
+        _xfrs_rows_mask = det_df["Req_ID"].astype(str).str.upper().str.startswith("XFRS")
+        _r3_rules       = det_df["Rule"].astype(str).str.startswith("R3")
+        det_xfrs_advisory = int((_xfrs_rows_mask & _r3_rules).sum())
+        det_real_issues   = det_gaps - det_xfrs_advisory
+
     # Risk breakdown — real FRS only (XFRS rows are not risk-classified requirements)
     high_risk = med_risk = low_risk = 0
     if not frs_real_df.empty and "Risk" in frs_real_df.columns:
@@ -3128,7 +3314,10 @@ def build_dashboard_sheet(frs_df: pd.DataFrame, oq_df: pd.DataFrame,
         {"KPI": "🚨 Missing FRS (AI skipped URS)",     "Value": missing_frs,           "Status": "Critical — re-run or add manually"},
         {"KPI": "⚠️ AI-Detected Gaps",                 "Value": ai_gaps,
          "Status": "See Gap_Analysis sheet" if ai_gaps > 0 else "✅ None — see Traceability sheet"},
-        {"KPI": "🔍 Deterministic Issues (R0–R5)",     "Value": det_gaps,              "Status": "See Det_Validation sheet"},
+        {"KPI": "🔍 Det. Issues — URS/FRS (R0–R5)",   "Value": det_real_issues,
+         "Status": "✅ None" if det_real_issues == 0 else "See Det_Validation sheet"},
+        {"KPI": "📝 Det. Advisory — Cross-Source (R3)","Value": det_xfrs_advisory,
+         "Status": "XFRS language notes — review optional" if det_xfrs_advisory > 0 else "✅ None"},
         {"KPI": "🚫 Non-Testable Requirements",         "Value": non_testable,          "Status": "Rewrite required"},
         {"KPI": "👻 Orphan Tests (No FRS link)",        "Value": orphan_tests,          "Status": "Investigate"},
         {"KPI": "📁 Source Document",                   "Value": file_name,             "Status": "N/A"},
@@ -10938,7 +11127,7 @@ def show_app():
         st.markdown(
             '<p style="color:#94a3b8;font-size:0.68rem;margin:-6px 0 4px;'
             'letter-spacing:0.5px;font-family:\'IBM Plex Mono\',monospace;">'
-            'Build v64 · Change Control Package coming Monday</p>',
+            'Build v65 · Change Control Package coming Monday</p>',
             unsafe_allow_html=True)
         st.divider()
         st.markdown('<p class="sb-sub">🔧 Analysis Mode</p>', unsafe_allow_html=True)
