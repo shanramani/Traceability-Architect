@@ -146,7 +146,7 @@ except ImportError:
 # =============================================================================
 # 1. CONFIG
 # =============================================================================
-VERSION        = "70.0"
+VERSION        = "71.0"
 PROMPT_VERSION = "v19.0-esignature-test-type-r3c"
 TEMPERATURE    = 0.2
 CHUNK_SIZE     = 8
@@ -6597,12 +6597,21 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
                 rec_k = df_s["record_type"].iloc[k].lower() \
                         if "record_type" in df_s.columns else ""
                 if any(kw in act_k for kw in manip_kw):
-                    # BQ-006: Tighten scope — only fire if privileged account OR
-                    # action targets a sensitive table. Standard analyst routine
-                    # RESULTS/BATCH INSERTs after password struggle = false positive.
+                    # BQ-006 REVISED: Fire on DELETE on any GxP table, or on any
+                    # action targeting a core GxP data table, or by a privileged account.
+                    # Original BQ-006 was over-tightened — it excluded analyst DELETE
+                    # on RESULTS after failed logins, which is a genuine high-risk pattern.
+                    # RESULTS, BATCH_RELEASE, and SAMPLE_DATA are core regulated tables
+                    # and belong in the sensitive list regardless of analyst role.
                     _R5_PRIV_KW   = ["admin","dba","administrator","sysadmin","superuser"]
-                    _R5_SENS_TBLS = ["audit_trail","electronic_signature","esig",
-                                     "quality_record","raw_data"]
+                    _R5_SENS_TBLS = [
+                        "results","result","batch","batch_release","sample_data","sample",
+                        "test_result","raw_data","quality_record",
+                        "audit_trail","electronic_signature","esig",
+                    ]
+                    # DELETE on any GxP table always qualifies — deletion after
+                    # credential struggle is suspicious regardless of role.
+                    _is_delete = "DELETE" in act_k
                     _role_k = ""
                     if "role" in df_s.columns:
                         try:
@@ -6611,10 +6620,9 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
                             _role_k = ""
                     is_privileged = any(kw in _role_k for kw in _R5_PRIV_KW)
                     is_sens_tbl   = any(kw in rec_k   for kw in _R5_SENS_TBLS)
-                    if not is_privileged and not is_sens_tbl:
-                        seen_acts.add(act_k) if False else None
-                        continue  # routine analyst action — not a finding
-                    _score_r5 = 10.0 if is_privileged else 9.0
+                    if not is_privileged and not is_sens_tbl and not _is_delete:
+                        continue  # genuinely routine action on non-GxP table — skip
+                    _score_r5 = 10.0 if (is_privileged or _is_delete) else 9.0
                     # Flag both the login event and the manipulation event
                     rationale_text = (
                         f"Rule 5 — Failed Login → Data Manipulation [CRITICAL]: "
@@ -6623,7 +6631,8 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
                         f"Within 30 minutes of login, action '{df_s['action_type'].iloc[k]}' "
                         f"was performed on '{df_s['record_type'].iloc[k] if 'record_type' in df_s.columns else 'GxP record'}'. "
                         + ("Privileged account performing GxP action after credential struggle. " if is_privileged else
-                           "Action targets a sensitive GxP table not part of routine analyst workflow. ")
+                           "DELETE on a GxP data table after failed credential attempts. " if _is_delete else
+                           "Action targets a core GxP data table. ")
                         + "This sequence may indicate unauthorised data access and manipulation, raising concerns regarding data originality and attributability inconsistent with 21 CFR Part 11 §11.300 and FDA Data Integrity Guidance (2018)."
                     )
                     r5_scores.at[ix_lst[i]] = _score_r5
@@ -9613,7 +9622,7 @@ match your system's export column names to the fields above — rename nothing i
                  "A new_value of 147.3 is >3 standard deviations above the dataset mean (~7.4). "
                  "Flags statistically anomalous numeric changes."),
                 ("Rule 5 — Failed Login → Data Manipulation",
-                 "analyst_x has 3 LOGIN_FAILED events at 10:00–10:06, successful login at 10:08, "
+                 "analyst_x has 3 LOGIN_FAILED events at 10:03, 10:05, 10:08, successful login at 10:10, "
                  "then a DELETE on RESULTS (RES-5050) just 7 minutes later."),
                 ("Rule 6 — Delete → Recreate Same Record",
                  "analyst_y DELETEs RES-8888 at 18:00 then creates a new entry for RES-8888 "
@@ -9687,11 +9696,11 @@ match your system's export column names to the fields above — rename nothing i
                 ["2026-03-23 09:25:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1017", "Standard value entry per SOP-01", "7.17"],
                 ["2026-03-23 09:30:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1018", "Standard value entry per SOP-01", "7.29"],
                 ["2026-03-23 09:35:00", "analyst_brown", "UPDATE", "RESULTS", "Analyst", "RES-1019", "Standard value entry per SOP-01", "7.49"],
-                ["2026-03-23 10:00:00", "analyst_x", "LOGIN_FAILED", "USER_SESSION", "Analyst", "SES-01", "Wrong password", ""],
+                ["2026-03-23 10:03:00", "analyst_x", "LOGIN_FAILED", "USER_SESSION", "Analyst", "SES-01", "Wrong password", ""],
                 ["2026-03-23 10:03:00", "analyst_x", "LOGIN_FAILED", "USER_SESSION", "Analyst", "SES-01", "Wrong password", ""],
                 ["2026-03-23 10:05:00", "analyst_jones", "UPDATE", "RESULTS", "Analyst", "RES-1025", "Standard value entry per SOP-01", "7.37"],
-                ["2026-03-23 10:06:00", "analyst_x", "LOGIN_FAILED", "USER_SESSION", "Analyst", "SES-01", "Wrong password", ""],
-                ["2026-03-23 10:08:00", "analyst_x", "LOGIN", "USER_SESSION", "Analyst", "SES-01", "Success", ""],
+                ["2026-03-23 10:08:00", "analyst_x", "LOGIN_FAILED", "USER_SESSION", "Analyst", "SES-01", "Wrong password", ""],
+                ["2026-03-23 10:10:00", "analyst_x", "LOGIN", "USER_SESSION", "Analyst", "SES-01", "Success", ""],
                 ["2026-03-23 10:10:00", "analyst_z", "UPDATE", "RESULTS", "Analyst", "RES-1026", "Standard value entry per SOP-01", "7.27"],
                 ["2026-03-23 10:15:00", "analyst_x", "DELETE", "RESULTS", "Analyst", "RES-5050", "Cleaning up error", ""],
                 ["2026-03-23 10:15:00", "analyst_x", "UPDATE", "RESULTS", "Analyst", "RES-1027", "Standard value entry per SOP-01", "7.18"],
@@ -10878,7 +10887,7 @@ match your system's export column names to the fields above — rename nothing i
                     except Exception:
                         pass   # date parse failure — treat all rows as in-period
 
-                st.write(f"⚡ Step 2: Scoring {len(scored):,} events across 13 rules...")
+                st.write(f"⚡ Step 2: Scoring {len(scored):,} events across 14 rules...")
                 _ = prog.progress(0.45)
                 # ── Select Top N with three filters ───────────────────────────
                 # Filter 1: Remove out-of-period rows (Risk_Tier == "Out of Period")
@@ -11465,7 +11474,7 @@ def show_app():
         st.markdown(
             '<p style="color:#94a3b8;font-size:0.68rem;margin:-6px 0 4px;'
             'letter-spacing:0.5px;font-family:\'IBM Plex Mono\',monospace;">'
-            'Build v70 · Change Control Package coming Monday</p>',
+            'Build v71 · Change Control Package coming Monday</p>',
             unsafe_allow_html=True)
         st.divider()
         st.markdown('<p class="sb-sub">🔧 Analysis Mode</p>', unsafe_allow_html=True)
