@@ -55,7 +55,7 @@ except ImportError:
 # =============================================================================
 # 1. CONFIG
 # =============================================================================
-VERSION        = "65.0"
+VERSION        = "66.0"
 PROMPT_VERSION = "v19.0-esignature-test-type-r3c"
 TEMPERATURE    = 0.2
 CHUNK_SIZE     = 8
@@ -2109,25 +2109,24 @@ def run_segmented_analysis(
 
     urs_final = _combine(urs_frames)
 
-    # ── Cross-chunk URS ID deduplication ─────────────────────────────────────
-    # Each chunk's LLM may restart numbering (URS-001, URS-001…).
-    # Preserve any valid original IDs returned by the LLM (e.g. CAL01, SPEC01
-    # from a well-structured URS); only replace blank or duplicate IDs with
-    # sequential URS-NNN fallbacks. This prevents overwriting original document
-    # requirement IDs when the LLM correctly extracts them.
+    # ── URS ID normalisation — preserve original source IDs ──────────────────
+    # FIX F: Pass 1 prompt now extracts original source document IDs directly.
+    # This block ONLY removes blank/NaN IDs and resolves cross-chunk duplicates.
+    # It does NOT force sequential renumbering — source IDs like URS-GR001,
+    # URS-042, REQ-5.1.1 are preserved exactly so the output package can be
+    # reconciled against the client's controlled source document.
     if not urs_final.empty and "Req_ID" in urs_final.columns:
         urs_final = urs_final.copy()
-        _seen_ids  = set()
-        _new_ids   = []
-        _id_ctr    = 1
+        _seen_ids = set()
+        _new_ids  = []
+        _id_ctr   = 1
         for _val in urs_final["Req_ID"]:
-            _raw = str(_val).strip()
+            _raw   = str(_val).strip()
             _blank = not _raw or _raw.upper() in ("N/A", "NAN", "NONE")
             if not _blank and _raw not in _seen_ids:
                 _seen_ids.add(_raw)
                 _new_ids.append(_raw)
             else:
-                # Assign next unused sequential fallback
                 while f"URS-{_id_ctr:03d}" in _seen_ids:
                     _id_ctr += 1
                 _fid = f"URS-{_id_ctr:03d}"
@@ -2135,15 +2134,6 @@ def run_segmented_analysis(
                 _new_ids.append(_fid)
                 _id_ctr += 1
         urs_final["Req_ID"] = _new_ids
-        # FIX H1: If every ID is in LLM-generated URS-NNN format, the LLM
-        # may have started from the wrong number (e.g. URS-044 instead of
-        # URS-001). Force sequential renumbering from URS-001 in that case.
-        # IDs that are original document IDs (CAL01, SPEC01, REQ-003, etc.)
-        # do NOT match the URS-\d+ pattern and are intentionally preserved.
-        import re as _re_h1
-        if _new_ids and all(_re_h1.match(r"^URS-\d+$", str(v), _re_h1.IGNORECASE)
-                            for v in _new_ids if str(v).strip()):
-            urs_final["Req_ID"] = [f"URS-{i+1:03d}" for i in range(len(urs_final))]
 
     urs_final = _apply_confidence_flags(urs_final)
 
@@ -2351,7 +2341,28 @@ def run_segmented_analysis(
             ]:
                 df = _csv_to_df(csv_text)
                 if not df.empty:
-                    frames.append(df)
+                    # FIX A: Strip blank rows emitted by the LLM between
+                    # compound FRS entries — rows where ID is blank/NaN and
+                    # description is empty/N/A are phantom CSV separator lines.
+                    if "ID" in df.columns:
+                        _vid = df["ID"].astype(str).str.strip()
+                        df = df[
+                            _vid.notna() &
+                            (_vid != "") &
+                            (_vid.str.upper() != "NAN") &
+                            (_vid.str.upper() != "NONE") &
+                            (_vid.str.upper() != "N/A")
+                        ].copy()
+                    if "Requirement_Description" in df.columns:
+                        _vd = df["Requirement_Description"].astype(str).str.strip()
+                        df = df[
+                            _vd.notna() &
+                            (_vd != "") &
+                            (_vd.str.upper() != "NAN") &
+                            (_vd.str.upper() != "N/A")
+                        ].copy()
+                    if not df.empty:
+                        frames.append(df)
 
     # Surface any skipped requirements as a soft warning (not a hard abort)
     if _failed_reqs:
@@ -3235,7 +3246,20 @@ def build_dashboard_sheet(frs_df: pd.DataFrame, oq_df: pd.DataFrame,
                           if not df.empty and "ID" in df.columns \
                           else pd.Series(False, index=df.index)
 
-    frs_real_df  = frs_df[~_is_xfrs(frs_df)] if not frs_df.empty else frs_df
+    # FIX B: Also exclude HITL safeguard rows from the denominator.
+    # HITL rows are placeholders inserted when the AI failed to generate a real
+    # FRS — they are not real engineering requirements. Including them makes
+    # Risk-Adjusted Compliance % artificially low (e.g. 1.8% when true value
+    # is 100%) and misleads reviewers. They are counted separately below.
+    _is_hitl = lambda df: (
+        df["Requirement_Description"].astype(str)
+        .str.contains("HUMAN-IN-THE-LOOP SAFEGUARD", na=False)
+    ) if not df.empty and "Requirement_Description" in df.columns \
+      else pd.Series(False, index=df.index)
+
+    frs_real_df  = frs_df[~_is_xfrs(frs_df) & ~_is_hitl(frs_df)] \
+                   if not frs_df.empty else frs_df
+    hitl_count   = int(_is_hitl(frs_df).sum()) if not frs_df.empty else 0
     total_reqs   = len(frs_real_df)
     total_tests  = len(oq_df) if not oq_df.empty else 0
 
@@ -3312,6 +3336,9 @@ def build_dashboard_sheet(frs_df: pd.DataFrame, oq_df: pd.DataFrame,
         {"KPI": "🟡 Medium Risk Requirements",          "Value": med_risk,              "Status": "Requires ≥2 OQ tests each"},
         {"KPI": "🟢 Low Risk Requirements",             "Value": low_risk,              "Status": "Requires ≥1 OQ test each"},
         {"KPI": "🚨 Missing FRS (AI skipped URS)",     "Value": missing_frs,           "Status": "Critical — re-run or add manually"},
+        {"KPI": "🔧 Manual FRS Required (HITL)",       "Value": hitl_count,
+         "Status": "✅ None" if hitl_count == 0
+                   else f"Open FRS sheet — complete {hitl_count} row(s) marked ⚠️ before sign-off"},
         {"KPI": "⚠️ AI-Detected Gaps",                 "Value": ai_gaps,
          "Status": "See Gap_Analysis sheet" if ai_gaps > 0 else "✅ None — see Traceability sheet"},
         {"KPI": "🔍 Det. Issues — URS/FRS (R0–R5)",   "Value": det_real_issues,
@@ -7779,8 +7806,21 @@ def at_build_excel(top_df, scored_df, system_name, r_start, r_end, fname) -> byt
         ws.column_dimensions["D"].width = 22
         row += 1
 
+        # FIX AT-2: Sort so chain members appear adjacent — prevents misleading
+        # visual grouping where an unrelated event (e.g. admin_sys Rule 3)
+        # appears between two linked analyst_y chain events.
+        if not critical_events.empty and "Event_Chain_ID" in critical_events.columns:
+            critical_events = critical_events.copy()
+            critical_events["_chain_sort"] = critical_events["Event_Chain_ID"].apply(
+                lambda c: str(c) if str(c) not in ("", "None", "nan") else f"zz_{id(c)}"
+            )
+            critical_events = critical_events.sort_values(
+                ["_chain_sort", "timestamp_parsed"], na_position="last"
+            ).reset_index(drop=True)
+
         # Group chain-related events visually — show sequence context in plain language
-        seen_chains = {}  # chain_id → first row written
+        seen_chains   = {}   # chain_id → first row written
+        prev_chain_id = None # track chain boundaries for spacer insertion
         for _, ev in critical_events.iterrows():
             chain = str(ev.get("Event_Chain_ID","")).strip()
             usr   = str(ev.get("user_id","—"))
@@ -7791,6 +7831,22 @@ def at_build_excel(top_df, scored_df, system_name, r_start, r_end, fname) -> byt
                 rec = str(ev.get("record_type","—"))
             ts    = str(ev.get("timestamp","—"))
             seq   = str(ev.get("Sequence_Context","")).strip()
+
+            # AT Fix 2: Insert a thin spacer row when switching between different
+            # chains (or between a chain event and a standalone event). This prevents
+            # independent Critical findings from appearing visually grouped together.
+            is_new_chain_boundary = (
+                chain != prev_chain_id and
+                prev_chain_id is not None and
+                not (chain and prev_chain_id and chain == prev_chain_id)
+            )
+            if is_new_chain_boundary:
+                ws.merge_cells(f"A{row}:D{row}")
+                spacer = ws.cell(row=row, column=1, value="")
+                spacer.fill = _fill("FFFFFF")
+                ws.row_dimensions[row].height = 5
+                row += 1
+            prev_chain_id = chain if chain and chain not in ("","None","nan") else None
 
             # For chain events, prefix with ↳ after first member to show grouping
             if chain and chain not in ("","None","nan"):
@@ -7868,7 +7924,7 @@ def at_build_excel(top_df, scored_df, system_name, r_start, r_end, fname) -> byt
     _summary_row("System Name",     system_name or "(not entered)", bold_val=True)
     _summary_row("Review Period",   f"{r_start}  →  {r_end}")
     _summary_row("Source File",     fname)
-    _summary_row("Analysis Date",   str(datetime.date.today()))
+    _summary_row("Analysis Date (UTC)", datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC"))
     _summary_row("Regulatory Basis","21 CFR Part 11 §11.10(e)  |  EU Annex 11, Clause 9")
 
     # Out-of-period scope note — added to Summary sheet if events outside review period exist
@@ -8065,16 +8121,21 @@ def at_build_excel(top_df, scored_df, system_name, r_start, r_end, fname) -> byt
                         "This action cannot be attributed to a specific individual."
                     )
                 elif "rule 1" in r or "vague" in r:
-                    # Count total Rule 1 findings
-                    r1_count = sum(
+                    # Count Rule 1 firings across the full scored dataset (not just top N)
+                    # so the narrative reflects the true scope of the documentation issue.
+                    r1_count_full = int(
+                        (scored_df["score_rule1_vague_rationale"] > 0).sum()
+                    ) if not scored_df.empty and "score_rule1_vague_rationale" in scored_df.columns else sum(
                         1 for _, e in top_df.iterrows()
                         if "Rule 1" in str(e.get("Triggered_Rules",""))
                     )
+                    r1_count = r1_count_full
                     if r1_count > 1:
                         finding_sentences.append(
                             f"{r1_count} instances of missing or inadequate change "
-                            "rationale were observed across multiple records, "
-                            "indicating deficiencies in data attribution practices."
+                            "rationale were identified across the full dataset "
+                            "(not all met the escalation threshold, but the pattern "
+                            "indicates a systemic documentation practice issue)."
                         )
                     else:
                         finding_sentences.append(
@@ -8243,6 +8304,32 @@ def at_build_excel(top_df, scored_df, system_name, r_start, r_end, fname) -> byt
     top_out["Reviewer_Disposition"] = "☐ Justified     ☐ Escalate to CAPA     ☐ False Positive"
     top_out["Reviewer_Notes"]       = ""
 
+    # FIX AT-5: Add a note row explaining why the Events for Review count may
+    # be lower than the High+Critical count in the Full Audit Log.
+    # Without this, reviewers always assume a bug.
+    n_full_high_crit = int(
+        ((scored_df["Risk_Tier"] == "Critical") | (scored_df["Risk_Tier"] == "High")).sum()
+    ) if not scored_df.empty and "Risk_Tier" in scored_df.columns else 0
+    n_shown = len(top_out)
+    if n_full_high_crit > n_shown:
+        note_text = (
+            f"ℹ️  Showing {n_shown} of {n_full_high_crit} High/Critical events from the Full Audit Log. "
+            f"The remaining {n_full_high_crit - n_shown} events were excluded by: "
+            f"(a) burst deduplication — only the highest-scoring event from each burst group is shown, "
+            f"or (b) named-rule gate — events scoring High on composite score alone without a specific "
+            f"named rule (Rules 1–14) above 7.0 are excluded to prevent noise. "
+            f"All events remain visible in the Full Audit Log sheet."
+        )
+        ws2.merge_cells(f"A1:{get_column_letter(len(reviewer_cols))}1")
+        note_cell = ws2.cell(row=1, column=1, value=note_text)
+        note_cell.font      = Font(bold=False, color="1E40AF", name="Calibri", size=8.5)
+        note_cell.fill      = _fill("DBEAFE")
+        note_cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+        ws2.row_dimensions[1].height = 42
+        _header_start = 2
+    else:
+        _header_start = 1
+
     # Suggested Disposition cell colours
     SUGG_FILL = {
         "Escalate to CAPA":              ("FEE2E2", "991B1B"),
@@ -8254,17 +8341,17 @@ def at_build_excel(top_df, scored_df, system_name, r_start, r_end, fname) -> byt
 
     # Header row
     for ci, (hdr_label, _, col_w) in enumerate(reviewer_cols, 1):
-        c = ws2.cell(row=1, column=ci, value=hdr_label)
+        c = ws2.cell(row=_header_start, column=ci, value=hdr_label)
         c.font      = _hdr_font(size=10)
         c.fill      = _fill(C_HEADER_BG)
         c.border    = bdr
         c.alignment = Alignment(horizontal="center", vertical="center",
                                 wrap_text=True)
         ws2.column_dimensions[get_column_letter(ci)].width = col_w
-    ws2.row_dimensions[1].height = 30
+    ws2.row_dimensions[_header_start].height = 30
 
     # Data rows
-    for ri, (_, drow) in enumerate(top_out.iterrows(), 2):
+    for ri, (_, drow) in enumerate(top_out.iterrows(), _header_start + 1):
         tier    = str(drow.get("Risk_Tier", "Low"))
         alt_bg  = C_ALT_ROW if ri % 2 == 0 else C_WHITE
         for ci, (_, data_col, _) in enumerate(reviewer_cols, 1):
@@ -8922,82 +9009,6 @@ to exclude newly created accounts where any action is technically a "first time.
 
 ---
 
-## Retired Rules
-
-The following rule numbers have been retired or merged. They will not appear in
-any output column. They are documented here for traceability and CSV purposes.
-
-**Rule 9 (retired) — High-Volume Activity Burst:** Velocity-based scoring for
-5+ same-action events within 60 minutes. Retired and superseded by Rule 2
-(Contemporaneous Burst), which provides tighter targeting with INSERT-specific
-logic and a stricter 15-minute window. Not implemented in the current engine.
-
-**Rule 15 (retired) — Suspicious Action Sequence (UPDATE → DELETE → INSERT):**
-Three-step record reconstruction detection merged into Rule 6 (Delete and Recreate
-Pattern), which now covers both two-step and three-step sequences. Not scored
-separately; Rule 6 handles all reconstruction patterns.
-
----
-
-## Event Chain IDs
-
-When multiple events are causally linked, the engine assigns a shared Event Chain
-ID (format: EC-001, EC-002 etc.) to all related events. This allows reviewers to
-filter the Full Audit Log by chain ID and read the complete event story in sequence.
-
-Chains are assigned for:
-- **Rule 6** (Delete → Recreate): both the delete and recreate events share one chain ID
-- **Rule 5** (Failed Login → Manipulation): all login attempts and the triggering
-  data action share one chain ID
-
-The Event_Chain_ID column appears in both the Events for Review sheet and the
-Full Audit Log sheet in the Excel output.
-
----
-
-## Out-of-Period Events
-
-When a Review Period (Start Date → End Date) is specified, events whose timestamp
-falls outside that window are tagged as **Out of Period** and excluded from all
-risk scoring. They appear in the Full Audit Log with Risk Level = "Out of Period"
-and are not included in the Events for Review sheet. The Summary sheet Scope Note
-reports the count of out-of-period events detected.
-
-This ensures risk tier counts, escalation rates, and the Events for Review list
-reflect only the declared review scope.
-
----
-
-## Composite Scoring
-
-Each event receives scores across all 14 active rules. A weighted composite (0–10):
-
-| Rule | Dimension / Name | Weight |
-|------|-----------------|--------|
-| 1  | Vague Rationale | 7% |
-| 2  | Contemporaneous Burst | 7% |
-| 3  | Admin/GxP Conflict | 10% |
-| 4  | Change Control Drift | 6% |
-| 5  | Failed Login → Data Manipulation | 8% |
-| 6  | Record Reconstruction (Delete-Recreate) | 10% |
-| 7  | Audit Trail Integrity / Record Sensitivity | 8% |
-| 8  | Privileged User on GxP Data | 9% |
-| 9  | Timestamp Gap | 6% |
-| 10 | Off-Hours / Holiday Activity | 6% |
-| 11 | Timestamp Reversal | 9% |
-| 12 | Service / Shared Account GxP Action | 9% |
-| 13 | Dormant Account Sudden Activity | 7% |
-| 14 | First-Time Behavior Detection | 7% |
-| | **Total** | **109%** |
-
-*Note: Weights are normalised internally — the sum does not need to equal 100%.*
-
-**Named rule tier overrides:** Rules 3, 5, 11, and 12 at score ≥9 always produce
-a Critical tier, regardless of composite score. Rule 6 at ≥9 and Rule 7 at 10.0
-also produce Critical. This ensures named Critical violations are never
-downgraded by a low composite score.
-
----
 
 ## Suggested Disposition Logic
 
@@ -9023,66 +9034,6 @@ downgraded by a low composite score.
 
 ---
 
-## Review Narrative (Summary Sheet)
-
-Following the detection analysis, the Summary sheet includes a **Review Narrative**
-section — a plain-English paragraph summarising the key findings of the review.
-This section is generated deterministically from the scored data with no LLM
-involvement, making it fully reproducible.
-
-The narrative covers:
-1. **Volume statement** — total events reviewed, period covered, events escalated
-2. **Key findings** — one sentence per significant rule triggered (max 4 findings),
-   naming the user, record, and action type involved
-3. **Overall risk assessment** — concludes with one of five risk levels:
-   - High risk — 2+ Critical findings
-   - Moderate-to-high risk — 1 Critical finding
-   - Moderate risk — 3+ High findings
-   - Low-to-moderate risk — 1–2 High findings
-   - Low risk — no Critical or High findings
-
-The narrative is intended to be copied into the introduction of the Periodic Review
-Report Section 9.1.6 or used as a management summary.
-
----
-
-## Not Yet Implemented — Planned Rules
-
-These checks were designed and scoped but not yet built into the engine.
-They are documented here for transparency and future CSV planning.
-
-### Planned — Shared Account / Concurrent Location Conflict
-**What it detects:** The same user_id performing actions from two different
-IP addresses within 30 minutes — physically impossible for one person.
-**Why not yet built:** Requires an IP address or workstation column in the
-audit trail export. Many systems do not include this by default. Will be
-activated automatically when the column mapper detects an IP column.
-**Regulatory basis:** 21 CFR Part 11 §11.300.
-
-### Planned — Bulk Export Before Departure
-**What it detects:** A user exporting or printing large volumes of records
-(SELECT, EXPORT, PRINT actions) close to their account deactivation date.
-**Why not yet built:** Requires an HR termination date as a second input file.
-Cannot be determined from the audit trail alone.
-**Regulatory basis:** Data protection and confidentiality requirements.
-
-### Planned — Activity During Approved Maintenance Window
-**What it detects:** User activity during a scheduled system maintenance
-window, indicating either the maintenance did not occur as planned, or
-unauthorised activity occurred during the maintenance period.
-**Why not yet built:** Requires the approved maintenance schedule (from the
-change control system) as a second input file.
-**Regulatory basis:** 21 CFR Part 11 §11.10(e).
-
-### Planned — Account Created and Used Same Day
-**What it detects:** A new user account that is created and then used to
-perform GxP data actions on the same day, before training records could
-have been completed.
-**Why not yet built:** Requires a user account creation log or training
-completion record as a second input file to confirm training status.
-**Regulatory basis:** 21 CFR Part 11 §11.10(i) — training.
-
----
 
 ## Validation Evidence
 
@@ -11127,7 +11078,7 @@ def show_app():
         st.markdown(
             '<p style="color:#94a3b8;font-size:0.68rem;margin:-6px 0 4px;'
             'letter-spacing:0.5px;font-family:\'IBM Plex Mono\',monospace;">'
-            'Build v65 · Change Control Package coming Monday</p>',
+            'Build v66 · Change Control Package coming Monday</p>',
             unsafe_allow_html=True)
         st.divider()
         st.markdown('<p class="sb-sub">🔧 Analysis Mode</p>', unsafe_allow_html=True)
@@ -11334,6 +11285,13 @@ def show_app():
     # completed run. Incrementing uploader_key_n forces Streamlit to mount
     # a brand-new widget instance, which clears any retained file state.
     uploader_key = f"main_sop_uploader_{st.session_state.uploader_key_n}"
+    st.caption(
+        "📋 **URS guidance:** Recommended up to 80 pages / 150 requirements. "
+        "Larger documents are processed in segments — expect longer run times. "
+        "For documents over 150 requirements, split by functional area for best quality. "
+        "**Requirement IDs are preserved exactly as written in your source document** — "
+        "no need to reformat before uploading."
+    )
     sop_widget = st.file_uploader(
         "Upload URS (The 'What')", type="pdf", key=uploader_key
     )
@@ -11457,6 +11415,11 @@ def show_app():
         "📂 System Context Document <span style='font-weight:400;color:#94a3b8;'>"
         "(optional) — User Guide, SOP, or Instruction Manual</span></p>",
         unsafe_allow_html=True
+    )
+    st.caption(
+        "📖 **Guide guidance:** Up to 100 pages accepted. Screen names, navigation paths, "
+        "and field labels are extracted to ground OQ test steps. Uploading the relevant "
+        "workflow chapters (not the full admin manual) gives better results than a 500-page document."
     )
     sys_up_key = f"sidebar_sys_uploader_{st.session_state.sys_uploader_key_n}"
     sidebar_sys = st.file_uploader(
