@@ -2136,7 +2136,7 @@ def run_segmented_analysis(
     for idx, chunk_pages in enumerate(chunks):
         chunk_text = "\n\n".join(chunk_pages)
         status_text.text(f"📄 Pass 1 — Extracting URS: segment {idx + 1} of {total}...")
-        progress_bar.progress((idx) / (total * 2))
+        _ = progress_bar.progress((idx) / (total * 2))
 
         try:
             # Phase 1: stream=True prevents silent 600s hang on Pass 1 segments
@@ -2280,7 +2280,7 @@ def run_segmented_analysis(
             st.caption(f"ℹ️ Pass 1 extracted {_before} rows — filtered {_before - _after} "
                        f"section headers/narrative rows → {_after} real requirements.")
 
-    progress_bar.progress(0.5)
+    _ = progress_bar.progress(0.5)
     status_text.text(f"✅ Pass 1 complete — {len(urs_final)} requirements found. Running Pass 2...")
 
     # ── PASS 2: Generate FRS / OQ / Gap from URS table ────────────────────────
@@ -2310,7 +2310,7 @@ def run_segmented_analysis(
             f"🔬 Pass 2 — small document ({p2_total} requirements): "
             f"single batch call..."
         )
-        progress_bar.progress(0.52)
+        _ = progress_bar.progress(0.52)
         try:
             _full_csv = header_line + "\n" + "\n".join(data_lines)
             _stream_fp = completion(
@@ -2340,7 +2340,7 @@ def run_segmented_analysis(
                 _df = _csv_to_df(_csv_text)
                 if not _df.empty:
                     _frames.append(_df)
-            progress_bar.progress(0.95)
+            _ = progress_bar.progress(0.95)
             status_text.text(
                 f"✅ Pass 2 complete — "
                 f"FRS: {sum(len(f) for f in frs_frames)} rows  |  "
@@ -2358,7 +2358,7 @@ def run_segmented_analysis(
                 continue
 
             pct = 0.50 + (p2_idx / max(p2_total, 1)) * 0.44
-            progress_bar.progress(min(pct, 0.94))
+            _ = progress_bar.progress(min(pct, 0.94))
             status_text.text(
                 f"🔬 Pass 2 — requirement {p2_idx+1}/{p2_total}  |  "
                 f"FRS: {sum(len(f) for f in frs_frames)} rows  |  "
@@ -2447,7 +2447,7 @@ def run_segmented_analysis(
             f"{'; '.join(_failed_reqs[:5])}"
         )
 
-    progress_bar.progress(0.95)
+    _ = progress_bar.progress(0.95)
     status_text.text("✅ Both passes complete — running deterministic checks...")
 
     frs_final = _combine(frs_frames)
@@ -2632,7 +2632,7 @@ def run_segmented_analysis(
         # Rebuild traceability to include cross-source FRS rows
         trace_final = _build_traceability(urs_final, frs_final, oq_final)
 
-    progress_bar.progress(1.0)
+    _ = progress_bar.progress(1.0)
     status_text.text("✅ All segments processed — compiling workbook...")
 
     return urs_final, frs_final, oq_final, trace_final, gap_final
@@ -5666,8 +5666,8 @@ def show_change_impact(user: str, role: str, model_id: str):
                 st.error(f"❌ {e}")
                 log_audit(user, "CIA_ERROR", "CHANGE_IMPACT", reason=str(e)[:300])
 
-        progress_bar.empty()
-        status_text.empty()
+        _ = progress_bar.empty()
+        _ = status_text.empty()
 
     # ── Display results ──────────────────────────────────────────────────────
     cia_res = st.session_state.get("cia_result")
@@ -10782,7 +10782,7 @@ match your system's export column names to the fields above — rename nothing i
             status = st.empty()
             with st.status("🔍 Audit Trail Analysis", expanded=True) as atstat:
                 st.write("📊 Step 1: Parsing timestamps...")
-                prog.progress(0.15)
+                _ = prog.progress(0.15)
                 scored = at_score_events(df)
 
                 # ── FIX 7: Tag out-of-period events ───────────────────────────
@@ -10820,7 +10820,7 @@ match your system's export column names to the fields above — rename nothing i
                         pass   # date parse failure — treat all rows as in-period
 
                 st.write(f"⚡ Step 2: Scoring {len(scored):,} events across 13 rules...")
-                prog.progress(0.45)
+                _ = prog.progress(0.45)
                 # ── Select Top N with three filters ───────────────────────────
                 # Filter 1: Remove out-of-period rows (Risk_Tier == "Out of Period")
                 # Filter 2: Remove burst duplicates (already built in scoring)
@@ -10886,10 +10886,10 @@ match your system's export column names to the fields above — rename nothing i
                 top20 = qualified.copy()
 
                 st.write(f"✍️ Step 3: Generating system narratives for top {_AT_TOP_N} events...")
-                prog.progress(0.65)
+                _ = prog.progress(0.65)
                 top20  = at_generate_justifications(top20, model_id)
 
-                prog.progress(0.90)
+                _ = prog.progress(0.90)
                 st.write("📋 Step 4: Building evidence package...")
                 st.session_state["at_scored_df"]     = scored
                 st.session_state["at_top20_df"]      = top20
@@ -10897,7 +10897,7 @@ match your system's export column names to the fields above — rename nothing i
                 st.session_state["at_analysis_done"] = True
 
                 n_crit = int((scored["Risk_Tier"]=="Critical").sum())
-                prog.progress(1.0)
+                _ = prog.progress(1.0)
                 log_audit(user,"AT_ANALYSIS_COMPLETE","AUDIT_TRAIL",
                           new_value=f"{len(scored)} events, {n_crit} critical",
                           reason=f"System: {st.session_state.get('at_system_name','?')}")
@@ -10906,7 +10906,7 @@ match your system's export column names to the fields above — rename nothing i
                           f"{_AT_TOP_N} escalated — {n_crit} critical",
                     state="complete", expanded=False
                 )
-            prog.empty(); status.empty()
+            _ = prog.empty(); _ = status.empty()
             st.rerun()
 
     # ── STEP 3: Results ───────────────────────────────────────────────────────
@@ -12041,8 +12041,8 @@ def show_app():
 
             # ── Guard: if the AI returned nothing useful, stop cleanly ────────
             if urs_df.empty and frs_df.empty:
-                progress_bar.empty()
-                status_text.empty()
+                _ = progress_bar.empty()
+                _ = status_text.empty()
                 cot_status.update(label="❌ Pipeline aborted — no output", state="error")
                 st.error(
                     "⚠️ No requirements were extracted. This usually means:\n"
@@ -12168,8 +12168,8 @@ def show_app():
                       new_value=f"Validation_Package_{datetime.date.today()}.xlsx",
                       reason=f"doc_ids={doc_ids} | hash={doc_hash[:16]}...")
 
-            status_text.empty()
-            progress_bar.empty()
+            _ = status_text.empty()
+            _ = progress_bar.empty()
 
             covered = partial_cov = 0
             if not trace_df.empty and "Coverage_Status" in trace_df.columns:
