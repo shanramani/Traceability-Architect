@@ -4167,6 +4167,15 @@ _defaults = {
     "cia_trace_name":        None,
     "cia_result":            None,   # completed CIA output dict
     "cia_key_n":             0,      # increment to reset all CIA uploaders
+    # ── User Access Review (Periodic Review Module 2) ────────────────────────
+    "uar_raw_df":           None,
+    "uar_scored_result":    None,
+    "uar_analysis_done":    False,
+    "uar_system_name":      "",
+    "uar_review_start":     "",
+    "uar_review_end":       "",
+    "uar_file_name":        "",
+    "uar_key_n":            0,
     # ── Audit Trail Intelligence (Periodic Review Module 1) ──────────────────
     "at_raw_df":            None,
     "at_mapped_df":         None,
@@ -8875,6 +8884,1572 @@ def at_build_excel(top_df, scored_df, system_name, r_start, r_end, fname) -> byt
     return output.getvalue()
 
 
+# =============================================================================
+# UAR MODULE — User Access Review Intelligence (Periodic Review Module 2)
+# =============================================================================
+# Deterministic GxP user access review engine.
+# Rules U1–U10 | Scoring: additive integer weights | No AI in scoring path.
+# AI writes System Narrative column only (uar_generate_justifications).
+# Architecture: functions only, no classes, one entry point uar_score_users().
+# Dependencies: pandas, openpyxl, datetime, re, io — all already imported globally.
+# Regulatory basis: 21 CFR Part 11 §11.10(d), §11.300 | EU Annex 11 Cl. 12
+# =============================================================================
+
+# ── Column alias map: raw export headers → normalised internal names ──────────
+_UAR_COL_ALIASES: dict = {
+    # username
+    "username": "username", "user_id": "username", "login_name": "username",
+    "user_name": "username", "login": "username", "userid": "username",
+    "operator_id": "username", "account": "username", "logon_id": "username",
+    # full_name
+    "full_name": "full_name", "display_name": "full_name", "name": "full_name",
+    "user_full_name": "full_name", "employee_name": "full_name",
+    "common_name": "full_name",
+    # account_status
+    "status": "account_status", "account_status": "account_status",
+    "active": "account_status", "is_active": "account_status",
+    "active_flag": "account_status", "enabled": "account_status",
+    "user_status": "account_status", "acc_status": "account_status",
+    # role
+    "role": "role", "role_group": "role", "permission_group": "role",
+    "security_role": "role", "access_level": "role", "roles": "role",
+    "user_role": "role", "profile": "role", "permission_profile": "role",
+    "security_profile": "role",
+    # last_login_date
+    "last_login": "last_login_date", "last_login_date": "last_login_date",
+    "last_activity_date": "last_login_date", "last_sign_in": "last_login_date",
+    "last_activity": "last_login_date", "lastlogin": "last_login_date",
+    "last_logon": "last_login_date", "last_access": "last_login_date",
+    "last_access_date": "last_login_date",
+    # account_created_date
+    "created_date": "account_created_date",
+    "account_created_date": "account_created_date",
+    "created_on": "account_created_date", "created_at": "account_created_date",
+    "creation_date": "account_created_date", "date_created": "account_created_date",
+    # department
+    "department": "department", "dept": "department",
+    "business_unit": "department", "division": "department",
+    "cost_centre": "department", "cost_center": "department",
+    # job_title
+    "job_title": "job_title", "title": "job_title", "position": "job_title",
+    "job_function": "job_title", "role_description": "job_title",
+    "employee_type": "job_title",
+    # account_type
+    "account_type": "account_type", "user_type": "account_type",
+    "type": "account_type",
+    # training_expiry_date
+    "training_expiry": "training_expiry_date",
+    "training_expiry_date": "training_expiry_date",
+    "training_due": "training_expiry_date",
+    "gxp_training_expiry": "training_expiry_date",
+    "training_due_date": "training_expiry_date",
+    # modified_date
+    "modified_date": "modified_date", "last_modified": "modified_date",
+    "modified_on": "modified_date", "date_modified": "modified_date",
+    "last_changed": "modified_date",
+    # modified_by
+    "modified_by": "modified_by", "changed_by": "modified_by",
+    "last_modified_by": "modified_by",
+    # system_name
+    "system_name": "system_name", "system": "system_name",
+    "source_system": "system_name", "application": "system_name",
+    "app_name": "system_name",
+    # employment_status
+    "employment_status": "employment_status", "hr_status": "employment_status",
+    "emp_status": "employment_status", "employee_status": "employment_status",
+    "hr_active": "employment_status",
+    # access_justification
+    "access_justification": "access_justification",
+    "justification": "access_justification",
+    "business_justification": "access_justification",
+    "access_reason": "access_justification",
+    "reason": "access_justification",
+    # gxp_criticality (if pre-provided by client)
+    "gxp_criticality": "gxp_criticality", "criticality": "gxp_criticality",
+    "gxp_critical": "gxp_criticality",
+}
+
+_UAR_REQUIRED_COLS = {"username", "account_status", "role"}
+
+# ── GxP criticality keywords — derived from system_name ──────────────────────
+_UAR_GXP_HIGH_KEYWORDS = [
+    "lims", "labware", "labvantage", "nugenesis", "lab system", "laboratory",
+    "qad", "sap qm", "sap quality", "sap", "mes", "manufacturing execution",
+    "veeva", "vault", "medidata", "rave", "inform", "oracle clinical",
+    "ctms", "clinical trial", "clinical data", "ertms",
+    "pharmacovigilance", "argus", "empirica", "drug safety", "drugsafety",
+    "aris g", "rims", "regulatory information", "regulatory submission",
+    "trackwise", "quality management", "qms", "eqms", "lsaf",
+    "opentext", "documentum", "mastercontrol", "etq", "ideagen",
+    "greenlight", "dot compliance", "compliancequest",
+    "preclinical", "in vivo", "tox data", "safety data",
+    "erp", "dynamics", "oracle erp", "d365",
+    "elisa", "watson lims", "sample manager", "starlims",
+    "assay", "instrument", "chromatography", "empower", "chromeleon",
+]
+_UAR_GXP_LOW_KEYWORDS = [
+    "helpdesk", "help desk", "service desk", "jira", "servicenow",
+    "email", "outlook", "exchange", "hr system", "workday",
+    "successfactors", "adp", "bamboohr",
+    "it support", "asset management", "slack", "teams", "zoom",
+    "confluence", "sharepoint", "ticketing", "itsm",
+]
+
+# ── Role string → boolean privilege flag keyword map ─────────────────────────
+_UAR_ROLE_KEYWORD_MAP: dict = {
+    "Is_Admin": [
+        "admin", "administrator", "system admin", "sysadmin", "superuser",
+        "super user", "root", "sys admin", "dba", "database admin",
+        "system manager", "it admin", "global admin", "full access",
+        "unlimited", "unrestricted", "power user",
+    ],
+    "Can_Delete": [
+        "delete", "del ", " del,", " del;", "remove record", "purge",
+        "destroy", "erase", "cancel record", "void", "archive admin",
+        "record deletion",
+    ],
+    "Can_Approve": [
+        "approv", "approver", "approval", "authorize", "authoriz",
+        "sign off", "signoff", "sign-off", "reviewer", "qc review",
+        "qa review", "release approv", "batch approv", "second review",
+        "counter sign", "countersign", "endorse",
+    ],
+    "Can_Release": [
+        "release", "batch release", "batch rel", "product release",
+        "issue batch", "dispatch", "ship", "lot release",
+        "final release", "market release", "disposition",
+    ],
+    "Can_Modify_Master_Data": [
+        "master data", "masterdata", "master record", "reference data",
+        "config", "configurati", "set up", "setup", "calibrat",
+        "specification edit", "spec edit", "method edit", "template edit",
+        "compound admin", "product admin", "instrument admin",
+        "method admin", "master edit",
+    ],
+    "Can_Create": [
+        "create", "creat", "add record", "insert", "new record",
+        "author", "draft", "initiat", "enter result", "data entry",
+        "result entry", "sample entry", "record creation",
+    ],
+}
+
+# ── Additive scoring weights ──────────────────────────────────────────────────
+_UAR_SCORE_WEIGHTS = {
+    "Is_Admin":               40,
+    "Can_Delete":             30,
+    "Can_Approve":            30,
+    "Can_Release":            25,
+    "Can_Modify_Master_Data": 25,
+    "GxP_High":               20,
+    "Never_Logged_In":        20,   # null last_login — higher risk than dormant
+    "Ghost_Account":          20,   # employment_status != active, account_status = active
+    "Dormant_90":             15,   # > 90 days since last login (mutually exclusive with Never)
+    "Missing_Justification":  15,
+    "Multi_Privilege":        10,   # >= 3 high-risk privilege flags simultaneously
+}
+
+# ── Risk bands ────────────────────────────────────────────────────────────────
+_UAR_RISK_BANDS = [
+    (91, "Critical"),
+    (61, "High"),
+    (31, "Medium"),
+    (0,  "Low"),
+]
+
+# ── SoD conflict pair definitions ─────────────────────────────────────────────
+_UAR_SOD_PAIRS = [
+    {
+        "id":       "SOD-1",
+        "flags":    ("Can_Create",  "Can_Approve"),
+        "name":     "Create + Approve",
+        "rationale": (
+            "A user who can both create and approve records removes the segregation "
+            "of duties control. In a GxP environment this enables undetected data "
+            "manipulation — one person can enter and authorise their own results "
+            "without independent review. Ref: 21 CFR Part 11 §11.10(d); EU Annex 11 Cl.12.1."
+        ),
+    },
+    {
+        "id":       "SOD-2",
+        "flags":    ("Can_Modify_Master_Data", "Can_Approve"),
+        "name":     "Modify Master Data + Approve",
+        "rationale": (
+            "Combining master data modification with approval authority allows a user "
+            "to alter reference values (specifications, methods, limits) and self-authorise "
+            "the change. This is a critical data integrity risk and a recurring FDA "
+            "inspection finding under ALCOA+ completeness and accuracy principles."
+        ),
+    },
+    {
+        "id":       "SOD-3",
+        "flags":    ("Can_Delete", "Can_Approve"),
+        "name":     "Delete + Approve",
+        "rationale": (
+            "A user with both delete and approval rights can remove GxP records and "
+            "authorise the deletion without a second reviewer. Record deletion in a "
+            "GxP system must be independently authorised to preserve audit trail "
+            "completeness. Ref: 21 CFR Part 11 §11.10(e)."
+        ),
+    },
+    {
+        "id":       "SOD-4",
+        "flags":    ("Is_Admin", "Can_Approve"),
+        "name":     "Admin + Approve",
+        "rationale": (
+            "System administrators should not hold approval authority over GxP data. "
+            "Admin access provides the technical ability to alter system settings, user "
+            "permissions, and audit trail configurations — combining this with approval "
+            "rights removes the independence required by data integrity principles."
+        ),
+    },
+    {
+        "id":       "SOD-5",
+        "flags":    ("Is_Admin", "Can_Delete"),
+        "name":     "Admin + Delete",
+        "rationale": (
+            "An administrator who can also delete records holds elevated risk: they can "
+            "suppress audit trail evidence by deleting records and possess the system "
+            "privileges to obscure that action. This is a Critical data integrity risk "
+            "under 21 CFR Part 11 and EU GMP Annex 11."
+        ),
+    },
+    {
+        "id":       "SOD-6",
+        "flags":    ("Is_Admin", "Can_Release"),
+        "name":     "Admin + Release",
+        "rationale": (
+            "Batch or product release is a GxP-critical action that must be performed "
+            "by a qualified person without system administration authority. An "
+            "administrator releasing product bypasses the separation of IT and quality "
+            "authority required by GMP and GAMP 5."
+        ),
+    },
+]
+
+_UAR_TOP_N            = 10
+_UAR_DORMANCY_DAYS    = 90
+_UAR_PEER_MIN_GROUP   = 3
+_UAR_HIGH_PRIV_FLAGS  = ["Is_Admin", "Can_Delete", "Can_Approve",
+                          "Can_Release", "Can_Modify_Master_Data"]
+
+# Detection logic constant — written to Excel Sheet 5
+UAR_DETECTION_LOGIC = """USER ACCESS REVIEW — DETECTION LOGIC
+═══════════════════════════════════════════════════════════════
+Scoring is 100% deterministic Python. No AI influences risk scores or tiers.
+AI writes only the System Narrative column.
+
+PRIVILEGE FLAG DERIVATION (from role string, case-insensitive substring match)
+  Is_Admin             → admin, administrator, sysadmin, superuser, root, dba, full access
+  Can_Delete           → delete, purge, void, remove record, erase, cancel record
+  Can_Approve          → approv, authorize, sign off, reviewer, qa review, countersign
+  Can_Release          → release, batch release, lot release, dispatch, final release
+  Can_Modify_Master_Data → master data, config, calibrat, spec edit, method edit, setup
+  Can_Create           → create, data entry, author, draft, enter result, record creation
+
+GxP CRITICALITY DERIVATION (from system_name field, case-insensitive)
+  High   → LIMS, LabWare, LabVantage, SAP, QAD, MES, Veeva Vault, Medidata,
+            Argus, QMS, eQMS, ERP, Dynamics, TrackWise, Clinical Trial, RIMS,
+            Pharmacovigilance, Preclinical, Chromatography, Empower
+  Low    → Helpdesk, HR System, Email, Outlook, Jira, ServiceNow, Slack,
+            Asset Management, IT Support, Confluence
+  Medium → All other systems
+
+RISK SCORING — ADDITIVE INTEGER MODEL (Rules U1–U10)
+  U1  +40  Is_Admin = Y (privileged system access)
+  U2  +30  Can_Delete = Y (record deletion capability)
+  U3  +30  Can_Approve = Y (approval authority)
+  U4  +25  Can_Release = Y (batch/product release capability)
+  U5  +25  Can_Modify_Master_Data = Y (reference data modification)
+  U6  +20  GxP_Criticality = High (system risk multiplier)
+  U7  +20  Last login date is null (account never used — higher risk than dormant)
+  U7  +15  Days since last login > 90 (mutually exclusive with null — one or the other)
+  U8  +20  Employment_Status ≠ Active AND Account_Status = Active (ghost account)
+  U9  +15  Access_Justification missing or blank (governance gap)
+  U10 +10  Three or more high-risk privilege flags simultaneously (privilege accumulation)
+
+RISK TIERS
+  Critical  > 90
+  High     61–90
+  Medium   31–60
+  Low       0–30
+
+SEGREGATION OF DUTIES CONFLICTS — 6 DEFINED PAIRS
+  SOD-1  Create + Approve
+  SOD-2  Modify Master Data + Approve
+  SOD-3  Delete + Approve
+  SOD-4  Admin + Approve
+  SOD-5  Admin + Delete
+  SOD-6  Admin + Release
+  All six pairs are evaluated for every user regardless of risk score.
+
+PEER ANOMALY DETECTION
+  Users grouped by simplified role group (first role token, normalised).
+  Flag if privilege_count > (group mean + 1 SD). Min group size: 3.
+
+CROSS-MODULE ESCALATION (AT ↔ UAR integration)
+  If AT top findings DataFrame is provided:
+  Any username appearing in both AT findings and UAR findings is escalated one tier.
+  Low→Medium, Medium→High, High→Critical. Cross_Module_Flag = Y in output.
+
+REQUIRED INPUT COLUMNS : username, account_status, role
+OPTIONAL INPUT COLUMNS : full_name, last_login_date, account_created_date,
+                         department, job_title, account_type,
+                         training_expiry_date, modified_date, modified_by,
+                         system_name, employment_status, access_justification,
+                         gxp_criticality
+Missing optional column → rule silently skipped, recorded in rules_skipped list
+Missing required column → DATA_QUALITY_ISSUE returned at dataset level
+
+REGULATORY BASIS
+  21 CFR Part 11 §11.10(d)  — system access controls
+  21 CFR Part 11 §11.300    — electronic signature controls / unique usernames
+  EU Annex 11 Clause 12     — access security
+  GAMP 5 Chapter 7          — user access management
+  MHRA Data Integrity Guidance — access review frequency and documentation
+═══════════════════════════════════════════════════════════════"""
+
+
+# =============================================================================
+# PREPROCESSING
+# =============================================================================
+
+def _uar_normalise_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Map raw export column headers to normalised internal names using
+    _UAR_COL_ALIASES. Returns df with renamed columns.
+    Unrecognised columns are passed through unchanged.
+    """
+    rename_map = {}
+    for col in df.columns:
+        key = col.strip().lower().replace(" ", "_").replace("-", "_")
+        if key in _UAR_COL_ALIASES:
+            rename_map[col] = _UAR_COL_ALIASES[key]
+    return df.rename(columns=rename_map)
+
+
+def _uar_derive_gxp_criticality(system_str: str) -> str:
+    """
+    Derive GxP criticality level from system_name string.
+    Returns 'High', 'Medium', or 'Low'.
+    """
+    if not isinstance(system_str, str) or not system_str.strip():
+        return "Medium"
+    s = system_str.lower()
+    for kw in _UAR_GXP_HIGH_KEYWORDS:
+        if kw in s:
+            return "High"
+    for kw in _UAR_GXP_LOW_KEYWORDS:
+        if kw in s:
+            return "Low"
+    return "Medium"
+
+
+def _uar_derive_flags_from_role(role_str: str) -> dict:
+    """
+    Match role string against keyword map to derive boolean privilege flags.
+    Handles multi-role strings separated by |, ;, ,, or /.
+    Returns dict of {flag_name: bool}.
+    """
+    if not isinstance(role_str, str):
+        return {flag: False for flag in _UAR_ROLE_KEYWORD_MAP}
+    # Normalise separators and lowercase for matching
+    normalised = role_str.lower().replace("|", " ").replace(";", " ").replace("/", " ")
+    result = {}
+    for flag, keywords in _UAR_ROLE_KEYWORD_MAP.items():
+        result[flag] = any(kw in normalised for kw in keywords)
+    return result
+
+
+def _uar_normalise_status(val) -> str:
+    """
+    Normalise account_status and employment_status values to
+    'Active', 'Inactive', or 'Locked'.
+    """
+    if not isinstance(val, str):
+        return "Unknown"
+    v = val.strip().lower()
+    if v in ("active", "enabled", "true", "1", "yes", "y", "live"):
+        return "Active"
+    if v in ("locked", "lock", "suspended", "blocked", "frozen"):
+        return "Locked"
+    return "Inactive"
+
+
+def _uar_preprocess(df: pd.DataFrame) -> tuple:
+    """
+    Clean, normalise, and derive computed columns from the raw user access export.
+
+    Returns:
+        (processed_df, data_quality_issues: list, rules_skipped: list)
+
+    Derived columns added:
+        account_status_norm    : normalised Active/Inactive/Locked
+        employment_status_norm : normalised Active/Inactive (if column present)
+        last_login_parsed      : datetime or NaT
+        days_since_last_login  : int or None (None = never logged in)
+        gxp_criticality_derived: High/Medium/Low
+        Is_Admin, Can_Delete, Can_Approve, Can_Release,
+        Can_Modify_Master_Data, Can_Create : bool
+        privilege_count        : count of high-risk flags set True
+    """
+    df = df.copy()
+    data_quality_issues = []
+    rules_skipped = []
+
+    # ── Normalise account_status ──────────────────────────────────────────────
+    df["account_status_norm"] = df["account_status"].apply(_uar_normalise_status)
+
+    # ── Normalise employment_status (optional) ────────────────────────────────
+    if "employment_status" in df.columns:
+        df["employment_status_norm"] = df["employment_status"].apply(_uar_normalise_status)
+    else:
+        df["employment_status_norm"] = None
+        rules_skipped.append("U8 (Ghost Account) — employment_status column not provided")
+
+    # ── Parse last_login_date (optional) ─────────────────────────────────────
+    if "last_login_date" in df.columns:
+        df["last_login_parsed"] = pd.to_datetime(
+            df["last_login_date"], errors="coerce", dayfirst=True)
+        today = pd.Timestamp.today().normalize()   # tz-naive to match parsed dates
+        df["days_since_last_login"] = df["last_login_parsed"].apply(
+            lambda d: (today - d.tz_localize(None)).days
+            if pd.notna(d) else None)
+    else:
+        df["last_login_parsed"] = pd.NaT
+        df["days_since_last_login"] = None
+        rules_skipped.append("U7 (Dormant Account) — last_login_date column not provided")
+
+    # ── Derive GxP criticality ────────────────────────────────────────────────
+    if "gxp_criticality" in df.columns:
+        # Client pre-provided — normalise
+        df["gxp_criticality_derived"] = df["gxp_criticality"].apply(
+            lambda v: "High" if str(v).strip().lower() in ("high", "h", "critical")
+            else "Low" if str(v).strip().lower() in ("low", "l")
+            else "Medium"
+        )
+    elif "system_name" in df.columns:
+        df["gxp_criticality_derived"] = df["system_name"].apply(_uar_derive_gxp_criticality)
+    else:
+        df["gxp_criticality_derived"] = "Medium"
+        rules_skipped.append("U6 (GxP Criticality) — system_name and gxp_criticality both absent; defaulting to Medium")
+
+    # ── Derive privilege flags from role string ───────────────────────────────
+    flags_df = df["role"].apply(_uar_derive_flags_from_role).apply(pd.Series)
+    for flag_col in flags_df.columns:
+        df[flag_col] = flags_df[flag_col]
+
+    # ── Privilege count (high-risk flags only) ────────────────────────────────
+    df["privilege_count"] = df[_UAR_HIGH_PRIV_FLAGS].sum(axis=1)
+
+    # ── Access justification presence check ──────────────────────────────────
+    if "access_justification" in df.columns:
+        df["has_justification"] = df["access_justification"].apply(
+            lambda v: bool(isinstance(v, str) and v.strip()))
+    else:
+        df["has_justification"] = True   # can't penalise what wasn't collected
+        rules_skipped.append("U9 (Missing Justification) — access_justification column not provided")
+
+    # ── Training expiry check (optional) ─────────────────────────────────────
+    if "training_expiry_date" in df.columns:
+        df["training_expiry_parsed"] = pd.to_datetime(
+            df["training_expiry_date"], errors="coerce", dayfirst=True)
+        today_dt = pd.Timestamp.today().normalize()
+        df["training_expired"] = df["training_expiry_parsed"].apply(
+            lambda d: (d.tz_localize(None) < today_dt) if pd.notna(d) else False)
+    else:
+        df["training_expired"] = False
+        rules_skipped.append("Training Expiry — training_expiry_date column not provided")
+
+    return df, data_quality_issues, rules_skipped
+
+
+# =============================================================================
+# SCORING ENGINE
+# =============================================================================
+
+def _uar_score_single(row: pd.Series) -> tuple:
+    """
+    Compute additive risk score for one user row.
+    Returns (score: int, triggered_rules: list[str]).
+    All logic is explicit — no black-box behaviour.
+    """
+    score = 0
+    triggered = []
+
+    # U1 — Is_Admin
+    if row.get("Is_Admin"):
+        score += _UAR_SCORE_WEIGHTS["Is_Admin"]
+        triggered.append("U1: Admin Account (+40)")
+
+    # U2 — Can_Delete
+    if row.get("Can_Delete"):
+        score += _UAR_SCORE_WEIGHTS["Can_Delete"]
+        triggered.append("U2: Delete Capability (+30)")
+
+    # U3 — Can_Approve
+    if row.get("Can_Approve"):
+        score += _UAR_SCORE_WEIGHTS["Can_Approve"]
+        triggered.append("U3: Approval Authority (+30)")
+
+    # U4 — Can_Release
+    if row.get("Can_Release"):
+        score += _UAR_SCORE_WEIGHTS["Can_Release"]
+        triggered.append("U4: Release Capability (+25)")
+
+    # U5 — Can_Modify_Master_Data
+    if row.get("Can_Modify_Master_Data"):
+        score += _UAR_SCORE_WEIGHTS["Can_Modify_Master_Data"]
+        triggered.append("U5: Master Data Modification (+25)")
+
+    # U6 — GxP Criticality High
+    if str(row.get("gxp_criticality_derived", "")).strip() == "High":
+        score += _UAR_SCORE_WEIGHTS["GxP_High"]
+        triggered.append("U6: High-Criticality GxP System (+20)")
+
+    # U7 — Dormancy / never-logged-in (mutually exclusive)
+    days = row.get("days_since_last_login")
+    if days is None:
+        # Column was present but this user has no login date — never logged in
+        if "last_login_date" in (row.index if hasattr(row, "index") else []):
+            score += _UAR_SCORE_WEIGHTS["Never_Logged_In"]
+            triggered.append("U7: Account Never Used / No Login Date (+20)")
+    elif isinstance(days, (int, float)) and days > _UAR_DORMANCY_DAYS:
+        score += _UAR_SCORE_WEIGHTS["Dormant_90"]
+        triggered.append(f"U7: Dormant Account — {int(days)} days since last login (+15)")
+
+    # U8 — Ghost account: employment inactive, system account still active
+    emp_norm = row.get("employment_status_norm")
+    if emp_norm is not None and emp_norm != "Active":
+        if str(row.get("account_status_norm", "")).strip() == "Active":
+            score += _UAR_SCORE_WEIGHTS["Ghost_Account"]
+            triggered.append("U8: Ghost Account — Employment Inactive, System Access Active (+20)")
+
+    # U9 — Missing access justification
+    if not row.get("has_justification", True):
+        score += _UAR_SCORE_WEIGHTS["Missing_Justification"]
+        triggered.append("U9: No Access Justification on Record (+15)")
+
+    # U10 — Privilege accumulation (>= 3 high-risk flags)
+    if int(row.get("privilege_count", 0)) >= 3:
+        score += _UAR_SCORE_WEIGHTS["Multi_Privilege"]
+        triggered.append("U10: Privilege Accumulation — ≥3 High-Risk Flags (+10)")
+
+    return score, triggered
+
+
+def _uar_risk_tier(score: int) -> str:
+    """Map additive score to risk tier using defined bands."""
+    for threshold, label in _UAR_RISK_BANDS:
+        if score > threshold:
+            return label
+    return "Low"
+
+
+def _uar_escalate_tier(tier: str) -> str:
+    """Escalate one risk tier upward for cross-module findings."""
+    ladder = ["Low", "Medium", "High", "Critical"]
+    idx = ladder.index(tier) if tier in ladder else 0
+    return ladder[min(idx + 1, len(ladder) - 1)]
+
+
+# =============================================================================
+# SOD CONFLICT DETECTION
+# =============================================================================
+
+def _uar_sod_conflicts(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Evaluate all six SoD conflict pairs for every user in df.
+    Returns DataFrame of conflicts — one row per (user, conflict_pair).
+    Only active accounts are assessed for SoD.
+    """
+    rows = []
+    active_df = df[df["account_status_norm"] == "Active"].copy()
+
+    for pair in _UAR_SOD_PAIRS:
+        f1, f2 = pair["flags"]
+        # Both flags must exist in df (they always do after preprocess, but guard)
+        if f1 not in active_df.columns or f2 not in active_df.columns:
+            continue
+        conflicts = active_df[active_df[f1] & active_df[f2]].copy()
+        for _, user_row in conflicts.iterrows():
+            rows.append({
+                "Conflict_ID":      pair["id"],
+                "Conflict_Name":    pair["name"],
+                "Username":         user_row.get("username", ""),
+                "Full_Name":        user_row.get("full_name", ""),
+                "Department":       user_row.get("department", ""),
+                "Job_Title":        user_row.get("job_title", ""),
+                "Role_Raw":         user_row.get("role", ""),
+                "GxP_Criticality":  user_row.get("gxp_criticality_derived", ""),
+                "GxP_Rationale":    pair["rationale"],
+                "Risk_Level":       "Critical" if "Is_Admin" in (f1, f2) else "High",
+                "Reviewer_Disposition": "",
+            })
+
+    if not rows:
+        return pd.DataFrame(columns=[
+            "Conflict_ID", "Conflict_Name", "Username", "Full_Name",
+            "Department", "Job_Title", "Role_Raw", "GxP_Criticality",
+            "GxP_Rationale", "Risk_Level", "Reviewer_Disposition",
+        ])
+    return pd.DataFrame(rows).sort_values(
+        ["Risk_Level", "Conflict_ID", "Username"],
+        key=lambda c: c.map({"Critical": 0, "High": 1, "Medium": 2, "Low": 3})
+        if c.name == "Risk_Level" else c,
+    ).reset_index(drop=True)
+
+
+# =============================================================================
+# PEER ANOMALY DETECTION
+# =============================================================================
+
+def _uar_peer_anomalies(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Detect users whose privilege count significantly exceeds their role-group peers.
+    Groups by simplified role group (first role token, normalised).
+    Flags users where privilege_count > (group_mean + 1 * group_std).
+    Minimum group size: _UAR_PEER_MIN_GROUP. Returns flagged user rows.
+    """
+    if "privilege_count" not in df.columns:
+        return pd.DataFrame()
+
+    df = df.copy()
+    df["_role_group"] = df["role"].apply(
+        lambda r: re.split(r"[|;,/]", str(r))[0].strip().lower()[:40]
+        if isinstance(r, str) else "unknown"
+    )
+
+    flagged = []
+    for grp, grp_df in df.groupby("_role_group"):
+        if len(grp_df) < _UAR_PEER_MIN_GROUP:
+            continue
+        mean = grp_df["privilege_count"].mean()
+        std  = grp_df["privilege_count"].std()
+        if std == 0 or (not std == std):   # std is NaN or zero → no variation
+            continue
+        threshold = mean + std
+        outliers = grp_df[grp_df["privilege_count"] > threshold]
+        for _, row in outliers.iterrows():
+            flagged.append({
+                "Username":        row.get("username", ""),
+                "Full_Name":       row.get("full_name", ""),
+                "Role_Group":      grp,
+                "User_Priv_Count": int(row["privilege_count"]),
+                "Group_Mean":      round(mean, 1),
+                "Group_Threshold": round(threshold, 1),
+                "Group_Size":      len(grp_df),
+                "Anomaly_Note":    (
+                    f"Privilege count {int(row['privilege_count'])} exceeds "
+                    f"role-group mean of {round(mean, 1)} by more than 1 SD "
+                    f"(threshold {round(threshold, 1)}). Peers: {len(grp_df)} users."
+                ),
+            })
+
+    return pd.DataFrame(flagged) if flagged else pd.DataFrame()
+
+
+# =============================================================================
+# MAIN ENTRY POINT
+# =============================================================================
+
+def uar_score_users(df: pd.DataFrame, at_top_df: pd.DataFrame = None) -> dict:
+    """
+    Main UAR scoring entry point.
+
+    Parameters
+    ----------
+    df          : Raw user access export (any supported column schema)
+    at_top_df   : Optional AT top findings DataFrame. If provided, usernames
+                  appearing in both AT and UAR findings are escalated one tier.
+
+    Returns
+    -------
+    dict with keys:
+        top_users            : DataFrame — top _UAR_TOP_N by risk score
+        all_scored           : DataFrame — full scored dataset
+        sod_conflicts        : DataFrame — all SoD conflict pairs found
+        peer_anomalies       : DataFrame — peer outlier users
+        summary              : dict — counts, key themes
+        data_quality_issues  : list — missing required columns
+        rules_skipped        : list — optional rules not applied (NO_DATA)
+    """
+    # ── 1. Normalise column names ─────────────────────────────────────────────
+    df = _uar_normalise_columns(df)
+
+    # ── 2. Validate required columns ─────────────────────────────────────────
+    missing_required = _UAR_REQUIRED_COLS - set(df.columns)
+    if missing_required:
+        return {
+            "top_users":           pd.DataFrame(),
+            "all_scored":          pd.DataFrame(),
+            "sod_conflicts":       pd.DataFrame(),
+            "peer_anomalies":      pd.DataFrame(),
+            "summary":             {},
+            "data_quality_issues": [
+                f"DATA_QUALITY_ISSUE: Required column(s) missing from upload: "
+                f"{', '.join(sorted(missing_required))}. "
+                f"Rename your columns to: username, account_status, role."
+            ],
+            "rules_skipped": [],
+        }
+
+    # ── 3. Preprocess ─────────────────────────────────────────────────────────
+    df, dq_issues, rules_skipped = _uar_preprocess(df)
+
+    # ── 4. Score every user ───────────────────────────────────────────────────
+    scores      = []
+    trig_list   = []
+    for _, row in df.iterrows():
+        s, t = _uar_score_single(row)
+        scores.append(s)
+        trig_list.append(" | ".join(t) if t else "No rules triggered")
+
+    df["Risk_Score"]      = scores
+    df["Triggered_Rules"] = trig_list
+    df["Risk_Level"]      = df["Risk_Score"].apply(_uar_risk_tier)
+
+    # ── 5. Cross-module escalation (AT ↔ UAR) ────────────────────────────────
+    df["Cross_Module_Flag"] = "N"
+    if at_top_df is not None and not at_top_df.empty:
+        # Accept 'username' or 'user_id' from AT top df
+        at_user_col = next(
+            (c for c in ["username", "user_id"] if c in at_top_df.columns), None)
+        if at_user_col:
+            at_usernames = set(at_top_df[at_user_col].dropna().str.lower())
+            mask = df["username"].str.lower().isin(at_usernames)
+            df.loc[mask, "Cross_Module_Flag"] = "Y"
+            df.loc[mask, "Risk_Level"] = df.loc[mask, "Risk_Level"].apply(
+                _uar_escalate_tier)
+            # Reflect escalation in score (add 5 for display sorting purposes)
+            df.loc[mask, "Risk_Score"] = df.loc[mask, "Risk_Score"] + 5
+
+    # ── 6. Sort and select top N ──────────────────────────────────────────────
+    tier_order = {"Critical": 0, "High": 1, "Medium": 2, "Low": 3}
+    df["_tier_sort"] = df["Risk_Level"].map(tier_order).fillna(9)
+    df_sorted = df.sort_values(
+        ["_tier_sort", "Risk_Score"], ascending=[True, False]
+    ).reset_index(drop=True)
+
+    top_users = df_sorted.head(_UAR_TOP_N).copy()
+
+    # ── 7. SoD conflict detection ─────────────────────────────────────────────
+    sod_df = _uar_sod_conflicts(df)
+
+    # ── 8. Peer anomaly detection ─────────────────────────────────────────────
+    peer_df = _uar_peer_anomalies(df_sorted)
+
+    # ── 9. Summary statistics ─────────────────────────────────────────────────
+    tier_counts = df["Risk_Level"].value_counts().to_dict()
+    active_count = int((df["account_status_norm"] == "Active").sum())
+
+    # Key themes — derive from what rules fired most
+    all_triggered_text = " | ".join(df["Triggered_Rules"].tolist()).lower()
+    themes = []
+    if "u1:" in all_triggered_text:
+        themes.append("Admin accounts require review")
+    if "u7:" in all_triggered_text and "dormant" in all_triggered_text:
+        themes.append("Dormant accounts present")
+    if "u8:" in all_triggered_text:
+        themes.append("Ghost accounts — employment/system status mismatch")
+    if not sod_df.empty:
+        themes.append(f"{len(sod_df)} Segregation of Duties conflicts")
+    if not peer_df.empty:
+        themes.append("Peer privilege anomalies detected")
+    if "u9:" in all_triggered_text:
+        themes.append("Access justifications missing")
+    if not themes:
+        themes.append("No significant risk themes identified")
+
+    summary = {
+        "total_users":         len(df),
+        "active_users":        active_count,
+        "Critical":            tier_counts.get("Critical", 0),
+        "High":                tier_counts.get("High", 0),
+        "Medium":              tier_counts.get("Medium", 0),
+        "Low":                 tier_counts.get("Low", 0),
+        "sod_conflict_count":  len(sod_df),
+        "peer_anomaly_count":  len(peer_df),
+        "cross_module_count":  int((df["Cross_Module_Flag"] == "Y").sum()),
+        "key_themes":          themes[:5],
+    }
+
+    # Drop internal sort column from output
+    top_users = top_users.drop(columns=["_tier_sort"], errors="ignore")
+    all_scored = df_sorted.drop(columns=["_tier_sort"], errors="ignore")
+
+    return {
+        "top_users":           top_users,
+        "all_scored":          all_scored,
+        "sod_conflicts":       sod_df,
+        "peer_anomalies":      peer_df,
+        "summary":             summary,
+        "data_quality_issues": dq_issues,
+        "rules_skipped":       rules_skipped,
+    }
+
+
+# =============================================================================
+# AI NARRATIVE GENERATION  (mirrors at_generate_justifications exactly)
+# =============================================================================
+
+def _uar_deterministic_narrative(row: dict) -> str:
+    """
+    Deterministic fallback narrative — no AI required.
+    Produces a factual one-sentence summary of the user's risk posture.
+    """
+    username   = str(row.get("username", "unknown user"))
+    risk_level = str(row.get("Risk_Level", ""))
+    triggered  = str(row.get("Triggered_Rules", ""))
+    role_raw   = str(row.get("role", ""))[:80]
+    days       = row.get("days_since_last_login")
+    cross      = row.get("Cross_Module_Flag", "N")
+
+    # Extract first triggered rule label for the narrative anchor
+    first_rule = triggered.split("|")[0].strip() if "|" in triggered else triggered
+
+    parts = [f"{username} holds role '{role_raw}'"]
+    if "U1:" in triggered:
+        parts.append("with administrative system access")
+    if "U8:" in triggered:
+        parts.append("and is a ghost account (employment inactive, system access active)")
+    elif days is not None and isinstance(days, (int, float)) and days > _UAR_DORMANCY_DAYS:
+        parts.append(f"with no login recorded in {int(days)} days")
+    if "U9:" in triggered:
+        parts.append("and has no documented access justification")
+    if cross == "Y":
+        parts.append("— also flagged in Audit Trail findings this period")
+
+    return "; ".join(parts) + f" [{risk_level} risk]."
+
+
+def uar_generate_justifications(top_df: pd.DataFrame, model_id: str) -> pd.DataFrame:
+    """
+    Generate one-sentence factual risk narrative per user.
+    Primary: LLM via litellm (temperature 0.05 for near-determinism).
+    Fallback: deterministic Python (_uar_deterministic_narrative).
+    The reviewer never sees an error string in the output.
+    Mirrors at_generate_justifications pattern exactly.
+    """
+    narratives = []
+
+    for _, row in top_df.iterrows():
+        text = None
+
+        # ── Primary: LLM ─────────────────────────────────────────────────────
+        try:
+            from litellm import completion as _comp
+
+            username   = str(row.get("username", "unknown"))
+            role_raw   = str(row.get("role", "unknown"))[:120]
+            risk_level = str(row.get("Risk_Level", ""))
+            triggered  = str(row.get("Triggered_Rules", ""))
+            days       = row.get("days_since_last_login")
+            full_name  = str(row.get("full_name", ""))
+            dept       = str(row.get("department", ""))
+            emp_norm   = str(row.get("employment_status_norm", ""))
+            cross      = str(row.get("Cross_Module_Flag", "N"))
+            system     = str(row.get("system_name", ""))
+
+            days_str = f"{int(days)} days" if isinstance(days, (int, float)) else "unknown"
+            cross_note = " This user also appears in Audit Trail findings this period." if cross == "Y" else ""
+
+            prompt = f"""You are writing the System Narrative column in a GxP user access review table.
+
+YOUR ONLY JOB: Write exactly ONE sentence stating the observable facts about this user's access profile.
+
+HARD RULES — no exceptions:
+1. State ONLY observable facts: username, role, what access flags were triggered, last login days if relevant.
+2. Do NOT use regulatory language: no "violates", "non-compliant", "raises concerns", "ALCOA", "21 CFR", "data integrity".
+3. Do NOT recommend any action: no "review", "remove", "investigate", "escalate".
+4. Do NOT infer intent or motivation.
+5. ONE sentence. Max 45 words.
+6. If Cross_Module_Flag is Y, include that the user also appears in Audit Trail findings.
+
+User data:
+  Username:           {username}
+  Full Name:          {full_name}
+  Department:         {dept}
+  Role:               {role_raw}
+  System:             {system}
+  Employment Status:  {emp_norm}
+  Days Since Login:   {days_str}
+  Triggered Rules:    {triggered}
+  Cross-Module Flag:  {cross}
+
+CORRECT: "{username} holds '{role_raw}' in {system} with {int(days) if isinstance(days,(int,float)) else 'no'} days since last login and no documented access justification."
+WRONG: "This user may represent a compliance risk and should be reviewed by the QA team."
+
+Write only the one sentence. No labels, no preamble."""
+
+            resp = _comp(
+                model=model_id, stream=False, temperature=0.05, max_tokens=80,
+                messages=[
+                    {"role": "system", "content":
+                     "You write one-sentence factual access profile summaries for pharmaceutical QA tables. "
+                     "State only observable facts: username, role, system, days since login, triggered flags. "
+                     "No regulatory language. No action instructions. One sentence, max 45 words."},
+                    {"role": "user", "content": prompt},
+                ]
+            )
+            candidate = resp.choices[0].message.content.strip()
+            if len(candidate) > 20 and "error" not in candidate.lower()[:20]:
+                text = candidate
+
+        except Exception:
+            pass  # silently fall through to deterministic fallback
+
+        # ── Fallback: deterministic ───────────────────────────────────────────
+        if not text:
+            text = _uar_deterministic_narrative(row.to_dict())
+
+        narratives.append(text)
+
+    top_df = top_df.copy()
+    top_df["System_Narrative"] = narratives
+    return top_df
+
+
+# =============================================================================
+# EXCEL OUTPUT
+# =============================================================================
+
+def uar_build_excel(
+    result: dict,
+    system_name: str,
+    r_start: str,
+    r_end: str,
+    fname: str,
+) -> bytes:
+    """
+    Build 5-sheet GxP-compliant evidence workbook for UAR findings.
+    Mirrors at_build_excel colour scheme and structure.
+
+    Sheets:
+        1 — Summary
+        2 — Top 10 High-Risk Users (findings + narratives + disposition)
+        3 — Segregation of Duties Conflicts
+        4 — All Users (full scored dataset)
+        5 — Detection Logic
+    """
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+
+    output = io.BytesIO()
+    wb     = Workbook()
+
+    # ── Colour palette — mirrors AT module ────────────────────────────────────
+    C_HEADER_BG   = "1E3A5F"   # dark navy
+    C_HEADER_FG   = "FFFFFF"
+    C_SECTION_BG  = "EBF3FB"   # light blue section divider
+    C_SECTION_FG  = "1E3A5F"
+    C_RISK        = {
+        "Critical": "C0392B",
+        "High":     "E67E22",
+        "Medium":   "D4A017",
+        "Low":      "27AE60",
+    }
+    C_RISK_FG     = {"Critical": "FFFFFF", "High": "FFFFFF",
+                     "Medium": "1A1A1A", "Low": "FFFFFF"}
+
+    thin_side = Side(style="thin", color="CCCCCC")
+    bdr = Border(left=thin_side, right=thin_side,
+                 top=thin_side, bottom=thin_side)
+
+    def _hdr_fill(hex_bg):
+        return PatternFill("solid", fgColor=hex_bg)
+
+    def _cell_style(cell, bold=False, bg=None, fg="1A1A1A",
+                    align="left", wrap=True, size=9):
+        cell.font      = Font(name="Calibri", size=size, bold=bold,
+                              color=fg if bg else "1A1A1A")
+        cell.alignment = Alignment(horizontal=align, vertical="center",
+                                   wrap_text=wrap)
+        cell.border    = bdr
+        if bg:
+            cell.fill  = _hdr_fill(bg)
+
+    # =========================================================================
+    # SHEET 1 — SUMMARY
+    # =========================================================================
+    ws1 = wb.active
+    ws1.title = "Summary"
+    ws1.column_dimensions["A"].width = 34
+    ws1.column_dimensions["B"].width = 52
+
+    row = 1
+
+    def _summary_row(label, value, section=False, bold_val=False):
+        nonlocal row
+        c1 = ws1.cell(row=row, column=1, value=label)
+        c2 = ws1.cell(row=row, column=2, value=value)
+        if section:
+            for c in (c1, c2):
+                _cell_style(c, bold=True, bg=C_SECTION_BG, fg=C_SECTION_FG,
+                            size=9)
+        else:
+            _cell_style(c1, bold=True, size=9)
+            _cell_style(c2, bold=bold_val, size=9)
+        ws1.row_dimensions[row].height = 17
+        row += 1
+
+    # Title block
+    title_cell = ws1.cell(row=row, column=1,
+                          value="VALINTEL.AI — User Access Review")
+    title_cell.font      = Font(name="Calibri", bold=True, size=13,
+                                color=C_HEADER_BG)
+    title_cell.alignment = Alignment(horizontal="left", vertical="center")
+    ws1.row_dimensions[row].height = 22
+    row += 1
+    sub_cell = ws1.cell(row=row, column=1,
+                        value="GxP Access Evidence Package")
+    sub_cell.font      = Font(name="Calibri", size=9, color="5A6A7A")
+    sub_cell.alignment = Alignment(horizontal="left")
+    ws1.row_dimensions[row].height = 14
+    row += 2
+
+    smry = result.get("summary", {})
+
+    _summary_row("REVIEW INFORMATION", "", section=True)
+    _summary_row("System Name",       system_name or "(not entered)", bold_val=True)
+    _summary_row("Review Period",     f"{r_start}  →  {r_end}")
+    _summary_row("Source File",       fname)
+    _summary_row("Analysis Date (UTC)",
+                 datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC"))
+    _summary_row("Regulatory Basis",
+                 "21 CFR Part 11 §11.10(d), §11.300  |  EU Annex 11 Clause 12")
+    row += 1
+
+    _summary_row("USER POPULATION", "", section=True)
+    _summary_row("Total Users Reviewed",  smry.get("total_users", 0))
+    _summary_row("Active Accounts",       smry.get("active_users", 0))
+    row += 1
+
+    _summary_row("RISK FINDINGS", "", section=True)
+    for tier in ["Critical", "High", "Medium", "Low"]:
+        count = smry.get(tier, 0)
+        c1 = ws1.cell(row=row, column=1, value=tier)
+        c2 = ws1.cell(row=row, column=2, value=count)
+        for c in (c1, c2):
+            c.font      = Font(name="Calibri", size=9, bold=(tier in ("Critical", "High")),
+                               color=C_RISK_FG[tier])
+            c.fill      = _hdr_fill(C_RISK[tier])
+            c.alignment = Alignment(horizontal="left", vertical="center")
+            c.border    = bdr
+        ws1.row_dimensions[row].height = 17
+        row += 1
+
+    row += 1
+    _summary_row("OTHER FINDINGS", "", section=True)
+    _summary_row("SoD Conflicts Identified",   smry.get("sod_conflict_count", 0))
+    _summary_row("Peer Anomalies Identified",  smry.get("peer_anomaly_count", 0))
+    _summary_row("Cross-Module (AT+UAR) Users", smry.get("cross_module_count", 0))
+    row += 1
+
+    _summary_row("KEY RISK THEMES", "", section=True)
+    for theme in smry.get("key_themes", []):
+        _summary_row("", theme)
+    row += 1
+
+    rules_skipped = result.get("rules_skipped", [])
+    if rules_skipped:
+        _summary_row("RULES NOT APPLIED (NO_DATA)", "", section=True)
+        for note in rules_skipped:
+            _summary_row("", note)
+        row += 1
+
+    _summary_row("REVIEWER STATEMENT", "", section=True)
+    stmt = (
+        "All risk classifications are derived from deterministic rules applied to the "
+        "uploaded access export. The System Narrative column contains AI-generated "
+        "text and does not influence risk scores or tier assignments. "
+        "Reviewer dispositions are required for all Critical and High findings."
+    )
+    c1 = ws1.cell(row=row, column=1, value="Statement")
+    c2 = ws1.cell(row=row, column=2, value=stmt)
+    _cell_style(c1, bold=True, size=9)
+    _cell_style(c2, size=9, wrap=True)
+    ws1.row_dimensions[row].height = 45
+    row += 1
+
+    # =========================================================================
+    # SHEET 2 — TOP 10 HIGH-RISK USERS
+    # =========================================================================
+    ws2 = wb.create_sheet("Top 10 High-Risk Users")
+
+    display_cols = [
+        ("Rank",              5),
+        ("Username",         18),
+        ("Full Name",        22),
+        ("Department",       18),
+        ("Job Title",        20),
+        ("Role",             30),
+        ("Account Status",   14),
+        ("Risk Score",       11),
+        ("Risk Level",       12),
+        ("GxP Criticality",  14),
+        ("Days Since Login",  14),
+        ("Cross-Module",     13),
+        ("Triggered Rules",  50),
+        ("System Narrative", 55),
+        ("Reviewer Disposition", 25),
+        ("Reviewer Notes",   30),
+    ]
+
+    col_map = [
+        "rank_display", "username", "full_name", "department", "job_title",
+        "role", "account_status_norm", "Risk_Score", "Risk_Level",
+        "gxp_criticality_derived", "days_since_last_login", "Cross_Module_Flag",
+        "Triggered_Rules", "System_Narrative",
+        "Reviewer_Disposition", "Reviewer_Notes",
+    ]
+
+    # Header row
+    for ci, (hdr, width) in enumerate(display_cols, 1):
+        c = ws2.cell(row=1, column=ci, value=hdr)
+        _cell_style(c, bold=True, bg=C_HEADER_BG, fg=C_HEADER_FG, size=9)
+        ws2.column_dimensions[get_column_letter(ci)].width = width
+    ws2.row_dimensions[1].height = 20
+
+    top_df = result.get("top_users", pd.DataFrame())
+    if not top_df.empty:
+        top_df = top_df.copy()
+        top_df["rank_display"] = range(1, len(top_df) + 1)
+        top_df["Reviewer_Disposition"] = ""
+        top_df["Reviewer_Notes"] = ""
+
+        for ri, (_, row_data) in enumerate(top_df.iterrows(), 2):
+            tier = str(row_data.get("Risk_Level", "Low"))
+            bg   = C_RISK.get(tier, "FFFFFF")
+            fg   = C_RISK_FG.get(tier, "1A1A1A")
+
+            for ci, col_key in enumerate(col_map, 1):
+                val = row_data.get(col_key, "")
+                if pd.isna(val) if not isinstance(val, str) else False:
+                    val = ""
+                # Format days_since_last_login nicely
+                if col_key == "days_since_last_login":
+                    val = f"{int(val)} days" if isinstance(val, (int, float)) else "Never"
+                c = ws2.cell(row=ri, column=ci, value=val)
+                if ci in (8, 9):   # Risk Score, Risk Level — coloured
+                    _cell_style(c, bold=True, bg=bg, fg=fg, size=9)
+                else:
+                    _cell_style(c, size=9, wrap=(ci in (7, 13, 14, 15, 16)))
+            ws2.row_dimensions[ri].height = 40 if ri > 1 else 20
+
+    ws2.freeze_panes = "A2"
+
+    # =========================================================================
+    # SHEET 3 — SOD CONFLICTS
+    # =========================================================================
+    ws3 = wb.create_sheet("SoD Conflicts")
+    sod_df = result.get("sod_conflicts", pd.DataFrame())
+
+    sod_display_cols = [
+        ("Conflict ID",     12),
+        ("Conflict Name",   26),
+        ("Username",        18),
+        ("Full Name",       22),
+        ("Department",      18),
+        ("Job Title",       20),
+        ("Role",            30),
+        ("GxP Criticality", 14),
+        ("Risk Level",      12),
+        ("GxP Rationale",   60),
+        ("Reviewer Disposition", 25),
+    ]
+    sod_col_map = [
+        "Conflict_ID", "Conflict_Name", "Username", "Full_Name",
+        "Department", "Job_Title", "Role_Raw", "GxP_Criticality",
+        "Risk_Level", "GxP_Rationale", "Reviewer_Disposition",
+    ]
+
+    for ci, (hdr, width) in enumerate(sod_display_cols, 1):
+        c = ws3.cell(row=1, column=ci, value=hdr)
+        _cell_style(c, bold=True, bg=C_HEADER_BG, fg=C_HEADER_FG, size=9)
+        ws3.column_dimensions[get_column_letter(ci)].width = width
+    ws3.row_dimensions[1].height = 20
+
+    if not sod_df.empty:
+        for ri, (_, row_data) in enumerate(sod_df.iterrows(), 2):
+            tier = str(row_data.get("Risk_Level", "High"))
+            bg   = C_RISK.get(tier, "FFFFFF")
+            fg   = C_RISK_FG.get(tier, "1A1A1A")
+            for ci, col_key in enumerate(sod_col_map, 1):
+                val = row_data.get(col_key, "")
+                c   = ws3.cell(row=ri, column=ci, value=val)
+                if ci == 9:  # Risk Level coloured
+                    _cell_style(c, bold=True, bg=bg, fg=fg, size=9)
+                else:
+                    _cell_style(c, size=9, wrap=(ci in (10, 11)))
+            ws3.row_dimensions[ri].height = 50
+    else:
+        ws3.cell(row=2, column=1,
+                 value="No Segregation of Duties conflicts detected.")
+
+    ws3.freeze_panes = "A2"
+
+    # =========================================================================
+    # SHEET 4 — ALL USERS
+    # =========================================================================
+    ws4 = wb.create_sheet("All Users")
+    all_df = result.get("all_scored", pd.DataFrame())
+
+    raw_cols = [
+        "username", "full_name", "department", "job_title", "role",
+        "account_status_norm", "employment_status_norm",
+        "gxp_criticality_derived", "days_since_last_login",
+        "Is_Admin", "Can_Delete", "Can_Approve", "Can_Release",
+        "Can_Modify_Master_Data", "privilege_count",
+        "Cross_Module_Flag", "Risk_Score", "Risk_Level",
+        "Triggered_Rules",
+    ]
+    present_cols = [c for c in raw_cols if c in all_df.columns]
+    clean_headers = {
+        "username": "Username", "full_name": "Full Name",
+        "department": "Department", "job_title": "Job Title",
+        "role": "Role", "account_status_norm": "Account Status",
+        "employment_status_norm": "Employment Status",
+        "gxp_criticality_derived": "GxP Criticality",
+        "days_since_last_login": "Days Since Login",
+        "Is_Admin": "Admin", "Can_Delete": "Can Delete",
+        "Can_Approve": "Can Approve", "Can_Release": "Can Release",
+        "Can_Modify_Master_Data": "Modify Master Data",
+        "privilege_count": "Priv Count",
+        "Cross_Module_Flag": "Cross-Module",
+        "Risk_Score": "Risk Score", "Risk_Level": "Risk Level",
+        "Triggered_Rules": "Triggered Rules",
+    }
+
+    for ci, col_key in enumerate(present_cols, 1):
+        c = ws4.cell(row=1, column=ci, value=clean_headers.get(col_key, col_key))
+        _cell_style(c, bold=True, bg=C_HEADER_BG, fg=C_HEADER_FG, size=8)
+        ws4.column_dimensions[get_column_letter(ci)].width = (
+            30 if col_key in ("role", "Triggered_Rules") else
+            18 if col_key in ("username", "full_name", "department") else 12
+        )
+    ws4.row_dimensions[1].height = 18
+
+    if not all_df.empty:
+        for ri, (_, row_data) in enumerate(all_df.iterrows(), 2):
+            tier = str(row_data.get("Risk_Level", "Low"))
+            for ci, col_key in enumerate(present_cols, 1):
+                val = row_data.get(col_key, "")
+                if isinstance(val, bool):
+                    val = "Y" if val else "N"
+                elif col_key == "days_since_last_login":
+                    val = f"{int(val)} days" if isinstance(val, (int, float)) else "Never"
+                elif pd.isna(val) if not isinstance(val, (str, bool)) else False:
+                    val = ""
+                c = ws4.cell(row=ri, column=ci, value=val)
+                if col_key == "Risk_Level":
+                    _cell_style(c, bold=True,
+                                bg=C_RISK.get(tier, "FFFFFF"),
+                                fg=C_RISK_FG.get(tier, "1A1A1A"), size=8)
+                else:
+                    _cell_style(c, size=8, wrap=False)
+            ws4.row_dimensions[ri].height = 14
+
+    ws4.freeze_panes = "A2"
+
+    # =========================================================================
+    # SHEET 5 — DETECTION LOGIC
+    # =========================================================================
+    ws5 = wb.create_sheet("Detection Logic")
+    ws5.column_dimensions["A"].width = 100
+
+    title_c = ws5.cell(row=1, column=1, value="UAR Detection Logic — VALINTEL.AI")
+    title_c.font = Font(name="Calibri", bold=True, size=11, color=C_HEADER_BG)
+    ws5.row_dimensions[1].height = 20
+
+    for li, line in enumerate(UAR_DETECTION_LOGIC.split("\n"), 2):
+        c = ws5.cell(row=li, column=1, value=line)
+        c.font      = Font(name="Courier New", size=8, color="2C3E50")
+        c.alignment = Alignment(horizontal="left", vertical="top", wrap_text=False)
+        ws5.row_dimensions[li].height = 13
+
+    wb.save(output)
+    return output.getvalue()
+
+
+# =============================================================================
+# STREAMLIT UI
+# =============================================================================
+
+def show_user_access_review(user: str, role: str, model_id: str):
+    """
+    Render Periodic Review — Module 2: User Access Review Intelligence.
+    Mirrors show_audit_trail() structure and UI conventions exactly.
+    """
+    st.title("👥 User Access Review Intelligence")
+    st.markdown(
+        "<p style='color:#94a3b8;margin-top:-12px;'>"
+        "Upload your system user access export to run the deterministic GxP access "
+        "review engine — 10 scoring rules, 6 SoD conflict checks, peer anomaly "
+        "detection, and cross-module AT correlation. Produces a GxP evidence package "
+        "for your Periodic Review Report per 21 CFR Part 11 §11.10(d) and EU Annex 11 "
+        "Clause 12.</p>",
+        unsafe_allow_html=True,
+    )
+    st.markdown("---")
+
+    # ── System metadata ───────────────────────────────────────────────────────
+    mc1, mc2, mc3 = st.columns(3)
+    with mc1:
+        st.session_state["uar_system_name"] = st.text_input(
+            "System Name",
+            value=st.session_state.get("uar_system_name", ""),
+            placeholder="e.g. LabVantage LIMS",
+            key="uar_sysname",
+        )
+    with mc2:
+        st.session_state["uar_review_start"] = st.text_input(
+            "Review Period Start",
+            value=st.session_state.get("uar_review_start", ""),
+            placeholder="e.g. 01-Jan-2026",
+            key="uar_rstart",
+        )
+    with mc3:
+        st.session_state["uar_review_end"] = st.text_input(
+            "Review Period End",
+            value=st.session_state.get("uar_review_end", ""),
+            placeholder="e.g. 31-Mar-2026",
+            key="uar_rend",
+        )
+    st.markdown("---")
+
+    # ── Step 1: File upload ───────────────────────────────────────────────────
+    st.markdown("### Step 1 — Upload User Access Export")
+    st.caption(
+        "CSV or Excel export from any GxP system — LabWare, LabVantage, QAD, "
+        "SAP, MS Dynamics, Veeva Vault, MES, or any custom system. "
+        "No integration required."
+    )
+
+    uploaded = st.file_uploader(
+        "User access export (CSV or XLSX)",
+        type=["csv", "xlsx", "xls"],
+        key=f"uar_upload_{st.session_state.get('uar_key_n', 0)}",
+    )
+
+    if uploaded:
+        try:
+            if uploaded.name.endswith(".csv"):
+                raw_df = pd.read_csv(uploaded, dtype=str)
+            else:
+                raw_df = pd.read_excel(uploaded, dtype=str)
+            raw_df.columns = raw_df.columns.str.strip()
+            st.session_state["uar_raw_df"]   = raw_df
+            st.session_state["uar_file_name"] = uploaded.name
+        except Exception as e:
+            st.error(f"Could not read file: {e}")
+            return
+
+    raw_df = st.session_state.get("uar_raw_df")
+    if raw_df is None:
+        st.info("Upload a user access export above to begin.")
+        return
+
+    # ── Column detection preview ──────────────────────────────────────────────
+    st.markdown("### Step 2 — Column Detection")
+    normed = _uar_normalise_columns(raw_df)
+    detected   = [c for c in normed.columns if c in _UAR_COL_ALIASES.values()]
+    undetected = [c for c in raw_df.columns
+                  if c.strip().lower().replace(" ", "_").replace("-", "_")
+                  not in _UAR_COL_ALIASES]
+
+    col_a, col_b = st.columns(2)
+    with col_a:
+        st.success(f"✅ {len(detected)} columns mapped automatically")
+        for c in sorted(set(detected)):
+            st.markdown(f"&nbsp;&nbsp;• `{c}`", unsafe_allow_html=True)
+    with col_b:
+        missing_req = _UAR_REQUIRED_COLS - set(normed.columns)
+        if missing_req:
+            st.error(
+                f"❌ Required column(s) not found: **{', '.join(sorted(missing_req))}**. "
+                f"Rename your columns to: `username`, `account_status`, `role`."
+            )
+        if undetected:
+            st.warning(
+                f"⚠️ {len(undetected)} column(s) not recognised and will be ignored: "
+                f"{', '.join(undetected[:8])}{'...' if len(undetected) > 8 else ''}"
+            )
+        if not missing_req and not undetected:
+            st.success("✅ All columns recognised")
+
+    if _UAR_REQUIRED_COLS - set(normed.columns):
+        return
+
+    st.markdown(f"**{len(raw_df):,} users** loaded from `{st.session_state.get('uar_file_name','')}`")
+
+    st.markdown("---")
+
+    # ── Step 3: Run analysis ──────────────────────────────────────────────────
+    st.markdown("### Step 3 — Run Access Review")
+
+    run_col, _ = st.columns([3, 5])
+    with run_col:
+        run_btn = st.button(
+            "▶ Run Access Review",
+            type="primary",
+            use_container_width=True,
+            key="uar_run_btn",
+        )
+
+    if run_btn:
+        at_top = st.session_state.get("at_top20_df")   # cross-module: from AT session
+        with st.status("Running User Access Review…", expanded=True) as status:
+            _ = st.write("Normalising columns and preprocessing…")
+            result = uar_score_users(raw_df, at_top_df=at_top)
+
+            if result["data_quality_issues"]:
+                status.update(label="Data Quality Issue", state="error")
+                for issue in result["data_quality_issues"]:
+                    st.error(issue)
+                return
+
+            _ = st.write(f"Scored {result['summary'].get('total_users', 0):,} users…")
+            _ = st.write("Generating AI narratives…")
+            if not result["top_users"].empty:
+                result["top_users"] = uar_generate_justifications(
+                    result["top_users"], model_id)
+            _ = st.write("Building evidence package…")
+
+            status.update(label="✅ Analysis complete", state="complete")
+
+        st.session_state["uar_scored_result"] = result
+        st.session_state["uar_analysis_done"] = True
+        st.rerun()
+
+    # ── Step 4: Results ───────────────────────────────────────────────────────
+    if not st.session_state.get("uar_analysis_done"):
+        return
+
+    result = st.session_state.get("uar_scored_result")
+    if not result:
+        return
+
+    smry = result.get("summary", {})
+    st.markdown("---")
+    st.markdown("### Step 4 — Review Findings")
+
+    # ── Summary tiles ─────────────────────────────────────────────────────────
+    t1, t2, t3, t4, t5 = st.columns(5)
+    tiles = [
+        (t1, "Critical", smry.get("Critical", 0), "#C0392B"),
+        (t2, "High",     smry.get("High", 0),     "#E67E22"),
+        (t3, "Medium",   smry.get("Medium", 0),   "#D4A017"),
+        (t4, "SoD Conflicts", smry.get("sod_conflict_count", 0), "#8E44AD"),
+        (t5, "Cross-Module",  smry.get("cross_module_count", 0), "#2E86AB"),
+    ]
+    for col, label, val, color in tiles:
+        with col:
+            st.markdown(
+                f"<div style='background:{color};color:white;padding:14px 8px;"
+                f"border-radius:8px;text-align:center;'>"
+                f"<div style='font-size:1.7rem;font-weight:700;'>{val}</div>"
+                f"<div style='font-size:0.72rem;margin-top:4px;'>{label}</div>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # ── Key themes ────────────────────────────────────────────────────────────
+    themes = smry.get("key_themes", [])
+    if themes:
+        st.markdown("**Key Risk Themes:**")
+        for t in themes:
+            st.markdown(f"- {t}")
+
+    # ── Rules skipped ─────────────────────────────────────────────────────────
+    skipped = result.get("rules_skipped", [])
+    if skipped:
+        with st.expander(f"ℹ️ {len(skipped)} rule(s) not applied — column(s) not in upload"):
+            for note in skipped:
+                st.caption(note)
+
+    st.markdown("---")
+
+    # ── Top 10 high-risk users table ──────────────────────────────────────────
+    top_df = result.get("top_users", pd.DataFrame())
+    if not top_df.empty:
+        st.markdown("#### Top 10 High-Risk Users")
+        display_top = top_df[[
+            c for c in [
+                "username", "full_name", "department", "role",
+                "account_status_norm", "Risk_Score", "Risk_Level",
+                "Cross_Module_Flag", "System_Narrative",
+            ] if c in top_df.columns
+        ]].copy()
+        display_top.columns = [
+            c.replace("account_status_norm", "Account Status")
+             .replace("Risk_Score", "Score")
+             .replace("Risk_Level", "Risk")
+             .replace("Cross_Module_Flag", "AT Cross")
+             .replace("System_Narrative", "System Narrative")
+            for c in display_top.columns
+        ]
+        st.dataframe(display_top, use_container_width=True, hide_index=True)
+
+    # ── SoD conflicts ─────────────────────────────────────────────────────────
+    sod_df = result.get("sod_conflicts", pd.DataFrame())
+    if not sod_df.empty:
+        st.markdown(f"#### Segregation of Duties Conflicts ({len(sod_df)})")
+        st.dataframe(
+            sod_df[[c for c in [
+                "Conflict_ID", "Conflict_Name", "Username",
+                "Full_Name", "Department", "Role_Raw", "Risk_Level",
+            ] if c in sod_df.columns]],
+            use_container_width=True,
+            hide_index=True,
+        )
+
+    st.markdown("---")
+
+    # ── Download ──────────────────────────────────────────────────────────────
+    sys_name = st.session_state.get("uar_system_name", "").strip()
+    r_start  = st.session_state.get("uar_review_start", "").strip()
+    r_end    = st.session_state.get("uar_review_end", "").strip()
+
+    if not sys_name:
+        st.warning("⚠️ Enter a **System Name** above before downloading.")
+    else:
+        xlsx = uar_build_excel(
+            result,
+            sys_name,
+            r_start or "(not specified)",
+            r_end   or "(not specified)",
+            st.session_state.get("uar_file_name", ""),
+        )
+        dl_c, inf_c = st.columns([4, 5])
+        with dl_c:
+            st.download_button(
+                "📥 Download UAR Evidence Package (.xlsx)",
+                data=xlsx,
+                file_name=(
+                    f"UAR_{sys_name.replace(' ', '_')}"
+                    f"_{datetime.date.today()}.xlsx"
+                ),
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key="uar_download_btn",
+            )
+        with inf_c:
+            st.markdown(
+                "<p style='color:#94a3b8;font-size:0.8rem;padding-top:8px;'>"
+                "5-sheet GxP evidence package: Summary · Top 10 Users · "
+                "SoD Conflicts · All Users · Detection Logic. "
+                "Attach to your Periodic Review Report.</p>",
+                unsafe_allow_html=True,
+            )
+
+        log_audit(
+            user, "UAR_DOWNLOAD", "REPORT",
+            new_value=f"UAR_{sys_name}",
+            reason=f"System: {sys_name}",
+        )
+
+
 def show_periodic_review(user: str, role: str, model_id: str):
     """
     Periodic Review landing page — shows 3 module cards.
@@ -8887,7 +10462,11 @@ def show_periodic_review(user: str, role: str, model_id: str):
         show_audit_trail(user, role, model_id)
         return
 
-    if active in ("access_review", "report_drafter"):
+    if active == "access_review":
+        show_user_access_review(user, role, model_id)
+        return
+
+    if active in ("report_drafter",):
         st.markdown("<br>", unsafe_allow_html=True)
         label = "User Access Review Intelligence" if active == "access_review" \
                 else "Periodic Review Report Drafter"
@@ -8925,17 +10504,18 @@ def show_periodic_review(user: str, role: str, model_id: str):
         {
             "key":     "access_review",
             "title":   "User Access Review",
-            "section": "21 CFR Part 11 §11.300",
+            "section": "21 CFR Part 11 §11.300 · EU Annex 11 Cl. 12",
             "desc":    (
-                "Upload your user access list to flag dormant accounts, admin roles "
-                "on non-admin functions, accounts active before training completion, "
-                "and shared account fingerprinting."
+                "Upload your user access export to flag SoD conflicts, dormant "
+                "accounts, admin roles on non-admin functions, ghost accounts, "
+                "privilege accumulation, and cross-module AT correlation. "
+                "10 deterministic rules. GxP evidence package output."
             ),
-            "status":  "coming_soon",
-            "btn_label": "Coming Soon",
-            "color":   "#475569",
-            "bg":      "#0a1628",
-            "border":  "#1e293b",
+            "status":  "live",
+            "btn_label": "Launch →",
+            "color":   "#0284c7",
+            "bg":      "#0c1f36",
+            "border":  "#1e3a5f",
         },
         {
             "key":     "report_drafter",
