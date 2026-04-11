@@ -146,11 +146,111 @@ except ImportError:
 # =============================================================================
 # 1. CONFIG
 # =============================================================================
-VERSION        = "71.0"
+VERSION        = "73.0"
+
+# =============================================================================
+# REGULATORY REFERENCE CONSTANTS
+# Update these when Annex 11 revision finalises (expected mid-2026).
+# Referenced by AT summary sheet, UAR summary sheet, and Detection Logic blocks.
+# =============================================================================
+_REG_AT  = ("21 CFR Part 11 §11.10(e)  |  EU Annex 11, Clause 9  "
+            "|  GAMP 5 (2nd Ed, 2022)  |  FDA CSA Final Guidance (Sep 2025)")
+_REG_UAR = ("21 CFR Part 11 §11.10(d), §11.300  |  EU Annex 11, Clause 12  "
+            "|  GAMP 5 (2nd Ed, 2022)  |  FDA CSA Final Guidance (Sep 2025)")
+_REG_NV  = ("GAMP 5 (2nd Ed, 2022) — Appendix D1/D5  "
+            "|  FDA CSA Final Guidance (Sep 2025)  |  ICH Q10")
+
+# GAMP AI Guide compliance block — appended to Detection Logic sheets.
+# Documents AI use per ISPE GAMP® Guide: Artificial Intelligence (July 2025).
+_GAMP_AI_BLOCK = """
+═══════════════════════════════════════════════════════════════
+AI COMPONENT COMPLIANCE — ISPE GAMP® Guide: Artificial Intelligence (July 2025)
+  Intended Use:        Narrative/justification text generation only.
+                       AI output appears in the System Narrative or
+                       What Happened column exclusively.
+  Risk Classification: Low — advisory text only; no GxP decision influence.
+  Score Independence:  AI output does NOT influence Risk Score, Risk Level,
+                       or Risk Tier. All scoring is deterministic Python.
+  Human Oversight:     Reviewer Disposition column is mandatory for all
+                       Critical and High findings before report is finalised.
+                       The Reviewer Statement on the Summary sheet confirms this.
+  Explainability:      All scoring logic is rule-based Python documented above.
+                       Each rule has an explicit ID, trigger condition, column
+                       dependency, and regulatory basis. No black-box behaviour.
+  Model Traceability:  AI model name and provider are logged per run in the
+                       application audit trail (AUDIT_LOG table).
+  Deterministic Fall-back: If the AI provider is unavailable, a deterministic
+                       Python function generates the narrative automatically.
+                       Output quality and GxP defensibility are unaffected.
+═══════════════════════════════════════════════════════════════"""
 PROMPT_VERSION = "v19.0-esignature-test-type-r3c"
 TEMPERATURE    = 0.2
 CHUNK_SIZE     = 8
 DB_PATH        = os.path.join(os.path.dirname(os.path.abspath(__file__)), "validation_app.db")
+
+# =============================================================================
+# TRIAL MODE
+# =============================================================================
+# Set trial_mode = true in Streamlit secrets to enable trial mode.
+# In trial mode all evidence package download buttons are replaced with a
+# locked info box. Analysis, scoring, and preview all run normally — only
+# the final download is gated. No secrets key = licensed mode (default).
+#
+# Streamlit secrets.toml:
+#   trial_mode = true
+#
+# To license a deployment, remove the key or set trial_mode = false.
+# =============================================================================
+
+def _is_trial() -> bool:
+    """Return True if this deployment is running in trial mode."""
+    try:
+        return bool(st.secrets.get("trial_mode", False))
+    except Exception:
+        return False
+
+
+def _trial_gate(
+    label: str,
+    data: bytes,
+    file_name: str,
+    mime: str,
+    key: str,
+    use_container_width: bool = False,
+) -> None:
+    """
+    Render a download button (licensed) or a locked trial notice (trial mode).
+
+    Drop-in replacement for st.download_button in all modules.
+    In trial mode the button is visually replaced — the surrounding layout
+    (st.columns, etc.) is unaffected so no layout changes are needed at call sites.
+    """
+    if _is_trial():
+        st.info(
+            "🔒 **Download available in the licensed version.**  \n"
+            "The full evidence package has been generated — contact "
+            "[valintel.ai](https://valintel.ai) to activate your licence "
+            "and unlock downloads.",
+            icon=None,
+        )
+        # Render a disabled placeholder button so layout columns don't collapse
+        st.button(
+            f"🔒 {label}",
+            key=f"{key}_trial_placeholder",
+            disabled=True,
+            use_container_width=use_container_width,
+            help="Download locked — trial mode active. Contact VALINTEL to licence.",
+        )
+    else:
+        st.download_button(
+            label=label,
+            data=data,
+            file_name=file_name,
+            mime=mime,
+            key=key,
+            use_container_width=use_container_width,
+        )
+
 
 SESSION_TIMEOUT_MINUTES = 15   # 21 CFR Part 11 — 15-minute inactivity timeout
 MAX_FAILED_ATTEMPTS     = 5
@@ -4189,6 +4289,7 @@ _defaults = {
     "at_system_name":       "",
     "at_review_start":      "",
     "at_review_end":        "",
+    "at_sop_ref":           "",
     "at_key_n":             0,      # increment to reset uploaders
     "pr_active_module":     None,   # which PR sub-module is open (None = landing)
     "at_detection_logic_text": "",  # cached detection logic for Excel sheet 4
@@ -5862,7 +5963,7 @@ def show_change_impact(user: str, role: str, model_id: str):
         )
         dl1, _sp, clear_c = st.columns([5, 2, 2])
         with dl1:
-            st.download_button(
+            _trial_gate(
                 label="📥 Download Change Impact Report (.xlsx)",
                 data=xlsx_bytes,
                 file_name=f"CIA_{st.session_state.get('cia_change_spec_name','report').replace('.pdf','')}.xlsx",
@@ -8032,7 +8133,8 @@ Write only the one sentence. No labels, no preamble, no explanation."""
     return top_df
 
 
-def at_build_excel(top_df, scored_df, system_name, r_start, r_end, fname) -> bytes:
+def at_build_excel(top_df, scored_df, system_name, r_start, r_end, fname,
+                   sop_ref: str = "") -> bytes:
     """
     Build a clean, professional evidence workbook for QA reviewers and auditors.
     White background, dark text, colour only on Risk Level cells.
@@ -8286,9 +8388,11 @@ def at_build_excel(top_df, scored_df, system_name, r_start, r_end, fname) -> byt
     _summary_row("REVIEW INFORMATION", "", section=True)
     _summary_row("System Name",     system_name or "(not entered)", bold_val=True)
     _summary_row("Review Period",   f"{r_start}  →  {r_end}")
+    if sop_ref and sop_ref.strip():
+        _summary_row("SOP Reference", sop_ref.strip())
     _summary_row("Source File",     fname)
     _summary_row("Analysis Date (UTC)", datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC"))
-    _summary_row("Regulatory Basis","21 CFR Part 11 §11.10(e)  |  EU Annex 11, Clause 9")
+    _summary_row("Regulatory Basis", _REG_AT)
 
     # Out-of-period scope note — added to Summary sheet if events outside review period exist
     try:
@@ -9208,6 +9312,10 @@ REGULATORY BASIS
   MHRA Data Integrity Guidance — access review frequency and documentation
 ═══════════════════════════════════════════════════════════════"""
 
+# Append the GAMP AI compliance block at module load time so it stays in sync
+# with the shared constant and doesn't require a second edit location.
+UAR_DETECTION_LOGIC = UAR_DETECTION_LOGIC.rstrip() + _GAMP_AI_BLOCK
+
 
 # =============================================================================
 # PREPROCESSING
@@ -9915,8 +10023,7 @@ def uar_build_excel(
     _summary_row("Source File",       fname)
     _summary_row("Analysis Date (UTC)",
                  datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC"))
-    _summary_row("Regulatory Basis",
-                 "21 CFR Part 11 §11.10(d), §11.300  |  EU Annex 11 Clause 12")
+    _summary_row("Regulatory Basis", _REG_UAR)
     row += 1
 
     _summary_row("USER POPULATION", "", section=True)
@@ -10424,8 +10531,8 @@ def show_user_access_review(user: str, role: str, model_id: str):
         )
         dl_c, inf_c = st.columns([4, 5])
         with dl_c:
-            st.download_button(
-                "📥 Download UAR Evidence Package (.xlsx)",
+            _trial_gate(
+                label="📥 Download UAR Evidence Package (.xlsx)",
                 data=xlsx,
                 file_name=(
                     f"UAR_{sys_name.replace(' ', '_')}"
@@ -10698,6 +10805,30 @@ def show_audit_trail(user: str, role: str, model_id: str):
         except Exception:
             pass
 
+    # ── SOP Reference (second metadata row) ──────────────────────────────────
+    # Captures the client's governing SOP document number and section.
+    # Appears on the Summary sheet — establishes the review was conducted per
+    # a documented procedure (CSA-defensible rationale per FDA CSA Final Guidance).
+    sr1, sr2 = st.columns([2, 4])
+    with sr1:
+        st.session_state["at_sop_ref"] = st.text_input(
+            "SOP Reference",
+            value=st.session_state.get("at_sop_ref", ""),
+            placeholder="e.g. SOP-ATR-001, Section 4.2",
+            key="at_sop_ref_input",
+            help=(
+                "Enter your governing Audit Trail Review SOP number and section. "
+                "This reference appears on the Summary sheet of the evidence package, "
+                "confirming the review was conducted per a documented procedure."
+            ),
+        )
+    with sr2:
+        st.caption(
+            "📋 The SOP Reference appears on the evidence package Summary sheet. "
+            "It establishes that this review was conducted per your organisation's "
+            "documented procedure — required for CSA and Annex 11 defensibility."
+        )
+
     st.markdown("---")
 
     # ── STEP 1: Upload ────────────────────────────────────────────────────────
@@ -10901,6 +11032,7 @@ Upload at least 3 months of history for reliable detection.
 *Generated by the Audit Trail Intelligence module. Review and approve as part
 of the Computer System Validation package for this tool.*
 """
+        DETECTION_LOGIC = DETECTION_LOGIC.rstrip() + _GAMP_AI_BLOCK
 
 
 
@@ -12679,16 +12811,18 @@ match your system's export column names to the fields above — rename nothing i
                 r_start  or "(review period dates not specified)",
                 r_end    or "(review period dates not specified)",
                 st.session_state.get("at_file_name",""),
+                sop_ref=st.session_state.get("at_sop_ref","").strip(),
             )
             dl_c, inf_c = st.columns([4,5])
             with dl_c:
-                st.download_button(
-                    "📥 Download Evidence Package (.xlsx)",
+                _trial_gate(
+                    label="📥 Download Evidence Package (.xlsx)",
                     data=xlsx,
                     file_name=(f"AuditTrail_{sys_name.replace(' ','_')}"
                                f"_{datetime.date.today()}.xlsx"),
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    key="at_download_btn", use_container_width=True,
+                    key="at_download_btn",
+                    use_container_width=True,
                 )
             with inf_c:
                 st.markdown(
@@ -13495,7 +13629,7 @@ def show_app():
                     import pandas as _pd
                     import io as _io
                     _fname = _job.get("file_name","validation").replace(".pdf","")
-                    st.download_button(
+                    _trial_gate(
                         label="📥 Download Validation Package (.xlsx)",
                         data=_xlsx,
                         file_name=f"Validation_Package_{_fname}.xlsx",
@@ -14091,7 +14225,7 @@ def show_app():
             # ── Already signed: real download buttons + New Analysis far right ─
             dl1, dl2, _spacer, clear_col = st.columns([5, 5, 1, 2])
             with dl1:
-                st.download_button(
+                _trial_gate(
                     label="📥 Download Signed Workbook (.xlsx)",
                     data=r["xlsx_bytes"],
                     file_name=f"Validation_Package_{r['file_name'].replace('.pdf','')}.xlsx",
@@ -14100,7 +14234,7 @@ def show_app():
                     use_container_width=True,
                 )
             with dl2:
-                st.download_button(
+                _trial_gate(
                     label="📄 Download Signed Summary (.pdf)",
                     data=r["pdf_bytes"],
                     file_name=f"Validation_Summary_{r['file_name'].replace('.pdf','')}.pdf",
