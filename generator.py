@@ -146,7 +146,7 @@ except ImportError:
 # =============================================================================
 # 1. CONFIG
 # =============================================================================
-VERSION        = "73.0"
+VERSION        = "74.0"
 
 # =============================================================================
 # REGULATORY REFERENCE CONSTANTS
@@ -9144,12 +9144,12 @@ _UAR_SCORE_WEIGHTS = {
     "Can_Approve":            30,
     "Can_Release":            25,
     "Can_Modify_Master_Data": 25,
-    "GxP_High":               20,
-    "Never_Logged_In":        20,   # null last_login — higher risk than dormant
-    "Ghost_Account":          20,   # employment_status != active, account_status = active
-    "Dormant_90":             15,   # > 90 days since last login (mutually exclusive with Never)
+    "GxP_High":               25,    # raised from 20: Admin+GxP = 65 = High (correct tier)
+    "Never_Logged_In":        20,    # null last_login — higher risk than dormant
+    "Ghost_Account":          20,    # employment_status != active, account_status = active
+    "Dormant_90":             15,    # > 90 days since last login (mutually exclusive with Never)
     "Missing_Justification":  15,
-    "Multi_Privilege":        10,   # >= 3 high-risk privilege flags simultaneously
+    "Multi_Privilege":        10,    # >= 3 high-risk privilege flags simultaneously
 }
 
 # ── Risk bands ────────────────────────────────────────────────────────────────
@@ -9264,7 +9264,7 @@ RISK SCORING — ADDITIVE INTEGER MODEL (Rules U1–U10)
   U3  +30  Can_Approve = Y (approval authority)
   U4  +25  Can_Release = Y (batch/product release capability)
   U5  +25  Can_Modify_Master_Data = Y (reference data modification)
-  U6  +20  GxP_Criticality = High (system risk multiplier)
+  U6  +25  GxP_Criticality = High (system risk multiplier — raised from +20)
   U7  +20  Last login date is null (account never used — higher risk than dormant)
   U7  +15  Days since last login > 90 (mutually exclusive with null — one or the other)
   U8  +20  Employment_Status ≠ Active AND Account_Status = Active (ghost account)
@@ -9416,11 +9416,15 @@ def _uar_preprocess(df: pd.DataFrame) -> tuple:
 
     # ── Parse last_login_date (optional) ─────────────────────────────────────
     if "last_login_date" in df.columns:
+        # Use dayfirst=False: source exports use ISO format (YYYY-MM-DD) or
+        # US format (MM/DD/YYYY). dayfirst=True misparses ISO dates where day ≤ 12
+        # (e.g. 2026-01-09 is read as 1 Sep instead of 9 Jan). Use infer_datetime_format
+        # for speed; fall back to coerce on any unparseable value.
         df["last_login_parsed"] = pd.to_datetime(
-            df["last_login_date"], errors="coerce", dayfirst=True)
-        today = pd.Timestamp.today().normalize()   # tz-naive to match parsed dates
+            df["last_login_date"], errors="coerce", dayfirst=False)
+        today = pd.Timestamp.today().normalize()   # tz-naive
         df["days_since_last_login"] = df["last_login_parsed"].apply(
-            lambda d: (today - d.tz_localize(None)).days
+            lambda d: (today - d.replace(tzinfo=None)).days
             if pd.notna(d) else None)
     else:
         df["last_login_parsed"] = pd.NaT
@@ -9460,10 +9464,10 @@ def _uar_preprocess(df: pd.DataFrame) -> tuple:
     # ── Training expiry check (optional) ─────────────────────────────────────
     if "training_expiry_date" in df.columns:
         df["training_expiry_parsed"] = pd.to_datetime(
-            df["training_expiry_date"], errors="coerce", dayfirst=True)
+            df["training_expiry_date"], errors="coerce", dayfirst=False)
         today_dt = pd.Timestamp.today().normalize()
         df["training_expired"] = df["training_expiry_parsed"].apply(
-            lambda d: (d.tz_localize(None) < today_dt) if pd.notna(d) else False)
+            lambda d: (d.replace(tzinfo=None) < today_dt) if pd.notna(d) else False)
     else:
         df["training_expired"] = False
         rules_skipped.append("Training Expiry — training_expiry_date column not provided")
@@ -9512,16 +9516,23 @@ def _uar_score_single(row: pd.Series) -> tuple:
     # U6 — GxP Criticality High
     if str(row.get("gxp_criticality_derived", "")).strip() == "High":
         score += _UAR_SCORE_WEIGHTS["GxP_High"]
-        triggered.append("U6: High-Criticality GxP System (+20)")
+        triggered.append("U6: High-Criticality GxP System (+25)")
 
     # U7 — Dormancy / never-logged-in (mutually exclusive)
+    # Note: pandas converts None to NaN in numeric Series, so we must check
+    # pd.isna() not `is None`. We detect "column present but value null"
+    # by checking days_since_last_login is NaN AND the last_login_date column
+    # was in the dataset (indicated by days_since_last_login column existing).
     days = row.get("days_since_last_login")
-    if days is None:
-        # Column was present but this user has no login date — never logged in
-        if "last_login_date" in (row.index if hasattr(row, "index") else []):
-            score += _UAR_SCORE_WEIGHTS["Never_Logged_In"]
-            triggered.append("U7: Account Never Used / No Login Date (+20)")
-    elif isinstance(days, (int, float)) and days > _UAR_DORMANCY_DAYS:
+    days_is_null = days is None or (isinstance(days, float) and days != days)
+    col_present  = "days_since_last_login" in (
+        row.index.tolist() if hasattr(row, "index") else list(row.keys())
+    )
+    if days_is_null and col_present:
+        # Column was present but this user has no login date — account never used
+        score += _UAR_SCORE_WEIGHTS["Never_Logged_In"]
+        triggered.append("U7: Account Never Used — No Login Date on Record (+20)")
+    elif not days_is_null and isinstance(days, (int, float)) and days > _UAR_DORMANCY_DAYS:
         score += _UAR_SCORE_WEIGHTS["Dormant_90"]
         triggered.append(f"U7: Dormant Account — {int(days)} days since last login (+15)")
 
