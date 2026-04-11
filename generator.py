@@ -146,7 +146,7 @@ except ImportError:
 # =============================================================================
 # 1. CONFIG
 # =============================================================================
-VERSION        = "76.0"
+VERSION        = "77.0"
 
 # =============================================================================
 # REGULATORY REFERENCE CONSTANTS
@@ -9802,16 +9802,25 @@ def uar_score_users(df: pd.DataFrame, at_top_df: pd.DataFrame = None) -> dict:
         ["_tier_sort", "Risk_Score"], ascending=[True, False]
     ).reset_index(drop=True)
 
+    # ── Rule Pattern column — compact sort key e.g. "U1·U6·U9" ──────────────
+    def _rule_pattern(triggered_str: str) -> str:
+        """Extract rule IDs from triggered rules string into compact sort key."""
+        ids = re.findall(r'\bU(\d+):', str(triggered_str))
+        seen = []
+        for i in ids:
+            if i not in seen:
+                seen.append(i)
+        return "·".join(f"U{i}" for i in seen) if seen else "—"
+    df_sorted["Rule_Pattern"] = df_sorted["Triggered_Rules"].apply(_rule_pattern)
+
     top_users = df_sorted.head(_UAR_TOP_N).copy()
 
     # ── 7. SoD conflict detection ─────────────────────────────────────────────
     sod_df = _uar_sod_conflicts(df)
 
-    # ── 8. Peer anomaly detection ─────────────────────────────────────────────
-    peer_df = _uar_peer_anomalies(df_sorted)
-
+    # ── 8. Peer anomaly removed — insufficient group sizes on typical datasets ─
     # ── 9. Summary statistics ─────────────────────────────────────────────────
-    tier_counts = df["Risk_Level"].value_counts().to_dict()
+    tier_counts  = df["Risk_Level"].value_counts().to_dict()
     active_count = int((df["account_status_norm"] == "Active").sum())
 
     # Key themes — derive from what rules fired most
@@ -9825,12 +9834,15 @@ def uar_score_users(df: pd.DataFrame, at_top_df: pd.DataFrame = None) -> dict:
         themes.append("Ghost accounts — employment/system status mismatch")
     if not sod_df.empty:
         themes.append(f"{len(sod_df)} Segregation of Duties conflicts")
-    if not peer_df.empty:
-        themes.append("Peer privilege anomalies detected")
     if "u9:" in all_triggered_text:
         themes.append("Access justifications missing")
     if not themes:
         themes.append("No significant risk themes identified")
+
+    # KPI counts for Summary sheet
+    _ghost_count  = int(df["Triggered_Rules"].str.contains("U8:", na=False).sum())
+    _dorm_count   = int(df["Triggered_Rules"].str.contains("Dormant Account", na=False).sum())
+    _nojust_count = int(df["Triggered_Rules"].str.contains("U9:", na=False).sum())
 
     summary = {
         "total_users":         len(df),
@@ -9840,20 +9852,21 @@ def uar_score_users(df: pd.DataFrame, at_top_df: pd.DataFrame = None) -> dict:
         "Medium":              tier_counts.get("Medium", 0),
         "Low":                 tier_counts.get("Low", 0),
         "sod_conflict_count":  len(sod_df),
-        "peer_anomaly_count":  len(peer_df),
         "cross_module_count":  int((df["Cross_Module_Flag"] == "Y").sum()),
+        "ghost_count":         _ghost_count,
+        "dormant_count":       _dorm_count,
+        "no_just_count":       _nojust_count,
         "key_themes":          themes[:5],
     }
 
     # Drop internal sort column from output
-    top_users = top_users.drop(columns=["_tier_sort"], errors="ignore")
+    top_users  = top_users.drop(columns=["_tier_sort"], errors="ignore")
     all_scored = df_sorted.drop(columns=["_tier_sort"], errors="ignore")
 
     return {
         "top_users":           top_users,
         "all_scored":          all_scored,
         "sod_conflicts":       sod_df,
-        "peer_anomalies":      peer_df,
         "summary":             summary,
         "data_quality_issues": dq_issues,
         "rules_skipped":       rules_skipped,
@@ -9938,9 +9951,34 @@ def _uar_deterministic_narrative(row: dict) -> str:
     if "U9:" in triggered:
         parts.append("and has no valid documented access justification on record")
 
+    # Privilege accumulation (U10) — three or more high-risk flags simultaneously
+    if "U10:" in triggered:
+        parts.append(
+            "and holds three or more simultaneous high-risk privileges "
+            "(privilege accumulation — highest-risk access pattern in GxP audits)"
+        )
+
     # Never used
     if "Never Used" in triggered or "No Login Date" in triggered:
         parts.append("with no login date on record (account never used)")
+
+    # SoD note for non-admin users with approval + create/delete/master
+    if "U3:" in triggered and "U1:" not in triggered:
+        if "U2:" in triggered:
+            parts.append("combining Delete and Approve authority (SoD conflict risk)")
+        elif "U5:" in triggered:
+            parts.append("combining Master Data Modification and Approve authority (SoD conflict risk)")
+
+    # Low-signal users — add contextual note so narrative is not generic
+    if len(parts) == 1:
+        flags = []
+        if "U2:" in triggered: flags.append("delete records")
+        if "U3:" in triggered: flags.append("approve data")
+        if "U4:" in triggered: flags.append("release batches")
+        if "U5:" in triggered: flags.append("modify master data")
+        if "U6:" in triggered: flags.append("access to a GxP-critical system")
+        if flags:
+            parts.append(f"with capability to: {', '.join(flags)}")
 
     # Cross-module
     if cross == "Y":
@@ -9950,6 +9988,52 @@ def _uar_deterministic_narrative(row: dict) -> str:
         )
 
     return "; ".join(parts) + f" [{risk_level} risk]."
+
+
+def _uar_finding_rationale(row: dict) -> str:
+    """
+    Generate a plain-English Finding Rationale — primary driver of the risk score.
+    One sentence explaining WHY this user reached their tier.
+    Used in the Risk Register sheet Finding Rationale column.
+    """
+    triggered = str(row.get("Triggered_Rules", ""))
+    score     = int(row.get("Risk_Score", 0))
+    tier      = str(row.get("Risk_Level", ""))
+
+    # Primary driver — highest-weight rule that fired
+    if "U1:" in triggered and "U8:" in triggered:
+        return (f"Admin account with ghost account status ({tier}) — "
+                f"administrative access active despite inactive employment.")
+    if "U1:" in triggered and "U10:" in triggered:
+        return (f"Admin account with privilege accumulation ({tier}) — "
+                f"three or more high-risk functions combined on one account.")
+    if "U1:" in triggered and "U2:" in triggered:
+        return (f"Admin account with delete capability ({tier}) — "
+                f"can remove GxP records and suppress audit trail evidence.")
+    if "U1:" in triggered:
+        return (f"Admin account on GxP system ({tier}) — "
+                f"administrative access requires documented authorisation and regular review.")
+    if "U8:" in triggered:
+        return (f"Ghost account ({tier}) — "
+                f"employment terminated but system access not revoked.")
+    if "U2:" in triggered and "U3:" in triggered:
+        return (f"Delete + Approve conflict ({tier}) — "
+                f"can delete GxP records and self-authorise the deletion.")
+    if "U5:" in triggered and "U3:" in triggered:
+        return (f"Master Data + Approve conflict ({tier}) — "
+                f"can modify specifications and self-authorise the change.")
+    if "U7:" in triggered and "Dormant" in triggered:
+        days = row.get("days_since_last_login")
+        d_str = f"{int(days)} days" if isinstance(days, (int, float)) and days == days else "extended period"
+        return (f"Dormant active account ({tier}) — "
+                f"no login recorded in {d_str}; access should be reviewed or revoked.")
+    if "U9:" in triggered:
+        return (f"Missing justification ({tier}) — "
+                f"no valid business justification on record for this access.")
+    if "U3:" in triggered or "U4:" in triggered:
+        return (f"Privileged GxP function ({tier}) — "
+                f"approval or release authority on a GxP-critical system.")
+    return f"Multiple access risk factors combined — Review Priority Score {score} ({tier})."
 
 
 def uar_generate_justifications(top_df: pd.DataFrame, model_id: str) -> pd.DataFrame:
@@ -10181,14 +10265,29 @@ def uar_build_excel(
 
     row += 1
     _summary_row("OTHER FINDINGS", "", section=True)
-    _summary_row("SoD Conflicts Identified",   smry.get("sod_conflict_count", 0))
-    _summary_row("Peer Anomalies Identified",  smry.get("peer_anomaly_count", 0))
+    _summary_row("SoD Conflicts Identified",    smry.get("sod_conflict_count", 0))
     _summary_row("Cross-Module (AT+UAR) Users", str(smry.get("cross_module_count", 0)))
     row += 1
 
+    # ── KPI Metrics block ─────────────────────────────────────────────────────
+    _total      = smry.get("total_users", 1) or 1
+    _active     = smry.get("active_users", 1) or 1
+    _crit_high  = smry.get("Critical", 0) + smry.get("High", 0)
+    _pct_risk   = round(_crit_high  / _total * 100, 1)
+    _pct_ghost  = round(smry.get("ghost_count",    0) / _total * 100, 1)
+    _pct_dorm   = round(smry.get("dormant_count",  0) / _active * 100, 1)
+    _pct_just   = round(smry.get("no_just_count",  0) / _total * 100, 1)
+
+    _summary_row("ACCESS GOVERNANCE KPIs", "", section=True)
+    _summary_row("% Critical + High Users",       f"{_pct_risk}%  ({_crit_high} of {_total})")
+    _summary_row("% Ghost Accounts",              f"{_pct_ghost}%  (active system, inactive employment)")
+    _summary_row("% Dormant Accounts (>90 days)", f"{_pct_dorm}%  (of active users)")
+    _summary_row("% Missing Justification",       f"{_pct_just}%  (no valid justification on record)")
+    row += 1
+
     _summary_row("KEY RISK THEMES", "", section=True)
-    for theme in smry.get("key_themes", []):
-        _summary_row("  •", theme)
+    for _ti, theme in enumerate(smry.get("key_themes", []), 1):
+        _summary_row(f"  {_ti}.", theme)
     row += 1
 
     rules_skipped = result.get("rules_skipped", [])
@@ -10217,30 +10316,49 @@ def uar_build_excel(
     # =========================================================================
     ws2 = wb.create_sheet("Top 10 High-Risk Users")
 
+    # Plain-English rule label map (item 10)
+    _RULE_PLAIN = {
+        "U1": "Admin Account", "U2": "Delete Capability",
+        "U3": "Approval Authority", "U4": "Release Capability",
+        "U5": "Master Data Modification", "U6": "GxP Critical System",
+        "U7": "Dormant / Never Used", "U8": "Ghost Account",
+        "U9": "No Justification", "U10": "Privilege Accumulation",
+    }
+    def _plain_rules(triggered_str: str) -> str:
+        """Convert 'U1: Admin Account (+40) | U6: ...' → 'Admin Account · GxP Critical System'"""
+        ids = re.findall(r'\b(U\d+):', str(triggered_str))
+        seen = []
+        for i in ids:
+            if i not in seen:
+                seen.append(i)
+        labels = [_RULE_PLAIN.get(i, i) for i in seen]
+        return "  ·  ".join(labels) if labels else "—"
+
     display_cols = [
-        ("Rank",              5),
-        ("Username",         18),
-        ("Full Name",        22),
-        ("Department",       18),
-        ("Job Title",        20),
-        ("Role",             30),
-        ("Account Status",   14),
-        ("Risk Score",       11),
-        ("Risk Level",       12),
-        ("GxP Criticality",  14),
-        ("Days Since Login",  14),
-        ("Cross-Module",     13),
-        ("Triggered Rules",  70),   # widened: U8/U10 always appear last, were clipping
-        ("System Narrative", 55),
-        ("Reviewer Disposition", 35),
-        ("Reviewer Notes",   30),
+        ("Rank",                   5),
+        ("Username",              18),
+        ("Full Name",             22),
+        ("Department",            18),
+        ("Job Title",             20),
+        ("Role",                  30),
+        ("Account Status",        14),
+        ("Review Priority Score", 16),
+        ("Risk Level",            12),
+        ("GxP Criticality",       14),
+        ("Days Since Login",       14),
+        ("Cross-Module",          13),
+        ("Access Risk Flags",     55),   # plain-English rule labels
+        ("Finding Rationale",     55),   # primary driver explanation
+        ("System Narrative",      55),
+        ("Reviewer Disposition",  35),
+        ("Reviewer Notes",        30),
     ]
 
     col_map = [
         "rank_display", "username", "full_name", "department", "job_title",
         "role", "account_status_norm", "Risk_Score", "Risk_Level",
         "gxp_criticality_derived", "days_since_last_login", "Cross_Module_Flag",
-        "Triggered_Rules", "System_Narrative",
+        "Plain_Rules", "Finding_Rationale", "System_Narrative",
         "Reviewer_Disposition", "Reviewer_Notes",
     ]
 
@@ -10254,9 +10372,12 @@ def uar_build_excel(
     top_df = result.get("top_users", pd.DataFrame())
     if not top_df.empty:
         top_df = top_df.copy()
-        top_df["rank_display"] = range(1, len(top_df) + 1)
+        top_df["rank_display"]      = range(1, len(top_df) + 1)
+        top_df["Plain_Rules"]       = top_df["Triggered_Rules"].apply(_plain_rules)
+        top_df["Finding_Rationale"] = top_df.apply(
+            lambda r: _uar_finding_rationale(r.to_dict()), axis=1)
         top_df["Reviewer_Disposition"] = "☐ Justified     ☐ Investigate     ☐ Escalate to CAPA"
-        top_df["Reviewer_Notes"] = ""
+        top_df["Reviewer_Notes"]       = ""
 
         for ri, (_, row_data) in enumerate(top_df.iterrows(), 2):
             tier = str(row_data.get("Risk_Level", "Low"))
@@ -10267,19 +10388,17 @@ def uar_build_excel(
                 val = row_data.get(col_key, "")
                 if pd.isna(val) if not isinstance(val, str) else False:
                     val = ""
-                # Format days_since_last_login nicely
                 if col_key == "days_since_last_login":
                     if isinstance(val, (int, float)) and val == val:
                         val = "< 1 day" if int(val) == 0 else f"{int(val)} days"
                     else:
                         val = "Never"
                 c = ws2.cell(row=ri, column=ci, value=val)
-                if ci in (8, 9):   # Risk Score, Risk Level — coloured
+                if ci in (8, 9):   # Review Priority Score, Risk Level — coloured
                     _cell_style(c, bold=True, bg=bg, fg=fg, size=9)
                 else:
-                    # col 13 = Triggered Rules, col 14 = Narrative, col 15 = Disposition
-                    _cell_style(c, size=9, wrap=(ci in (6, 13, 14, 15, 16)))
-            ws2.row_dimensions[ri].height = 55 if ri > 1 else 20
+                    _cell_style(c, size=9, wrap=(ci in (6, 13, 14, 15, 16, 17)))
+            ws2.row_dimensions[ri].height = 60 if ri > 1 else 20
 
     ws2.freeze_panes = "A2"
 
@@ -10368,7 +10487,7 @@ def uar_build_excel(
         "gxp_criticality_derived", "days_since_last_login",
         "Is_Admin", "Can_Delete", "Can_Approve", "Can_Release",
         "Can_Modify_Master_Data", "privilege_count",
-        "Cross_Module_Flag", "Risk_Score", "Risk_Level",
+        "Cross_Module_Flag", "Rule_Pattern", "Risk_Score", "Risk_Level",
         "Triggered_Rules",
     ]
     present_cols = [c for c in raw_cols if c in all_df.columns]
@@ -10384,7 +10503,9 @@ def uar_build_excel(
         "Can_Modify_Master_Data": "Modify Master Data",
         "privilege_count": "Priv Count",
         "Cross_Module_Flag": "Cross-Module",
-        "Risk_Score": "Risk Score", "Risk_Level": "Risk Level",
+        "Rule_Pattern": "Rule Pattern ▼",
+        "Risk_Score": "Review Priority Score",
+        "Risk_Level": "Risk Level",
         "Triggered_Rules": "Triggered Rules",
     }
 
@@ -10393,6 +10514,7 @@ def uar_build_excel(
         _cell_style(c, bold=True, bg=C_HEADER_BG, fg=C_HEADER_FG, size=8)
         ws4.column_dimensions[get_column_letter(ci)].width = (
             30 if col_key in ("role", "Triggered_Rules") else
+            16 if col_key == "Rule_Pattern" else
             18 if col_key in ("username", "full_name", "department") else 12
         )
     ws4.row_dimensions[1].height = 18
@@ -10421,6 +10543,7 @@ def uar_build_excel(
             ws4.row_dimensions[ri].height = 14
 
     ws4.freeze_panes = "A2"
+    ws4.auto_filter.ref = ws4.dimensions   # enables dropdown filters on all columns
 
     # =========================================================================
     # SHEET 5 — DETECTION LOGIC
@@ -10446,28 +10569,32 @@ def uar_build_excel(
         stripped = line.strip()
 
         # Track entry/exit of GAMP AI block
-        if "AI COMPONENT COMPLIANCE" in stripped.upper():
+        is_ai_header = "AI COMPONENT COMPLIANCE" in stripped.upper()
+        if is_ai_header:
             _IN_GAMP_AI = True
-        elif stripped.startswith("═") and _IN_GAMP_AI and li > 2:
-            # second separator line = end of GAMP AI block
+        elif stripped.startswith("═") and _IN_GAMP_AI:
+            # closing separator — style it then exit AI block
+            c.font = Font(name="Courier New", size=11, color="0E6655")
+            c.alignment = Alignment(horizontal="left", vertical="top", wrap_text=False)
+            ws5.row_dimensions[li].height = 13
             _IN_GAMP_AI = False
+            continue
 
         # Determine style
         is_separator = stripped.startswith("═") or stripped.startswith("─")
         is_section   = any(kw in stripped.upper() for kw in _DL_SECTION_KEYWORDS)
 
-        if _IN_GAMP_AI or "AI COMPONENT COMPLIANCE" in stripped.upper():
-            # GAMP AI block — teal accent
-            c.font = Font(name="Courier New", size=8,
-                          color="0E6655",
-                          bold=is_section or "AI COMPONENT" in stripped.upper())
+        if _IN_GAMP_AI or is_ai_header:
+            # GAMP AI block — teal accent; only the header line itself is bold
+            c.font = Font(name="Courier New", size=11,
+                          color="0E6655", bold=is_ai_header)
         elif is_separator:
-            c.font = Font(name="Courier New", size=8, color="95A5A6")  # grey
+            c.font = Font(name="Courier New", size=11, color="95A5A6")
         elif is_section:
-            c.font = Font(name="Calibri", size=9, bold=True, color=C_HEADER_BG)
-            ws5.row_dimensions[li].height = 16
+            c.font = Font(name="Calibri", size=12, bold=True, color=C_HEADER_BG)
+            ws5.row_dimensions[li].height = 18
         else:
-            c.font = Font(name="Courier New", size=8, color="2C3E50")
+            c.font = Font(name="Courier New", size=11, color="2C3E50")
 
         c.alignment = Alignment(horizontal="left", vertical="top", wrap_text=False)
         if ws5.row_dimensions[li].height == 0 or ws5.row_dimensions[li].height == 15:
@@ -10507,20 +10634,56 @@ def show_user_access_review(user: str, role: str, model_id: str):
             placeholder="e.g. LabVantage LIMS",
             key="uar_sysname",
         )
+
+    # ── Previous quarter defaults for date pickers (mirrors AT module) ────────
+    import datetime as _uar_dt_q
+    def _uar_prev_quarter_dates():
+        today = _uar_dt_q.date.today()
+        q = (today.month - 1) // 3 + 1
+        if q == 1:
+            return (_uar_dt_q.date(today.year - 1, 10, 1),
+                    _uar_dt_q.date(today.year - 1, 12, 31))
+        elif q == 2:
+            return (_uar_dt_q.date(today.year, 1, 1),
+                    _uar_dt_q.date(today.year, 3, 31))
+        elif q == 3:
+            return (_uar_dt_q.date(today.year, 4, 1),
+                    _uar_dt_q.date(today.year, 6, 30))
+        else:
+            return (_uar_dt_q.date(today.year, 7, 1),
+                    _uar_dt_q.date(today.year, 9, 30))
+
+    _uar_pq_start, _uar_pq_end = _uar_prev_quarter_dates()
+
+    def _uar_parse_date_input(key_date, key_str, label, fallback):
+        import datetime as _uar_dt
+        stored = st.session_state.get(key_str, "")
+        default_val = fallback
+        if stored:
+            for fmt in ("%d-%b-%Y", "%d/%m/%Y", "%Y-%m-%d", "%d%m%Y", "%Y%m%d"):
+                try:
+                    default_val = _uar_dt.datetime.strptime(stored.strip(), fmt).date()
+                    break
+                except ValueError:
+                    continue
+        picked = st.date_input(
+            label,
+            value=default_val,
+            format="DD/MM/YYYY",
+            key=key_date,
+        )
+        if picked:
+            formatted = picked.strftime("%d-%b-%Y")
+            st.session_state[key_str] = formatted
+            return formatted
+        return stored
+
     with mc2:
-        st.session_state["uar_review_start"] = st.text_input(
-            "Review Period Start",
-            value=st.session_state.get("uar_review_start", ""),
-            placeholder="e.g. 01-Jan-2026",
-            key="uar_rstart",
-        )
+        _uar_parse_date_input("uar_rstart_picker", "uar_review_start",
+                              "Review Period Start", _uar_pq_start)
     with mc3:
-        st.session_state["uar_review_end"] = st.text_input(
-            "Review Period End",
-            value=st.session_state.get("uar_review_end", ""),
-            placeholder="e.g. 31-Mar-2026",
-            key="uar_rend",
-        )
+        _uar_parse_date_input("uar_rend_picker", "uar_review_end",
+                              "Review Period End", _uar_pq_end)
     # ── Future date warning (mirrors AT module Fix 4) ─────────────────────────
     _uar_rend_str = st.session_state.get("uar_review_end", "").strip()
     if _uar_rend_str:
@@ -10664,6 +10827,33 @@ def show_user_access_review(user: str, role: str, model_id: str):
     st.markdown("---")
     st.markdown("### Step 4 — Review Findings")
 
+    # ── Analysis confidence banner ────────────────────────────────────────────
+    skipped      = result.get("rules_skipped", [])
+    total_rules  = 10
+    applied      = total_rules - len(skipped)
+    conf_pct     = round(applied / total_rules * 100)
+    if skipped:
+        conf_color = "#D4A017" if len(skipped) <= 3 else "#C0392B"
+        conf_label = "Good" if len(skipped) <= 2 else "Moderate" if len(skipped) <= 4 else "Reduced"
+        st.markdown(
+            f"<div style='background:#FEF9E7;border-left:4px solid {conf_color};"
+            f"padding:10px 14px;border-radius:4px;margin-bottom:12px;'>"
+            f"<b>Analysis Confidence: {conf_label} ({conf_pct}%)</b> — "
+            f"{applied} of {total_rules} rules applied. "
+            f"{len(skipped)} rule(s) not applied due to missing column(s): "
+            f"{', '.join(n.split('—')[0].strip() for n in skipped)}. "
+            f"See 'Rules Not Applied' in the evidence package Summary sheet."
+            f"</div>",
+            unsafe_allow_html=True,
+        )
+    else:
+        st.markdown(
+            "<div style='background:#E8F9F0;border-left:4px solid #1a7f4b;"
+            "padding:10px 14px;border-radius:4px;margin-bottom:12px;'>"
+            "<b>Analysis Confidence: Full (100%)</b> — All 10 rules applied.</div>",
+            unsafe_allow_html=True,
+        )
+
     # ── Summary tiles ─────────────────────────────────────────────────────────
     t1, t2, t3, t4, t5 = st.columns(5)
     tiles = [
@@ -10686,15 +10876,32 @@ def show_user_access_review(user: str, role: str, model_id: str):
 
     st.markdown("<br>", unsafe_allow_html=True)
 
+    # ── KPI row ───────────────────────────────────────────────────────────────
+    _tot = smry.get("total_users", 1) or 1
+    _act = smry.get("active_users", 1) or 1
+    kpi1, kpi2, kpi3, kpi4 = st.columns(4)
+    kpi_data = [
+        (kpi1, "% Critical+High",
+         f"{round((smry.get('Critical',0)+smry.get('High',0))/_tot*100,1)}%"),
+        (kpi2, "% Ghost Accounts",
+         f"{round(smry.get('ghost_count',0)/_tot*100,1)}%"),
+        (kpi3, "% Dormant (>90d)",
+         f"{round(smry.get('dormant_count',0)/_act*100,1)}%"),
+        (kpi4, "% No Justification",
+         f"{round(smry.get('no_just_count',0)/_tot*100,1)}%"),
+    ]
+    for col, label, val in kpi_data:
+        with col:
+            st.metric(label=label, value=val)
+
     # ── Key themes ────────────────────────────────────────────────────────────
     themes = smry.get("key_themes", [])
     if themes:
         st.markdown("**Key Risk Themes:**")
-        for t in themes:
-            st.markdown(f"- {t}")
+        for _i, t in enumerate(themes, 1):
+            st.markdown(f"**{_i}.** {t}")
 
-    # ── Rules skipped ─────────────────────────────────────────────────────────
-    skipped = result.get("rules_skipped", [])
+    # ── Rules skipped (collapsed — confidence banner covers it) ───────────────
     if skipped:
         with st.expander(f"ℹ️ {len(skipped)} rule(s) not applied — column(s) not in upload"):
             for note in skipped:
