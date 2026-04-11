@@ -146,7 +146,7 @@ except ImportError:
 # =============================================================================
 # 1. CONFIG
 # =============================================================================
-VERSION        = "74.0"
+VERSION        = "75.0"
 
 # =============================================================================
 # REGULATORY REFERENCE CONSTANTS
@@ -10146,7 +10146,9 @@ def uar_build_excel(
                     val = ""
                 # Format days_since_last_login nicely
                 if col_key == "days_since_last_login":
-                    val = f"{int(val)} days" if isinstance(val, (int, float)) else "Never"
+                    val = (f"{int(val)} days"
+                           if isinstance(val, (int, float)) and val == val
+                           else "Never")
                 c = ws2.cell(row=ri, column=ci, value=val)
                 if ci in (8, 9):   # Risk Score, Risk Level — coloured
                     _cell_style(c, bold=True, bg=bg, fg=fg, size=9)
@@ -10255,7 +10257,9 @@ def uar_build_excel(
                 if isinstance(val, bool):
                     val = "Y" if val else "N"
                 elif col_key == "days_since_last_login":
-                    val = f"{int(val)} days" if isinstance(val, (int, float)) else "Never"
+                    val = (f"{int(val)} days"
+                           if isinstance(val, (int, float)) and val == val
+                           else "Never")
                 elif pd.isna(val) if not isinstance(val, (str, bool)) else False:
                     val = ""
                 c = ws4.cell(row=ri, column=ci, value=val)
@@ -10405,14 +10409,25 @@ def show_user_access_review(user: str, role: str, model_id: str):
     # ── Step 3: Run analysis ──────────────────────────────────────────────────
     st.markdown("### Step 3 — Run Access Review")
 
-    run_col, _ = st.columns([3, 5])
+    _already_done = st.session_state.get("uar_analysis_done", False)
+    run_col, reset_col, _ = st.columns([3, 2, 3])
     with run_col:
         run_btn = st.button(
-            "▶ Run Access Review",
+            "✅ Analysis Complete" if _already_done else "▶ Run Access Review",
             type="primary",
             use_container_width=True,
             key="uar_run_btn",
+            disabled=_already_done,
+            help="Analysis already generated. Use 'New Review' to reset and re-run." if _already_done else None,
         )
+    with reset_col:
+        if _already_done:
+            if st.button("🔄 New Review", use_container_width=True, key="uar_reset_btn"):
+                for k in ["uar_raw_df", "uar_scored_result", "uar_analysis_done",
+                          "uar_file_name"]:
+                    st.session_state[k] = None if k != "uar_analysis_done" else False
+                st.session_state["uar_key_n"] = st.session_state.get("uar_key_n", 0) + 1
+                st.rerun()
 
     if run_btn:
         at_top = st.session_state.get("at_top20_df")   # cross-module: from AT session
