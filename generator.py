@@ -146,7 +146,7 @@ except ImportError:
 # =============================================================================
 # 1. CONFIG
 # =============================================================================
-VERSION        = "75.0"
+VERSION        = "76.0"
 
 # =============================================================================
 # REGULATORY REFERENCE CONSTANTS
@@ -9265,6 +9265,13 @@ RISK SCORING — ADDITIVE INTEGER MODEL (Rules U1–U10)
   U4  +25  Can_Release = Y (batch/product release capability)
   U5  +25  Can_Modify_Master_Data = Y (reference data modification)
   U6  +25  GxP_Criticality = High (system risk multiplier — raised from +20)
+           Rationale: Admin+GxP LIMS at +20 scored 60 = Medium (incorrect tier);
+           +25 correctly places Admin+GxP at 65 = High.
+  U7  +0   Account Never Used, created < 14 days ago (new account — expected)
+  U7  +10  Account Never Used, created 14–90 days ago (concern — no login expected)
+  U7  +20  Account Never Used, account age unknown (default — no created_date)
+  U7  +30  Account Never Used, created > 90 days ago (Critical — likely orphaned)
+  U7  +15  Last login > 90 days ago — dormant (mutually exclusive with Never)
   U7  +20  Last login date is null (account never used — higher risk than dormant)
   U7  +15  Days since last login > 90 (mutually exclusive with null — one or the other)
   U8  +20  Employment_Status ≠ Active AND Account_Status = Active (ghost account)
@@ -9454,9 +9461,29 @@ def _uar_preprocess(df: pd.DataFrame) -> tuple:
     df["privilege_count"] = df[_UAR_HIGH_PRIV_FLAGS].sum(axis=1)
 
     # ── Access justification presence check ──────────────────────────────────
+    # A justification is valid only if it is non-empty, non-trivial, and not
+    # a known placeholder. Regulators flag "N/A", "yes", "ok" as fake justifications.
+    _INVALID_JUST = {
+        'n/a', 'na', 'n.a.', 'none', 'tbd', 'tbc', 'yes', 'no', 'ok', 'okay',
+        'see above', 'as above', '-', '--', '–', 'nil', 'null', 'not applicable',
+        'not required', 'unknown', 'tba', 'pending', 'n.a', 'na.', '?', 'test',
+    }
+    _MIN_JUST_CHARS = 4    # "yes", "ok", "no", "tbd" fail; "Valid", "Approved" pass
+
+    def _is_valid_just(v) -> bool:
+        if not isinstance(v, str):
+            return False
+        stripped = v.strip()
+        if not stripped:
+            return False
+        if len(stripped) < _MIN_JUST_CHARS:
+            return False
+        if stripped.lower() in _INVALID_JUST:
+            return False
+        return True
+
     if "access_justification" in df.columns:
-        df["has_justification"] = df["access_justification"].apply(
-            lambda v: bool(isinstance(v, str) and v.strip()))
+        df["has_justification"] = df["access_justification"].apply(_is_valid_just)
     else:
         df["has_justification"] = True   # can't penalise what wasn't collected
         rules_skipped.append("U9 (Missing Justification) — access_justification column not provided")
@@ -9519,19 +9546,45 @@ def _uar_score_single(row: pd.Series) -> tuple:
         triggered.append("U6: High-Criticality GxP System (+25)")
 
     # U7 — Dormancy / never-logged-in (mutually exclusive)
-    # Note: pandas converts None to NaN in numeric Series, so we must check
-    # pd.isna() not `is None`. We detect "column present but value null"
-    # by checking days_since_last_login is NaN AND the last_login_date column
-    # was in the dataset (indicated by days_since_last_login column existing).
+    # Never-logged-in scoring is graduated by account age (account_created_date):
+    #   < 14 days old  → new account, expected, no flag
+    #   14–90 days old → +10 (concern)
+    #   > 90 days old  → +30 (Critical pattern — likely orphaned)
+    #   age unknown    → +20 default
     days = row.get("days_since_last_login")
     days_is_null = days is None or (isinstance(days, float) and days != days)
     col_present  = "days_since_last_login" in (
         row.index.tolist() if hasattr(row, "index") else list(row.keys())
     )
     if days_is_null and col_present:
-        # Column was present but this user has no login date — account never used
-        score += _UAR_SCORE_WEIGHTS["Never_Logged_In"]
-        triggered.append("U7: Account Never Used — No Login Date on Record (+20)")
+        created_raw    = row.get("account_created_date")
+        account_age    = None
+        if created_raw and str(created_raw).strip() not in ("", "nan", "None", "NaT"):
+            try:
+                _c = pd.to_datetime(str(created_raw), errors="coerce", dayfirst=False)
+                if pd.notna(_c):
+                    account_age = (
+                        pd.Timestamp.today().normalize() - _c.replace(tzinfo=None)
+                    ).days
+            except Exception:
+                pass
+
+        if account_age is not None:
+            if account_age < 14:
+                pass   # new account — expected, no penalty
+            elif account_age <= 90:
+                score += 10
+                triggered.append(
+                    f"U7: Account Never Used — {account_age} days old, "
+                    f"no login on record (+10)")
+            else:
+                score += 30
+                triggered.append(
+                    f"U7: Account Never Used — {account_age} days old, "
+                    f"likely orphaned (+30)")
+        else:
+            score += _UAR_SCORE_WEIGHTS["Never_Logged_In"]
+            triggered.append("U7: Account Never Used — No Login Date on Record (+20)")
     elif not days_is_null and isinstance(days, (int, float)) and days > _UAR_DORMANCY_DAYS:
         score += _UAR_SCORE_WEIGHTS["Dormant_90"]
         triggered.append(f"U7: Dormant Account — {int(days)} days since last login (+15)")
@@ -9815,28 +9868,86 @@ def _uar_deterministic_narrative(row: dict) -> str:
     """
     Deterministic fallback narrative — no AI required.
     Produces a factual one-sentence summary of the user's risk posture.
+    Includes: admin/job-title mismatch detection, service account pattern,
+    ghost account, dormancy, missing justification, cross-module flag.
     """
     username   = str(row.get("username", "unknown user"))
     risk_level = str(row.get("Risk_Level", ""))
     triggered  = str(row.get("Triggered_Rules", ""))
     role_raw   = str(row.get("role", ""))[:80]
+    job_title  = str(row.get("job_title", "")).strip()
+    dept       = str(row.get("department", "")).strip()
     days       = row.get("days_since_last_login")
     cross      = row.get("Cross_Module_Flag", "N")
+    acct_type  = str(row.get("account_type", "")).lower()
 
-    # Extract first triggered rule label for the narrative anchor
-    first_rule = triggered.split("|")[0].strip() if "|" in triggered else triggered
+    # Detect service/integration account from username pattern or account_type
+    _SVC_PATTERNS = ("svc_", "svc-", "service_", "srv_", "int_", "api_",
+                     "batch_", "auto_", "system_", "integration_")
+    is_service = (acct_type in ("service", "integration", "shared", "generic")
+                  or any(username.lower().startswith(p) for p in _SVC_PATTERNS))
 
-    parts = [f"{username} holds role '{role_raw}'"]
-    if "U1:" in triggered:
-        parts.append("with administrative system access")
+    # Detect admin-vs-job-title mismatch
+    _NON_ADMIN_TITLES = {
+        "analyst", "scientist", "technician", "associate", "coordinator",
+        "specialist", "operator", "reviewer", "inspector", "chemist",
+        "biologist", "researcher", "qc analyst", "lab analyst", "data entry",
+    }
+    is_admin = "U1:" in triggered
+    title_lower = job_title.lower()
+    admin_mismatch = is_admin and any(t in title_lower for t in _NON_ADMIN_TITLES)
+
+    parts = []
+
+    # Service account — lead with this if detected
+    if is_service:
+        parts.append(
+            f"{username} is a service/integration account holding role '{role_raw}'"
+        )
+    else:
+        parts.append(f"{username} holds role '{role_raw}'")
+
+    # Admin context
+    if is_admin:
+        if admin_mismatch:
+            parts.append(
+                f"with administrative system access — job title '{job_title}' "
+                f"in {dept or 'unknown department'} does not indicate a system "
+                f"administrator function, which is a Segregation of Duties concern"
+            )
+        elif is_service:
+            parts.append(
+                "with administrative privileges — service accounts holding admin "
+                "access require documented business justification and regular review"
+            )
+        else:
+            parts.append("with administrative system access")
+
+    # Ghost account
     if "U8:" in triggered:
-        parts.append("and is a ghost account (employment inactive, system access active)")
-    elif days is not None and isinstance(days, (int, float)) and days > _UAR_DORMANCY_DAYS:
+        parts.append(
+            "and is a ghost account — employment status is inactive "
+            "while system access remains active"
+        )
+    # Dormancy (only if not ghost — ghost implies terminated)
+    elif (days is not None and isinstance(days, (int, float))
+          and days == days and days > _UAR_DORMANCY_DAYS):
         parts.append(f"with no login recorded in {int(days)} days")
+
+    # Missing justification
     if "U9:" in triggered:
-        parts.append("and has no documented access justification")
+        parts.append("and has no valid documented access justification on record")
+
+    # Never used
+    if "Never Used" in triggered or "No Login Date" in triggered:
+        parts.append("with no login date on record (account never used)")
+
+    # Cross-module
     if cross == "Y":
-        parts.append("— also flagged in Audit Trail findings this period")
+        parts.append(
+            "— this user also appears in Audit Trail findings this period "
+            "(cross-module escalation applied)"
+        )
 
     return "; ".join(parts) + f" [{risk_level} risk]."
 
@@ -9865,29 +9976,40 @@ def uar_generate_justifications(top_df: pd.DataFrame, model_id: str) -> pd.DataF
             days       = row.get("days_since_last_login")
             full_name  = str(row.get("full_name", ""))
             dept       = str(row.get("department", ""))
+            job_title  = str(row.get("job_title", ""))
             emp_norm   = str(row.get("employment_status_norm", ""))
             cross      = str(row.get("Cross_Module_Flag", "N"))
             system     = str(row.get("system_name", ""))
+            acct_type  = str(row.get("account_type", ""))
 
-            days_str = f"{int(days)} days" if isinstance(days, (int, float)) else "unknown"
-            cross_note = " This user also appears in Audit Trail findings this period." if cross == "Y" else ""
+            _SVC_PAT = ("svc_","svc-","service_","srv_","int_","api_","batch_","auto_","system_")
+            is_svc   = acct_type.lower() in ("service","integration","shared","generic") \
+                       or any(username.lower().startswith(p) for p in _SVC_PAT)
+
+            days_str   = (f"{int(days)} days" if isinstance(days, (int, float))
+                          and days == days else "never logged in")
+            cross_note = (" This user also appears in Audit Trail findings this period."
+                          if cross == "Y" else "")
+            svc_note   = " This is a service/integration account (non-human)." if is_svc else ""
 
             prompt = f"""You are writing the System Narrative column in a GxP user access review table.
 
 YOUR ONLY JOB: Write exactly ONE sentence stating the observable facts about this user's access profile.
 
 HARD RULES — no exceptions:
-1. State ONLY observable facts: username, role, what access flags were triggered, last login days if relevant.
-2. Do NOT use regulatory language: no "violates", "non-compliant", "raises concerns", "ALCOA", "21 CFR", "data integrity".
-3. Do NOT recommend any action: no "review", "remove", "investigate", "escalate".
-4. Do NOT infer intent or motivation.
-5. ONE sentence. Max 45 words.
-6. If Cross_Module_Flag is Y, include that the user also appears in Audit Trail findings.
+1. State ONLY observable facts: username, role, job title if relevant, system, days since login.
+2. If job_title indicates a non-admin role (e.g. Analyst, Technician) but the user holds Admin access, you MUST mention this mismatch.
+3. If the username starts with svc_, service_, or account_type is Service/Integration, you MUST identify it as a service account.
+4. Do NOT use regulatory language: no "violates", "non-compliant", "raises concerns", "21 CFR".
+5. Do NOT recommend any action.
+6. ONE sentence. Max 50 words.
 
 User data:
   Username:           {username}
   Full Name:          {full_name}
+  Job Title:          {job_title}
   Department:         {dept}
+  Account Type:       {acct_type}
   Role:               {role_raw}
   System:             {system}
   Employment Status:  {emp_norm}
@@ -9895,18 +10017,19 @@ User data:
   Triggered Rules:    {triggered}
   Cross-Module Flag:  {cross}
 
-CORRECT: "{username} holds '{role_raw}' in {system} with {int(days) if isinstance(days,(int,float)) else 'no'} days since last login and no documented access justification."
-WRONG: "This user may represent a compliance risk and should be reviewed by the QA team."
+CORRECT (admin mismatch): "admin_qc_bad holds 'Administrator' role in LabVantage LIMS but job title is 'QC Analyst', indicating admin access on a non-admin function."
+CORRECT (service account): "svc_lims_integration is a service account holding 'Administrator' role on LabVantage LIMS with no documented access justification."
+WRONG: "This user may represent a compliance risk and should be reviewed."
 
 Write only the one sentence. No labels, no preamble."""
 
             resp = _comp(
-                model=model_id, stream=False, temperature=0.05, max_tokens=80,
+                model=model_id, stream=False, temperature=0.05, max_tokens=90,
                 messages=[
                     {"role": "system", "content":
                      "You write one-sentence factual access profile summaries for pharmaceutical QA tables. "
-                     "State only observable facts: username, role, system, days since login, triggered flags. "
-                     "No regulatory language. No action instructions. One sentence, max 45 words."},
+                     "Always mention job-title/role mismatches and service account patterns when present. "
+                     "State only observable facts. No regulatory language. No action instructions."},
                     {"role": "user", "content": prompt},
                 ]
             )
@@ -10060,19 +10183,19 @@ def uar_build_excel(
     _summary_row("OTHER FINDINGS", "", section=True)
     _summary_row("SoD Conflicts Identified",   smry.get("sod_conflict_count", 0))
     _summary_row("Peer Anomalies Identified",  smry.get("peer_anomaly_count", 0))
-    _summary_row("Cross-Module (AT+UAR) Users", smry.get("cross_module_count", 0))
+    _summary_row("Cross-Module (AT+UAR) Users", str(smry.get("cross_module_count", 0)))
     row += 1
 
     _summary_row("KEY RISK THEMES", "", section=True)
     for theme in smry.get("key_themes", []):
-        _summary_row("", theme)
+        _summary_row("  •", theme)
     row += 1
 
     rules_skipped = result.get("rules_skipped", [])
     if rules_skipped:
         _summary_row("RULES NOT APPLIED (NO_DATA)", "", section=True)
         for note in rules_skipped:
-            _summary_row("", note)
+            _summary_row("  ℹ", note)
         row += 1
 
     _summary_row("REVIEWER STATEMENT", "", section=True)
@@ -10107,9 +10230,9 @@ def uar_build_excel(
         ("GxP Criticality",  14),
         ("Days Since Login",  14),
         ("Cross-Module",     13),
-        ("Triggered Rules",  50),
+        ("Triggered Rules",  70),   # widened: U8/U10 always appear last, were clipping
         ("System Narrative", 55),
-        ("Reviewer Disposition", 25),
+        ("Reviewer Disposition", 35),
         ("Reviewer Notes",   30),
     ]
 
@@ -10132,7 +10255,7 @@ def uar_build_excel(
     if not top_df.empty:
         top_df = top_df.copy()
         top_df["rank_display"] = range(1, len(top_df) + 1)
-        top_df["Reviewer_Disposition"] = ""
+        top_df["Reviewer_Disposition"] = "☐ Justified     ☐ Investigate     ☐ Escalate to CAPA"
         top_df["Reviewer_Notes"] = ""
 
         for ri, (_, row_data) in enumerate(top_df.iterrows(), 2):
@@ -10146,15 +10269,17 @@ def uar_build_excel(
                     val = ""
                 # Format days_since_last_login nicely
                 if col_key == "days_since_last_login":
-                    val = (f"{int(val)} days"
-                           if isinstance(val, (int, float)) and val == val
-                           else "Never")
+                    if isinstance(val, (int, float)) and val == val:
+                        val = "< 1 day" if int(val) == 0 else f"{int(val)} days"
+                    else:
+                        val = "Never"
                 c = ws2.cell(row=ri, column=ci, value=val)
                 if ci in (8, 9):   # Risk Score, Risk Level — coloured
                     _cell_style(c, bold=True, bg=bg, fg=fg, size=9)
                 else:
-                    _cell_style(c, size=9, wrap=(ci in (7, 13, 14, 15, 16)))
-            ws2.row_dimensions[ri].height = 40 if ri > 1 else 20
+                    # col 13 = Triggered Rules, col 14 = Narrative, col 15 = Disposition
+                    _cell_style(c, size=9, wrap=(ci in (6, 13, 14, 15, 16)))
+            ws2.row_dimensions[ri].height = 55 if ri > 1 else 20
 
     ws2.freeze_panes = "A2"
 
@@ -10190,23 +10315,46 @@ def uar_build_excel(
     ws3.row_dimensions[1].height = 20
 
     if not sod_df.empty:
-        for ri, (_, row_data) in enumerate(sod_df.iterrows(), 2):
+        # ── Summary block at top of SoD sheet ────────────────────────────────
+        critical_sod = sod_df[sod_df["Risk_Level"] == "Critical"]
+        high_sod     = sod_df[sod_df["Risk_Level"] == "High"]
+        summary_text = (
+            f"SoD Conflicts Summary: {len(sod_df)} conflict(s) detected — "
+            f"{len(critical_sod)} Critical (immediate review required), "
+            f"{len(high_sod)} High.  "
+            f"All conflicts require reviewer disposition before report is finalised. "
+            f"Critical conflicts involve Admin-level access combined with sensitive functions."
+        )
+        ws3.merge_cells(start_row=2, start_column=1,
+                        end_row=2, end_column=len(sod_display_cols))
+        summary_cell = ws3.cell(row=2, column=1, value=summary_text)
+        summary_cell.font      = Font(name="Calibri", size=9, bold=False,
+                                      color="7B341E")
+        summary_cell.fill      = _hdr_fill("FEF3C7")   # amber tint
+        summary_cell.alignment = Alignment(horizontal="left", vertical="center",
+                                           wrap_text=True)
+        summary_cell.border    = bdr
+        ws3.row_dimensions[2].height = 32
+
+        for ri, (_, row_data) in enumerate(sod_df.iterrows(), 3):
             tier = str(row_data.get("Risk_Level", "High"))
             bg   = C_RISK.get(tier, "FFFFFF")
             fg   = C_RISK_FG.get(tier, "1A1A1A")
             for ci, col_key in enumerate(sod_col_map, 1):
                 val = row_data.get(col_key, "")
+                if col_key == "Reviewer_Disposition":
+                    val = "☐ Justified     ☐ Investigate     ☐ Escalate to CAPA"
                 c   = ws3.cell(row=ri, column=ci, value=val)
                 if ci == 9:  # Risk Level coloured
                     _cell_style(c, bold=True, bg=bg, fg=fg, size=9)
                 else:
                     _cell_style(c, size=9, wrap=(ci in (10, 11)))
-            ws3.row_dimensions[ri].height = 50
+            ws3.row_dimensions[ri].height = 55
     else:
         ws3.cell(row=2, column=1,
                  value="No Segregation of Duties conflicts detected.")
 
-    ws3.freeze_panes = "A2"
+    ws3.freeze_panes = "A3"
 
     # =========================================================================
     # SHEET 4 — ALL USERS
@@ -10257,9 +10405,10 @@ def uar_build_excel(
                 if isinstance(val, bool):
                     val = "Y" if val else "N"
                 elif col_key == "days_since_last_login":
-                    val = (f"{int(val)} days"
-                           if isinstance(val, (int, float)) and val == val
-                           else "Never")
+                    if isinstance(val, (int, float)) and val == val:
+                        val = "< 1 day" if int(val) == 0 else f"{int(val)} days"
+                    else:
+                        val = "Never"
                 elif pd.isna(val) if not isinstance(val, (str, bool)) else False:
                     val = ""
                 c = ws4.cell(row=ri, column=ci, value=val)
@@ -10277,17 +10426,52 @@ def uar_build_excel(
     # SHEET 5 — DETECTION LOGIC
     # =========================================================================
     ws5 = wb.create_sheet("Detection Logic")
-    ws5.column_dimensions["A"].width = 100
+    ws5.column_dimensions["A"].width = 105
 
     title_c = ws5.cell(row=1, column=1, value="UAR Detection Logic — VALINTEL.AI")
     title_c.font = Font(name="Calibri", bold=True, size=11, color=C_HEADER_BG)
     ws5.row_dimensions[1].height = 20
 
+    # Section header patterns — all-caps lines that open major blocks
+    _DL_SECTION_KEYWORDS = {
+        "PRIVILEGE FLAG DERIVATION", "GXP CRITICALITY DERIVATION",
+        "RISK SCORING", "RISK TIERS", "SEGREGATION OF DUTIES",
+        "PEER ANOMALY", "CROSS-MODULE", "REQUIRED INPUT",
+        "OPTIONAL INPUT", "REGULATORY BASIS", "AI COMPONENT COMPLIANCE",
+    }
+    _IN_GAMP_AI = False
+
     for li, line in enumerate(UAR_DETECTION_LOGIC.split("\n"), 2):
         c = ws5.cell(row=li, column=1, value=line)
-        c.font      = Font(name="Courier New", size=8, color="2C3E50")
+        stripped = line.strip()
+
+        # Track entry/exit of GAMP AI block
+        if "AI COMPONENT COMPLIANCE" in stripped.upper():
+            _IN_GAMP_AI = True
+        elif stripped.startswith("═") and _IN_GAMP_AI and li > 2:
+            # second separator line = end of GAMP AI block
+            _IN_GAMP_AI = False
+
+        # Determine style
+        is_separator = stripped.startswith("═") or stripped.startswith("─")
+        is_section   = any(kw in stripped.upper() for kw in _DL_SECTION_KEYWORDS)
+
+        if _IN_GAMP_AI or "AI COMPONENT COMPLIANCE" in stripped.upper():
+            # GAMP AI block — teal accent
+            c.font = Font(name="Courier New", size=8,
+                          color="0E6655",
+                          bold=is_section or "AI COMPONENT" in stripped.upper())
+        elif is_separator:
+            c.font = Font(name="Courier New", size=8, color="95A5A6")  # grey
+        elif is_section:
+            c.font = Font(name="Calibri", size=9, bold=True, color=C_HEADER_BG)
+            ws5.row_dimensions[li].height = 16
+        else:
+            c.font = Font(name="Courier New", size=8, color="2C3E50")
+
         c.alignment = Alignment(horizontal="left", vertical="top", wrap_text=False)
-        ws5.row_dimensions[li].height = 13
+        if ws5.row_dimensions[li].height == 0 or ws5.row_dimensions[li].height == 15:
+            ws5.row_dimensions[li].height = 13 if not is_section else 16
 
     wb.save(output)
     return output.getvalue()
@@ -10337,6 +10521,20 @@ def show_user_access_review(user: str, role: str, model_id: str):
             placeholder="e.g. 31-Mar-2026",
             key="uar_rend",
         )
+    # ── Future date warning (mirrors AT module Fix 4) ─────────────────────────
+    _uar_rend_str = st.session_state.get("uar_review_end", "").strip()
+    if _uar_rend_str:
+        try:
+            _uar_rend_dt = pd.to_datetime(_uar_rend_str, dayfirst=False, errors="coerce")
+            _uar_today   = pd.Timestamp.utcnow().normalize()
+            if pd.notna(_uar_rend_dt) and (_uar_rend_dt - _uar_today).days > 30:
+                st.warning(
+                    f"⚠️ **Review Period End is {(_uar_rend_dt - _uar_today).days} days "
+                    f"in the future ({_uar_rend_dt.strftime('%d-%b-%Y')}).** "
+                    f"A periodic review report should cover a completed period."
+                )
+        except Exception:
+            pass
     st.markdown("---")
 
     # ── Step 1: File upload ───────────────────────────────────────────────────
