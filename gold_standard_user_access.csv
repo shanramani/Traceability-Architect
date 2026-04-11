@@ -1,0 +1,19 @@
+username,account_status,role,full_name,last_login_date,employment_status,access_justification,system_name,department,job_title,account_type
+admin_it_1,Active,Administrator,John Smith,2026-04-10 04:12:27.034307,Active,Valid,LabVantage LIMS,IT,Admin,User
+admin_qc_bad,Active,Administrator,Alice Brown,2026-04-10 04:12:27.034307,Active,Valid,LabVantage LIMS,QC,Analyst,User
+delete_only,Active,Delete Records,User A,2026-04-10 04:12:27.034307,Active,Valid,SharePoint,QA,Analyst,User
+approver1,Active,QC Reviewer,User B,2026-04-10 04:12:27.034307,Active,Valid,SAP QM,QC,Reviewer,User
+release1,Active,Batch Release,User C,2026-04-10 04:12:27.034307,Active,Valid,SAP QM,QA,Manager,User
+masterdata1,Active,Specification Editor,User D,2026-04-10 04:12:27.034307,Active,Valid,LabVantage LIMS,QA,Engineer,User
+gxp_high1,Active,Analyst,User E,2026-04-10 04:12:27.034307,Active,Valid,Veeva Vault,QA,Analyst,User
+dormant_91,Active,Analyst,User F,2026-01-09 04:12:27.034307,Active,Valid,SharePoint,QA,Analyst,User
+dormant_89,Active,Analyst,User G,2026-01-11 04:12:27.034307,Active,Valid,SharePoint,QA,Analyst,User
+never_login_old,Active,Analyst,User H,,Active,Valid,SAP QM,QA,Analyst,User
+ghost1,Active,Analyst,User I,2025-10-12 04:12:27.034307,Terminated,Valid,SAP QM,QA,Analyst,User
+no_just1,Active,Analyst,User J,2026-04-10 04:12:27.034307,Active,,SAP QM,QA,Analyst,User
+multi_priv1,Active,Administrator|Batch Release|Delete Records,User K,2026-04-10 04:12:27.034307,Active,Valid,LabVantage LIMS,IT,Admin,User
+sod1,Active,Data Entry|QC Reviewer,User L,2026-04-10 04:12:27.034307,Active,Valid,SAP QM,QC,Analyst,User
+sod2,Active,Specification Editor|Batch Approver,User M,2026-04-10 04:12:27.034307,Active,Valid,SAP QM,QA,Engineer,User
+sod3,Active,Delete Records|Counter Sign,User N,2026-04-10 04:12:27.034307,Active,Valid,SAP QM,QA,Reviewer,User
+sod4,Active,Administrator|Batch Release,User O,2026-04-10 04:12:27.034307,Active,Valid,LabVantage LIMS,IT,Admin,User
+svc_lims_integration,Active,Administrator,Service Account,2026-04-10 04:12:27.034307,Active,Integration account,LabVantage LIMS,IT,Service,Service
