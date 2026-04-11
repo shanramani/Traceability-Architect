@@ -1,26 +1,85 @@
 """
-Validation Doc Assist — v20.0
+VALINTEL.AI — GxP Validation Intelligence Platform
+Version 78.0
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Changes over v19.0:
-  ROOT CAUSE FIX — Phantom Test_ID in Traceability:
-  1. PYTHON-OWNED TRACEABILITY  — LLM no longer generates the
-                                   Traceability dataset at all.
-                                   _build_traceability() rebuilds
-                                   it from actual OQ rows only.
-                                   If OQ-004 doesn't exist in the
-                                   OQ sheet, it CANNOT appear as
-                                   "Covered" in Traceability.
-  2. PASS 2 NOW 3 DATASETS      — FRS, OQ, Gap_Analysis only.
-                                   Traceability dataset removed
-                                   from prompt entirely.
-  3. COVERAGE_STATUS GUARANTEED — Covered / Partial / Not Covered
-                                   set by Python cross-reference,
-                                   never by LLM claim.
-  4. DASHBOARD + METRICS        — All coverage stats now read from
-                                   Python-built Traceability sheet,
-                                   not from OQ.Requirement_Link.
+
+§ SECTION MAP — generator.py
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+§1   CONSTANTS & CONFIGURATION
+     VERSION, regulatory reference constants (_REG_AT, _REG_UAR, _REG_NV),
+     GAMP AI compliance block, trial mode helpers (_is_trial, _trial_gate),
+     MODELS dict, CHUNK_SIZE, SESSION_TIMEOUT, DB_PATH
+
+§2   SECURITY & AUTH
+     Rate limiter, session timeout, password hashing, user management,
+     authentication, e-signature validation, audit log (log_audit)
+
+§3   DATABASE
+     db_setup(), db_migrate(), DB schema
+
+§4   URS GATE & DOCUMENT VALIDATION
+     validate_urs_document(), URS keyword lists
+
+§5   NEW VALIDATION MODULE (Periodic Review — not in sidebar)
+     build_pass1_prompt(), build_pass2_prompt(), build_pass2_single_prompt()
+     run_segmented_analysis(), run_cross_source_analysis()
+     run_deterministic_validation(), _build_traceability()
+     _apply_confidence_flags(), _fill_missing_frs(), _fill_missing_oq()
+     build_styled_excel(), build_dashboard_sheet(), build_cover_sheet()
+     build_signature_sheet(), build_audit_log_sheet(), build_pdf_bytes()
+     _build_demo_validation_package()
+
+§6   CHANGE IMPACT ANALYSIS (CIA) MODULE
+     build_cia_pass1/2/3_prompt(), run_cia_analysis()
+     build_cia_excel(), show_change_impact()
+
+§7   SESSION STATE DEFAULTS (_defaults dict)
+
+§8   CSS & BRANDING
+
+§9   AUDIT TRAIL (AT) MODULE — Periodic Review Module 1
+     at_score_events()          line ~6242
+     at_generate_justifications() line ~8058
+     at_build_excel()           line ~8145  (Sheet 6: Compliance Checklist added v78)
+     show_audit_trail()         line ~11516
+
+§10  UAR MODULE — User Access Review — Periodic Review Module 2
+     Constants: _UAR_COL_ALIASES, _UAR_GXP_HIGH/LOW_KEYWORDS,
+                _UAR_ROLE_KEYWORD_MAP, _UAR_SCORE_WEIGHTS, _UAR_RISK_BANDS,
+                _UAR_SOD_PAIRS, UAR_DETECTION_LOGIC
+     _uar_normalise_columns()   line ~9820
+     _uar_preprocess()          line ~9870
+     _uar_score_single()        line ~9560
+     _uar_sod_conflicts()       line ~9680
+     uar_score_users()          line ~9922  (main entry point)
+     _uar_deterministic_narrative()  line ~9980
+     _uar_finding_rationale()   line ~10030
+     uar_generate_justifications()   line ~10060
+     uar_build_excel()          line ~10337
+     show_user_access_review()  line ~10810
+
+§11  SIGNALINTEL — Incident/Change Review — Periodic Review Module 3
+     show_signalintel()         line ~11255  (scaffold — full build v79+)
+     Constants: _SIG_REQUIRED_COLS, _SIG_OPTIONAL_COLS, _SIG_COL_ALIASES
+
+§12  PERIODIC REVIEW LANDING PAGE
+     show_periodic_review()     line ~11357
+
+§13  APP SHELL
+     show_app()                 line ~13958
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Deploy pattern:
+  copy generator.py app_vNN.py
+  git add generator.py app_vNN.py
+  git commit -m "vNN: description"
+  git pull origin main --rebase
+  git push origin main
+  → Reboot on Streamlit Cloud
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 """
+
 
 import streamlit as st
 import streamlit.components.v1 as _st_components
@@ -146,7 +205,7 @@ except ImportError:
 # =============================================================================
 # 1. CONFIG
 # =============================================================================
-VERSION        = "77.0"
+VERSION        = "78.0"
 
 # =============================================================================
 # REGULATORY REFERENCE CONSTANTS
@@ -4297,6 +4356,15 @@ _defaults = {
     "at_thresh_critical":   7.0,    # score >= this = Critical
     "at_thresh_high":       5.0,    # score >= this = High
     "at_thresh_medium":     3.0,    # score >= this = Medium
+    # ── SIGNALINTEL (Periodic Review Module 3) ────────────────────────────────
+    "sig_raw_df":           None,
+    "sig_result":           None,
+    "sig_analysis_done":    False,
+    "sig_system_name":      "",
+    "sig_review_start":     "",
+    "sig_review_end":       "",
+    "sig_file_name":        "",
+    "sig_key_n":            0,
 }
 for _k, _v in _defaults.items():
     if _k not in st.session_state:
@@ -8984,12 +9052,197 @@ def at_build_excel(top_df, scored_df, system_name, r_start, r_end, fname,
         c.alignment = Alignment(horizontal="left", vertical="top", wrap_text=True)
         row_num += 1
 
+    # =========================================================================
+    # SHEET 6 — COMPLIANCE CHECKLIST (Approach A)
+    # Auto-populated from AT findings against the standard 7-item regulatory
+    # baseline. MANUAL items cannot be determined from log analysis alone.
+    # Regulatory basis: 21 CFR Part 11, EU Annex 11, ALCOA+, FDA Data
+    # Integrity Guidance (2018).
+    # =========================================================================
+    ws6 = wb.create_sheet("Compliance Checklist")
+    ws6.column_dimensions["A"].width = 50
+    ws6.column_dimensions["B"].width = 20
+    ws6.column_dimensions["C"].width = 40
+    ws6.column_dimensions["D"].width = 58
+
+    # ── Derive answers from scored_df and top_df ──────────────────────────────
+    _trig_top = " | ".join(
+        str(r) for r in top_df.get("Triggered_Rules",
+        pd.Series(dtype=str)).tolist()) if "Triggered_Rules" in top_df.columns else ""
+    _trig_all = " | ".join(
+        str(r) for r in scored_df.get("Triggered_Rules",
+        pd.Series(dtype=str)).tolist()) if "Triggered_Rules" in scored_df.columns else ""
+
+    _r5  = "Rule 5"  in _trig_top
+    _r6  = "Rule 6"  in _trig_top
+    _r7  = "Rule 7"  in _trig_top
+    _r11 = "Rule 11" in _trig_top or "Rule 11" in _trig_all
+    _r12 = "Rule 12" in _trig_top or "Rule 12" in _trig_all
+    _r13 = "Rule 13" in _trig_top or "Rule 13" in _trig_all
+
+    _checklist = [
+        {
+            "item":     "1. Is the audit trail configuration enabled and actively logging?",
+            "result":   "MANUAL — Verify",
+            "basis":    "21 CFR Part 11 §11.10(e)\nEU Annex 11 Clause 9",
+            "evidence": ("Cannot be determined from log analysis. Verify in system "
+                         "administration that audit trail logging is enabled. Attach "
+                         "configuration screenshot or export as supporting evidence."),
+        },
+        {
+            "item":     "2. Are there indications of data deletion or data loss?",
+            "result":   "YES — Findings Present" if (_r6 or _r7) else "NO — No Findings",
+            "basis":    "ALCOA+ Original\n21 CFR Part 11 §11.10(e)",
+            "evidence": ("Rule 6 (Record Reconstruction) and/or Rule 7 (Sensitive Deletion) "
+                         "findings detected. See Events for Review sheet for specific records "
+                         "and recommended actions."
+                        ) if (_r6 or _r7) else
+                        ("No deletion or data loss patterns detected in the reviewed period."),
+        },
+        {
+            "item":     "3. Is the audit trail protected from unauthorised modification?",
+            "result":   "CONCERN — Investigate" if _r7 else "NO FINDINGS",
+            "basis":    "21 CFR Part 11 §11.10(e)\nEU Annex 11 Clause 9",
+            "evidence": ("Rule 7 finding detected: elevated-access user modified audit trail "
+                         "configuration or records. Verify no audit trail data was suppressed. "
+                         "See Events for Review sheet."
+                        ) if _r7 else
+                        ("No audit trail modification detected. Manual verification of "
+                         "access control settings on the audit trail is recommended."),
+        },
+        {
+            "item":     "4. Does the audit trail show unauthorised access attempts?",
+            "result":   "YES — Investigate" if _r5 else "NO — No Findings",
+            "basis":    "21 CFR Part 11 §11.300\nALCOA+ Attributable",
+            "evidence": ("Rule 5 (Failed Login → Data Manipulation) detected: repeated failed "
+                         "logins followed by GxP data action within 30 minutes. Initiate data "
+                         "integrity investigation per your NCR procedure."
+                        ) if _r5 else
+                        ("No unauthorised access patterns detected in the reviewed period."),
+        },
+        {
+            "item":     "5. Have unauthorised system configuration changes occurred (incl. date/time)?",
+            "result":   "CONCERN — Verify" if _r11 else "NO FINDINGS",
+            "basis":    "ALCOA+ Contemporaneous\nFDA Data Integrity Guidance (2018)",
+            "evidence": ("Rule 11 (Timestamp Reversal) detected: timestamps appear out of "
+                         "sequence, which may indicate date/time manipulation. Cross-reference "
+                         "with system administration and change control logs."
+                        ) if _r11 else
+                        ("No timestamp anomalies detected. Manually verify date/time zone "
+                         "configuration has not changed since last review."),
+        },
+        {
+            "item":     "6. Are electronic signature configuration settings unchanged?",
+            "result":   "MANUAL — Verify",
+            "basis":    "21 CFR Part 11 §11.200\n21 CFR Part 11 §11.300",
+            "evidence": ("Cannot be determined from log analysis. Verify in system "
+                         "administration that e-signature settings are unchanged. Confirm "
+                         "no changes were made without documented Change Control."),
+        },
+        {
+            "item":     "7. Are generic, shared, and service accounts appropriately controlled?",
+            "result":   "CONCERN — Rule 12/13 Findings" if (_r12 or _r13) else
+                        "RUN UAR — Full Assessment Required",
+            "basis":    "21 CFR Part 11 §11.100(a)\n21 CFR Part 11 §11.300",
+            "evidence": ("Rule 12 (Service/Shared Account) or Rule 13 (Dormant Account) "
+                         "findings present. Run the User Access Review (UAR) module for "
+                         "full account posture assessment including SoD and ghost accounts."
+                        ) if (_r12 or _r13) else
+                        ("No shared/generic account patterns flagged in this AT review. "
+                         "Run the User Access Review (UAR) module for complete access "
+                         "governance evidence covering dormancy, SoD, and ghost accounts."),
+        },
+    ]
+
+    # ── Title block ───────────────────────────────────────────────────────────
+    _cl_title = ws6.cell(row=1, column=1,
+                         value="Compliance Checklist — Audit Trail Review")
+    _cl_title.font      = Font(name="Calibri", bold=True, size=13,
+                               color=C_HEADER_BG)
+    _cl_title.alignment = Alignment(horizontal="left", vertical="center")
+    ws6.row_dimensions[1].height = 22
+
+    _meta = ws6.cell(row=2, column=1,
+                     value=f"System: {system_name or '(not entered)'}   |   "
+                           f"Review Period: {r_start} → {r_end}   |   "
+                           f"Generated: {datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}")
+    _meta.font      = Font(name="Calibri", size=9, color="5A6A7A")
+    _meta.alignment = Alignment(horizontal="left")
+    ws6.row_dimensions[2].height = 14
+
+    _note = ws6.cell(row=3, column=1,
+                     value=("Items marked MANUAL require independent verification by the "
+                            "reviewer against system administration records. Results marked "
+                            "YES or CONCERN reference specific findings in the Events for "
+                            "Review sheet."))
+    _note.font      = Font(name="Calibri", size=9, italic=True, color="5A6A7A")
+    _note.alignment = Alignment(horizontal="left", wrap_text=True)
+    ws6.row_dimensions[3].height = 22
+
+    # ── Column headers ────────────────────────────────────────────────────────
+    for _ci, _hdr in enumerate(
+            ["Review Item", "Result", "Regulatory Basis", "Evidence / Notes"], 1):
+        _c = ws6.cell(row=4, column=_ci, value=_hdr)
+        _c.font      = Font(name="Calibri", bold=True, size=9, color="FFFFFF")
+        _c.fill      = PatternFill("solid", fgColor=C_HEADER_BG)
+        _c.alignment = Alignment(horizontal="left", vertical="center")
+        _c.border    = bdr
+    ws6.row_dimensions[4].height = 18
+
+    # ── Result colour map ─────────────────────────────────────────────────────
+    _CL_COLORS = {
+        "YES":      ("C0392B", "FFFFFF"),
+        "CONCERN":  ("E67E22", "FFFFFF"),
+        "NO":       ("27AE60", "FFFFFF"),
+        "MANUAL":   ("2E86AB", "FFFFFF"),
+        "RUN UAR":  ("8E44AD", "FFFFFF"),
+    }
+
+    # ── Checklist rows ────────────────────────────────────────────────────────
+    for _ri, _item in enumerate(_checklist, 5):
+        _result = _item["result"]
+        _color  = next((v for k, v in _CL_COLORS.items()
+                        if _result.startswith(k)), ("94A3B8", "FFFFFF"))
+        _vals   = [_item["item"], _result, _item["basis"], _item["evidence"]]
+        for _ci, _val in enumerate(_vals, 1):
+            _c = ws6.cell(row=_ri, column=_ci, value=_val)
+            _c.border    = bdr
+            _c.alignment = Alignment(horizontal="left", vertical="top",
+                                     wrap_text=True)
+            if _ci == 1:
+                _c.font = Font(name="Calibri", size=9, bold=True,
+                               color=C_HEADER_BG)
+            elif _ci == 2:
+                _c.font = Font(name="Calibri", bold=True, size=9,
+                               color=_color[1])
+                _c.fill = PatternFill("solid", fgColor=_color[0])
+            else:
+                _c.font = Font(name="Calibri", size=9, color="2C3E50")
+        ws6.row_dimensions[_ri].height = 55
+
+    # ── Reviewer sign-off ─────────────────────────────────────────────────────
+    _sr = len(_checklist) + 6
+    _stmt = ws6.cell(row=_sr, column=1,
+                     value=("Reviewer Statement: I confirm I have independently reviewed "
+                            "all checklist items and that MANUAL items have been verified "
+                            "against system administration records."))
+    _stmt.font      = Font(name="Calibri", size=9, italic=True, color="5A6A7A")
+    _stmt.alignment = Alignment(horizontal="left", wrap_text=True)
+    ws6.row_dimensions[_sr].height = 24
+    ws6.merge_cells(start_row=_sr, start_column=1, end_row=_sr, end_column=4)
+
+    for _label, _col in [("Reviewer Name:", 1), ("Signature:", 2),
+                          ("Date:", 3), ("Title / Role:", 4)]:
+        _lc = ws6.cell(row=_sr + 1, column=_col, value=_label)
+        _lc.font   = Font(name="Calibri", bold=True, size=9, color=C_HEADER_BG)
+        _lc.border = bdr
+    ws6.row_dimensions[_sr + 1].height = 22
+
     wb.save(output)
     return output.getvalue()
 
 
-# =============================================================================
-# UAR MODULE — User Access Review Intelligence (Periodic Review Module 2)
+
 # =============================================================================
 # Deterministic GxP user access review engine.
 # Rules U1–U10 | Scoring: additive integer weights | No AI in scoring path.
@@ -9413,6 +9666,7 @@ def _uar_preprocess(df: pd.DataFrame) -> tuple:
 
     # ── Normalise account_status ──────────────────────────────────────────────
     df["account_status_norm"] = df["account_status"].apply(_uar_normalise_status)
+    # Raw value preserved for ALCOA+ audit trail — displayed as "Raw Input Status" in All Users
 
     # ── Normalise employment_status (optional) ────────────────────────────────
     if "employment_status" in df.columns:
@@ -10348,8 +10602,7 @@ def uar_build_excel(
         ("Days Since Login",       14),
         ("Cross-Module",          13),
         ("Access Risk Flags",     55),   # plain-English rule labels
-        ("Finding Rationale",     55),   # primary driver explanation
-        ("System Narrative",      55),
+        ("Finding Rationale",     60),   # primary driver — replaces System Narrative here
         ("Reviewer Disposition",  35),
         ("Reviewer Notes",        30),
     ]
@@ -10358,7 +10611,7 @@ def uar_build_excel(
         "rank_display", "username", "full_name", "department", "job_title",
         "role", "account_status_norm", "Risk_Score", "Risk_Level",
         "gxp_criticality_derived", "days_since_last_login", "Cross_Module_Flag",
-        "Plain_Rules", "Finding_Rationale", "System_Narrative",
+        "Plain_Rules", "Finding_Rationale",
         "Reviewer_Disposition", "Reviewer_Notes",
     ]
 
@@ -10397,7 +10650,7 @@ def uar_build_excel(
                 if ci in (8, 9):   # Review Priority Score, Risk Level — coloured
                     _cell_style(c, bold=True, bg=bg, fg=fg, size=9)
                 else:
-                    _cell_style(c, size=9, wrap=(ci in (6, 13, 14, 15, 16, 17)))
+                    _cell_style(c, size=9, wrap=(ci in (6, 13, 14, 15, 16)))
             ws2.row_dimensions[ri].height = 60 if ri > 1 else 20
 
     ws2.freeze_panes = "A2"
@@ -10483,18 +10736,21 @@ def uar_build_excel(
 
     raw_cols = [
         "username", "full_name", "department", "job_title", "role",
-        "account_status_norm", "employment_status_norm",
+        "account_status_norm", "account_status",
+        "employment_status_norm",
         "gxp_criticality_derived", "days_since_last_login",
         "Is_Admin", "Can_Delete", "Can_Approve", "Can_Release",
         "Can_Modify_Master_Data", "privilege_count",
         "Cross_Module_Flag", "Rule_Pattern", "Risk_Score", "Risk_Level",
-        "Triggered_Rules",
+        "Triggered_Rules", "System_Narrative",
     ]
     present_cols = [c for c in raw_cols if c in all_df.columns]
     clean_headers = {
         "username": "Username", "full_name": "Full Name",
         "department": "Department", "job_title": "Job Title",
-        "role": "Role", "account_status_norm": "Account Status",
+        "role": "Role",
+        "account_status_norm": "Account Status (Normalised)",
+        "account_status": "Raw Input Status",
         "employment_status_norm": "Employment Status",
         "gxp_criticality_derived": "GxP Criticality",
         "days_since_last_login": "Days Since Login",
@@ -10507,12 +10763,14 @@ def uar_build_excel(
         "Risk_Score": "Review Priority Score",
         "Risk_Level": "Risk Level",
         "Triggered_Rules": "Triggered Rules",
+        "System_Narrative": "System Narrative",
     }
 
     for ci, col_key in enumerate(present_cols, 1):
         c = ws4.cell(row=1, column=ci, value=clean_headers.get(col_key, col_key))
         _cell_style(c, bold=True, bg=C_HEADER_BG, fg=C_HEADER_FG, size=8)
         ws4.column_dimensions[get_column_letter(ci)].width = (
+            55 if col_key in ("System_Narrative",) else
             30 if col_key in ("role", "Triggered_Rules") else
             16 if col_key == "Rule_Pattern" else
             18 if col_key in ("username", "full_name", "department") else 12
@@ -10988,6 +11246,173 @@ def show_user_access_review(user: str, role: str, model_id: str):
         )
 
 
+# =============================================================================
+# SIGNALINTEL — Incident / Problem / Change Review (Periodic Review Module 3)
+# =============================================================================
+# Analyses deviation logs, CAPA registers, and change control exports to:
+#   — Classify GxP incidents by severity and category
+#   — Detect recurring patterns and trends
+#   — Flag escalation gaps (open incidents without linked CAPA)
+#   — Cross-reference change control dates against AT findings
+#   — Produce a classified incident register and trend analysis evidence package
+#
+# Regulatory basis:
+#   SOP-418 §9.1.3 (Incidents/Problems) | §9.1.4 (Changes)
+#   EU GMP Annex 11 Clause 10 (change and configuration management)
+#   ICH Q10 §3.2 (CAPA system) | 21 CFR Part 820.100 (CAPA)
+# =============================================================================
+
+# ── Expected input columns ───────────────────────────────────────────────────
+_SIG_REQUIRED_COLS  = {"incident_id", "description", "date_raised", "status"}
+_SIG_OPTIONAL_COLS  = {
+    "category", "severity", "system_affected", "root_cause",
+    "capa_ref", "capa_status", "date_closed", "owner",
+    "change_control_ref", "recurrence_count",
+}
+
+_SIG_COL_ALIASES = {
+    # incident_id
+    "incident_id": "incident_id", "id": "incident_id", "ref": "incident_id",
+    "deviation_id": "incident_id", "record_id": "incident_id",
+    "event_id": "incident_id", "nc_id": "incident_id",
+    # description
+    "description": "description", "title": "description",
+    "summary": "description", "event_description": "description",
+    "deviation_description": "description",
+    # date_raised
+    "date_raised": "date_raised", "opened_date": "date_raised",
+    "date_opened": "date_raised", "created_date": "date_raised",
+    "incident_date": "date_raised", "event_date": "date_raised",
+    # status
+    "status": "status", "state": "status", "current_status": "status",
+    # category
+    "category": "category", "type": "category",
+    "incident_type": "category", "deviation_type": "category",
+    # severity
+    "severity": "severity", "priority": "severity",
+    "risk_level": "severity", "impact": "severity",
+    # system_affected
+    "system_affected": "system_affected", "system": "system_affected",
+    "affected_system": "system_affected", "application": "system_affected",
+    # capa_ref
+    "capa_ref": "capa_ref", "capa_id": "capa_ref",
+    "corrective_action": "capa_ref", "capa_number": "capa_ref",
+    # capa_status
+    "capa_status": "capa_status", "capa_state": "capa_status",
+    # date_closed
+    "date_closed": "date_closed", "closed_date": "date_closed",
+    "resolution_date": "date_closed", "closure_date": "date_closed",
+    # owner
+    "owner": "owner", "assigned_to": "owner",
+    "responsible_person": "owner", "investigator": "owner",
+    # change_control_ref
+    "change_control_ref": "change_control_ref", "cc_ref": "change_control_ref",
+    "change_ref": "change_control_ref", "cr_number": "change_control_ref",
+}
+
+
+def show_signalintel(user: str, role: str, model_id: str):
+    """
+    Render SIGNALINTEL — Periodic Review Module 3: Incident / Problem / Change Review.
+    Full build: v79+. This scaffold provides the landing UI and upload framework.
+    """
+    st.title("📡 SIGNALINTEL — Incident & Change Review")
+    st.markdown(
+        "<p style='color:#94a3b8;margin-top:-12px;'>"
+        "Upload your deviation log, CAPA register, or change control export to classify "
+        "GxP incidents, detect recurring trends, flag escalation gaps, and produce a "
+        "GxP evidence package per SOP-418 §9.1.3/§9.1.4 and EU Annex 11 Clause 10.</p>",
+        unsafe_allow_html=True,
+    )
+
+    # ── Coming soon banner ────────────────────────────────────────────────────
+    st.markdown(
+        "<div style='background:#0c1f36;border:1px solid #1e3a5f;border-radius:10px;"
+        "padding:32px 28px;margin:24px 0;'>"
+        "<div style='font-size:1.1rem;font-weight:700;color:#e2e8f0;margin-bottom:12px;'>"
+        "🚧 SIGNALINTEL — In Development</div>"
+        "<p style='color:#94a3b8;margin:0 0 16px 0;font-size:0.9rem;'>"
+        "This module is currently being built. It will analyse your incident, "
+        "problem, and change control records to produce:"
+        "</p>"
+        "<ul style='color:#cbd5e1;font-size:0.88rem;margin:0 0 20px 24px;line-height:1.8;'>"
+        "<li><b>GxP Classification</b> — severity tier, ALCOA+ data integrity impact, "
+        "regulatory category per ICH Q10 and 21 CFR Part 820</li>"
+        "<li><b>Trend Detection</b> — recurring deviation types, system hotspots, "
+        "frequency analysis across review period</li>"
+        "<li><b>Escalation Gap Analysis</b> — open incidents without linked CAPA, "
+        "overdue CAPAs, unresolved findings from prior review</li>"
+        "<li><b>Change Linkage</b> — cross-reference change control dates against "
+        "AT event timestamps to explain anomaly clusters</li>"
+        "<li><b>Evidence Package</b> — classified incident register, trend charts, "
+        "escalation gap report (Excel, GxP-ready)</li>"
+        "</ul>"
+        "<div style='background:#1e3a5f;border-radius:6px;padding:12px 16px;"
+        "font-size:0.82rem;color:#94a3b8;'>"
+        "📋 <b>Expected input:</b> CSV or Excel export from your QMS, eQMS, or LIMS — "
+        "Deviation log, CAPA register, Change Control log, or Incident tracker. "
+        "No integration required."
+        "</div>"
+        "</div>",
+        unsafe_allow_html=True,
+    )
+
+    # ── Regulatory context ────────────────────────────────────────────────────
+    with st.expander("📖 Regulatory basis for this review", expanded=False):
+        st.markdown("""
+**SOP-418 Section 9.1.3 — Incidents/Problems**
+Periodic review must assess whether incidents and deviations have been investigated,
+root causes identified, and CAPAs implemented and verified effective.
+
+**SOP-418 Section 9.1.4 — Changes**
+Review must confirm all changes were authorised, documented, and that no unauthorised
+configuration changes occurred during the review period.
+
+**EU GMP Annex 11 Clause 10 — Change and Configuration Management**
+Any change to a validated system must be evaluated for impact, approved before
+implementation, and documented with evidence of continued validated state.
+
+**ICH Q10 §3.2 — CAPA System**
+The CAPA system must identify, analyse, and correct the causes of actual or potential
+quality problems, with effectiveness verification.
+
+**21 CFR Part 820.100 — CAPA**
+Each manufacturer shall establish and maintain procedures for implementing CAPA,
+including analysis of processes, work operations, and quality records.
+        """)
+
+    # ── Sample column specification ───────────────────────────────────────────
+    with st.expander("📋 What columns should my file have?", expanded=False):
+        st.markdown("**Required (4):**")
+        req_data = {
+            "Column": ["incident_id", "description", "date_raised", "status"],
+            "Example values": ["DEV-2026-001", "pH value out of spec",
+                               "2026-01-15", "Open / Closed / In Progress"],
+        }
+        st.dataframe(pd.DataFrame(req_data), use_container_width=True, hide_index=True)
+
+        st.markdown("**Optional (adds analytical depth):**")
+        opt_data = {
+            "Column": ["category", "severity", "system_affected", "capa_ref",
+                       "capa_status", "date_closed", "owner", "change_control_ref"],
+            "Example values": ["Data Integrity", "Major", "LabVantage LIMS",
+                               "CAPA-2026-012", "Open", "2026-03-01",
+                               "J. Smith", "CC-2026-005"],
+        }
+        st.dataframe(pd.DataFrame(opt_data), use_container_width=True, hide_index=True)
+
+        st.info(
+            "Column names are flexible — the engine maps common aliases automatically. "
+            "For example: 'deviation_id', 'ref', 'nc_id' all map to 'incident_id'."
+        )
+
+    st.markdown("---")
+    st.caption(
+        "SIGNALINTEL is scheduled for the next build cycle. "
+        "Contact us to prioritise this module for your deployment."
+    )
+
+
 def show_periodic_review(user: str, role: str, model_id: str):
     """
     Periodic Review landing page — shows 3 module cards.
@@ -11002,6 +11427,10 @@ def show_periodic_review(user: str, role: str, model_id: str):
 
     if active == "access_review":
         show_user_access_review(user, role, model_id)
+        return
+
+    if active == "signalintel":
+        show_signalintel(user, role, model_id)
         return
 
     if active in ("report_drafter",):
@@ -11056,13 +11485,14 @@ def show_periodic_review(user: str, role: str, model_id: str):
             "border":  "#1e3a5f",
         },
         {
-            "key":     "report_drafter",
-            "title":   "Periodic Review Report Drafter",
-            "section": "All sections · Full report output",
+            "key":     "signalintel",
+            "title":   "SIGNALINTEL — Incident & Change Review",
+            "section": "SOP-418 §9.1.3 / §9.1.4 · EU Annex 11 Cl. 10",
             "desc":    (
-                "Upload your Periodic Review SOP and a model Periodic Report to "
-                "auto-draft a complete report in your company terminology — "
-                "Word document ready for approval."
+                "Upload your deviation log, CAPA register, or change control export "
+                "to classify GxP incidents, detect recurring trends, flag escalation "
+                "gaps, and cross-reference with AT findings. Produces a classified "
+                "incident register and trend analysis evidence package."
             ),
             "status":  "coming_soon",
             "btn_label": "Coming Soon",
