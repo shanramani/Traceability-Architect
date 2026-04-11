@@ -1,0 +1,1101 @@
+username,account_status,role,full_name,last_login_date,employment_status,access_justification,system_name,department,job_title,account_type,training_expiry_date,modified_date
+shared_analyst,Active,System Admin,Alice Brown,2026-03-22 04:10:59.744205,Inactive,Analyst role per onboarding form HR-2024-0112,SAP QM,QA,Manager,User,2025-04-26 04:10:59.744230,2026-01-13 04:10:59.744236
+user_1,TRUE,Method Admin|Method Admin,María García,2025-10-23 04:10:59.744246,Resigned,Analyst role per onboarding form HR-2024-0112,SharePoint,IT,Admin,User,2025-06-30 04:10:59.744251,2026-01-09 04:10:59.744254
+user_2,Inactive,Purge|Purge,Alice Brown,2026-02-20 04:10:59.744260,Inactive,N/A,Veeva Vault,QC,Engineer,Shared,2026-01-15 04:10:59.744264,2025-10-28 04:10:59.744266
+user_3,Inactive,Master Data Configurator,María García,2026-03-20 04:10:59.744271,Terminated,,LabVantage LIMS,QC,Admin,User,2025-11-27 04:10:59.744274,2025-11-11 04:10:59.744276
+user_4,Active,Delete Records,Søren Jørgensen,2026-04-03 04:10:59.744280,Active,Analyst role per onboarding form HR-2024-0112,LabVantage LIMS,Manufacturing,Admin,Shared,2025-08-31 04:10:59.744283,2025-12-14 04:10:59.744284
+user_5,TRUE,Delete Records,Søren Jørgensen,2025-06-16 04:10:59.744289,Active,,Veeva Vault,QC,Admin,Shared,2025-10-17 04:10:59.744293,2026-02-03 04:10:59.744295
+user_6,TRUE,Purge|System Admin,Søren Jørgensen,,Terminated,N/A,Workday HR,QC,Admin,Service,2025-10-31 04:10:59.744312,2025-12-25 04:10:59.744313
+user_7,Inactive,Specification Editor,Søren Jørgensen,2025-12-31 04:10:59.744317,Active,Analyst role per onboarding form HR-2024-0112,Veeva Vault,QC,Manager,Service,2025-07-07 04:10:59.744321,2026-03-11 04:10:59.744322
+user_8,TRUE,Batch Release,María García,2026-03-15 04:10:59.744326,Active,N/A,Workday HR,Manufacturing,Engineer,Service,2026-01-14 04:10:59.744329,2026-03-26 04:10:59.744330
+user_9,TRUE,Batch Release,John Smith,2025-04-20 04:10:59.744335,Terminated,N/A,Veeva Vault,Manufacturing,Engineer,Shared,2025-12-04 04:10:59.744338,2026-04-03 04:10:59.744340
+user_10,TRUE,Administrator,María García,2025-09-05 04:10:59.744344,Inactive,N/A,SharePoint,QC,Admin,Shared,2025-08-09 04:10:59.744346,2026-01-04 04:10:59.744348
+user_11,TRUE,Batch Release,Alice Brown,2026-04-01 04:10:59.744351,Resigned,,Workday HR,QC,Admin,Shared,2026-01-22 04:10:59.744354,2025-12-18 04:10:59.744356
+user_12,TRUE,Method Admin,John Smith,2026-03-16 04:10:59.744359,On Leave,,SharePoint,Manufacturing,Admin,Service,2026-04-07 04:10:59.744363,2026-03-30 04:10:59.744365
+user_13,ENABLED,Specification Editor|Administrator,Søren Jørgensen,2026-03-06 04:10:59.744368,Active,yes,SAP QM,QC,Admin,Service,2026-04-10 04:10:59.744371,2025-10-13 04:10:59.744373
+user_14,Active,Delete Records,María García,2026-04-04 04:10:59.744377,Active,Analyst role per onboarding form HR-2024-0112,Veeva Vault,QA,Admin,Service,2025-08-09 04:10:59.744380,2026-04-05 04:10:59.744382
+user_15,ENABLED,Method Admin,Søren Jørgensen,2026-02-17 04:10:59.744385,Resigned,,Medidata Rave,QA,Engineer,User,2025-11-19 04:10:59.744388,2025-12-24 04:10:59.744390
+user_16,ENABLED,Batch Release|Purge,Alice Brown,2026-04-01 04:10:59.744394,Inactive,N/A,Medidata Rave,QC,Engineer,Service,2025-08-15 04:10:59.744396,2026-01-29 04:10:59.744398
+user_17,TRUE,Specification Editor,Alice Brown,2026-03-27 04:10:59.744402,Resigned,Analyst role per onboarding form HR-2024-0112,SharePoint,IT,Engineer,Shared,2026-04-10 04:10:59.744405,2025-11-27 04:10:59.744406
+user_18,Locked,Batch Release,María García,2026-03-01 04:10:59.744410,On Leave,,Medidata Rave,QC,Engineer,User,2025-08-30 04:10:59.744413,2025-12-19 04:10:59.744415
+user_19,Active,Batch Release|Administrator,Alice Brown,2026-02-23 04:10:59.744419,Inactive,,LabVantage LIMS,QC,Analyst,User,2025-06-17 04:10:59.744422,2025-12-15 04:10:59.744424
+user_20,ENABLED,System Admin|Master Data Configurator,John Smith,2025-10-04 04:10:59.744428,Inactive,,LabVantage LIMS,QA,Analyst,Service,2025-09-10 04:10:59.744432,2025-10-20 04:10:59.744433
+user_21,Active,Specification Editor,Alice Brown,2025-08-06 04:10:59.744436,On Leave,N/A,SAP QM,Manufacturing,Analyst,User,2026-02-04 04:10:59.744439,2026-04-02 04:10:59.744441
+user_22,ENABLED,Counter Sign,Alice Brown,,Inactive,Analyst role per onboarding form HR-2024-0112,Veeva Vault,Manufacturing,Manager,User,2025-06-07 04:10:59.744445,2025-12-05 04:10:59.744447
+user_23,Locked,Purge,Alice Brown,2026-03-27 04:10:59.744450,Terminated,,LabVantage LIMS,Manufacturing,Manager,User,2025-05-07 04:10:59.744453,2025-11-09 04:10:59.744455
+user_24,TRUE,QC Reviewer|Specification Editor,Alice Brown,2026-02-15 04:10:59.744459,On Leave,yes,Workday HR,QC,Manager,Service,2026-03-11 04:10:59.744462,2026-03-28 04:10:59.744464
+user_25,ENABLED,Purge,John Smith,2026-03-18 04:10:59.744467,Inactive,Analyst role per onboarding form HR-2024-0112,IT Helpdesk,QA,Manager,Service,2025-07-25 04:10:59.744470,2026-02-16 04:10:59.744472
+user_26,ENABLED,Calibration Manager,Alice Brown,2026-02-18 04:10:59.744475,Resigned,yes,SharePoint,Manufacturing,Manager,Shared,2025-04-20 04:10:59.744478,2026-02-18 04:10:59.744479
+user_27,ENABLED,System Admin,María García,2026-03-24 04:10:59.744483,Active,Analyst role per onboarding form HR-2024-0112,SharePoint,QC,Analyst,Shared,2025-07-07 04:10:59.744486,2026-01-27 04:10:59.744487
+user_28,Locked,DBA|DBA,Alice Brown,2026-03-27 04:10:59.744491,Resigned,,Medidata Rave,IT,Manager,Service,2025-07-13 04:10:59.744493,2026-04-06 04:10:59.744495
+user_29,Inactive,Batch Approver,John Smith,2025-07-28 04:10:59.744498,On Leave,Analyst role per onboarding form HR-2024-0112,Veeva Vault,Manufacturing,Admin,Service,2026-04-10 04:10:59.744501,2026-03-05 04:10:59.744503
+user_30,Locked,Calibration Manager|QC Reviewer,Søren Jørgensen,2025-12-31 04:10:59.744506,Active,,Medidata Rave,Manufacturing,Admin,Service,2025-05-08 04:10:59.744509,2026-01-24 04:10:59.744510
+user_31,Locked,Counter Sign,Søren Jørgensen,2026-02-18 04:10:59.744514,Active,Analyst role per onboarding form HR-2024-0112,Medidata Rave,Manufacturing,Admin,Shared,2025-07-21 04:10:59.744517,2025-11-11 04:10:59.744519
+user_32,ENABLED,Master Data Configurator|Calibration Manager,Søren Jørgensen,2026-03-04 04:10:59.744523,On Leave,,Medidata Rave,IT,Admin,Shared,2025-07-16 04:10:59.744529,2026-02-18 04:10:59.744531
+user_33,Locked,Batch Release|Method Admin,Søren Jørgensen,2026-02-15 04:10:59.744535,On Leave,yes,SAP QM,Manufacturing,Manager,Service,2025-12-28 04:10:59.744537,2026-04-04 04:10:59.744539
+user_34,Locked,Batch Approver,Alice Brown,2026-02-24 04:10:59.744542,On Leave,N/A,SharePoint,Manufacturing,Manager,User,2025-07-23 04:10:59.744545,2026-03-15 04:10:59.744546
+user_35,Active,Counter Sign,Søren Jørgensen,,Terminated,,Veeva Vault,IT,Engineer,Service,2025-04-12 04:10:59.744551,2026-03-14 04:10:59.744552
+user_36,Locked,Specification Editor|Calibration Manager,Søren Jørgensen,2025-10-27 04:10:59.744556,Terminated,yes,SharePoint,Manufacturing,Admin,Shared,2026-03-23 04:10:59.744559,2026-01-22 04:10:59.744561
+user_37,Locked,Analyst|Analyst,Alice Brown,,Terminated,,LabVantage LIMS,IT,Manager,User,2025-11-16 04:10:59.744566,2025-10-19 04:10:59.744568
+user_38,Inactive,Calibration Manager,Alice Brown,2026-02-11 04:10:59.744571,Terminated,Analyst role per onboarding form HR-2024-0112,SharePoint,IT,Admin,User,2025-10-27 04:10:59.744574,2026-01-07 04:10:59.744576
+user_39,Inactive,Batch Release,Søren Jørgensen,2026-02-21 04:10:59.744579,On Leave,,IT Helpdesk,Manufacturing,Admin,User,2025-11-21 04:10:59.744581,2025-11-05 04:10:59.744583
+user_40,ENABLED,Batch Approver,Søren Jørgensen,2026-02-16 04:10:59.744586,Terminated,yes,Workday HR,IT,Manager,Shared,2025-10-27 04:10:59.744589,2026-01-17 04:10:59.744590
+user_41,Active,Master Data Configurator,Alice Brown,2026-03-11 04:10:59.744593,Terminated,Analyst role per onboarding form HR-2024-0112,Medidata Rave,QA,Engineer,Service,2025-10-21 04:10:59.744596,2025-12-06 04:10:59.744598
+user_42,TRUE,Purge,Søren Jørgensen,2025-06-14 04:10:59.744601,On Leave,Analyst role per onboarding form HR-2024-0112,Workday HR,QC,Manager,User,2025-04-22 04:10:59.744604,2026-01-31 04:10:59.744606
+user_43,Locked,Delete Records,María García,2026-02-21 04:10:59.744609,On Leave,Analyst role per onboarding form HR-2024-0112,SAP QM,Manufacturing,Manager,Shared,2025-12-18 04:10:59.744612,2026-03-18 04:10:59.744614
+user_44,TRUE,Master Data Configurator,Alice Brown,2026-04-10 04:10:59.744617,Resigned,,QAD ERP,Manufacturing,Manager,User,2025-10-07 04:10:59.744619,2025-12-07 04:10:59.744621
+user_45,ENABLED,Analyst,Søren Jørgensen,2026-02-18 04:10:59.744624,On Leave,Analyst role per onboarding form HR-2024-0112,Veeva Vault,IT,Manager,Service,2026-01-30 04:10:59.744627,2025-11-11 04:10:59.744629
+user_46,Locked,Lot Disposition,Alice Brown,2025-11-18 04:10:59.744633,Inactive,,Workday HR,Manufacturing,Engineer,User,2025-05-03 04:10:59.744636,2025-11-02 04:10:59.744638
+user_47,Inactive,Batch Release|Void,John Smith,2026-03-13 04:10:59.744641,Inactive,Analyst role per onboarding form HR-2024-0112,SharePoint,QA,Engineer,User,2025-10-19 04:10:59.744644,2026-02-01 04:10:59.744645
+user_48,Active,Administrator|Batch Release,John Smith,2025-09-18 04:10:59.744649,Inactive,N/A,Veeva Vault,QC,Engineer,User,2025-08-13 04:10:59.744652,2026-03-08 04:10:59.744653
+user_49,TRUE,Authorised Signatory|Batch Approver,Søren Jørgensen,,Active,N/A,SAP QM,QC,Admin,User,2026-01-07 04:10:59.744664,2025-12-02 04:10:59.744667
+user_50,ENABLED,Counter Sign,John Smith,,Resigned,N/A,LabVantage LIMS,Manufacturing,Manager,Service,2026-02-13 04:10:59.744673,2026-02-09 04:10:59.744676
+user_51,ENABLED,QC Reviewer,John Smith,,On Leave,N/A,Workday HR,IT,Manager,Shared,2026-01-29 04:10:59.744683,2026-01-02 04:10:59.744686
+user_52,Locked,Delete Records,Søren Jørgensen,2026-02-20 04:10:59.744691,Terminated,,IT Helpdesk,QA,Admin,Shared,2025-11-26 04:10:59.744694,2026-03-16 04:10:59.744697
+user_53,Active,Void,Søren Jørgensen,2025-06-16 04:10:59.744701,Terminated,,Veeva Vault,QC,Manager,Service,2025-09-02 04:10:59.744704,2026-02-24 04:10:59.744706
+user_54,Locked,Analyst,John Smith,2026-03-12 04:10:59.744709,On Leave,N/A,SAP QM,QA,Manager,Service,2025-09-07 04:10:59.744712,2026-01-05 04:10:59.744714
+user_55,Inactive,Purge,John Smith,2026-03-16 04:10:59.744717,On Leave,,IT Helpdesk,QA,Analyst,Shared,2026-02-06 04:10:59.744720,2026-02-12 04:10:59.744721
+user_56,TRUE,Void,Alice Brown,2026-03-14 04:10:59.744725,Terminated,yes,Veeva Vault,QA,Manager,Service,2026-01-18 04:10:59.744727,2026-02-05 04:10:59.744729
+user_57,Inactive,Purge,John Smith,2026-02-27 04:10:59.744732,Active,Analyst role per onboarding form HR-2024-0112,IT Helpdesk,QC,Analyst,Service,2025-11-14 04:10:59.744735,2025-12-09 04:10:59.744736
+user_58,Inactive,Administrator,Alice Brown,2026-02-12 04:10:59.744739,Active,Analyst role per onboarding form HR-2024-0112,IT Helpdesk,QA,Engineer,User,2026-03-03 04:10:59.744742,2026-04-10 04:10:59.744744
+user_59,Active,Method Admin,John Smith,2026-04-05 04:10:59.744747,Resigned,Analyst role per onboarding form HR-2024-0112,LabVantage LIMS,QC,Admin,Service,2025-11-28 04:10:59.744750,2026-03-02 04:10:59.744751
+user_60,ENABLED,Counter Sign,Alice Brown,2025-09-27 04:10:59.744754,Resigned,,SAP QM,Manufacturing,Manager,Shared,2025-10-30 04:10:59.744757,2025-11-11 04:10:59.744759
+user_61,Inactive,Administrator,Søren Jørgensen,2026-03-29 04:10:59.744762,Active,,QAD ERP,QA,Analyst,Service,2025-05-06 04:10:59.744765,2026-01-31 04:10:59.744766
+user_62,Inactive,QC Reviewer|Lot Disposition,Søren Jørgensen,2026-03-06 04:10:59.744770,Inactive,Analyst role per onboarding form HR-2024-0112,LabVantage LIMS,Manufacturing,Admin,User,2025-08-21 04:10:59.744773,2026-03-30 04:10:59.744774
+user_63,Active,Calibration Manager,John Smith,2026-04-02 04:10:59.744778,Resigned,,QAD ERP,QC,Admin,Shared,2026-03-08 04:10:59.744781,2026-02-15 04:10:59.744782
+user_64,Inactive,Master Data Configurator,María García,2025-04-24 04:10:59.744785,Resigned,yes,Workday HR,QA,Admin,User,2025-06-17 04:10:59.744788,2025-10-24 04:10:59.744790
+user_65,ENABLED,Calibration Manager|QC Reviewer,María García,2025-05-15 04:10:59.744793,On Leave,,IT Helpdesk,QC,Engineer,Service,2026-01-24 04:10:59.744796,2025-12-24 04:10:59.744797
+user_66,Locked,Method Admin|Delete Records|DBA,Alice Brown,,Inactive,Analyst role per onboarding form HR-2024-0112,LabVantage LIMS,Manufacturing,Admin,User,2026-04-08 04:10:59.744802,2026-03-03 04:10:59.744804
+user_67,Inactive,Delete Records,Søren Jørgensen,2025-06-29 04:10:59.744807,On Leave,N/A,Workday HR,QC,Admin,Shared,2025-09-20 04:10:59.744810,2026-01-13 04:10:59.744811
+user_68,ENABLED,Calibration Manager,Søren Jørgensen,2025-03-21 04:10:59.744814,Terminated,Analyst role per onboarding form HR-2024-0112,Workday HR,QC,Engineer,User,2026-02-02 04:10:59.744817,2026-01-06 04:10:59.744818
+user_69,Locked,Purge,Alice Brown,2026-03-12 04:10:59.744822,Terminated,Analyst role per onboarding form HR-2024-0112,IT Helpdesk,Manufacturing,Analyst,Service,2025-04-30 04:10:59.744824,2026-04-05 04:10:59.744825
+user_70,ENABLED,Batch Approver,Alice Brown,2026-03-01 04:10:59.744829,Active,,QAD ERP,QC,Engineer,Service,2026-03-27 04:10:59.744832,2025-11-24 04:10:59.744833
+user_71,TRUE,Purge,Alice Brown,2025-10-15 04:10:59.744836,Resigned,Analyst role per onboarding form HR-2024-0112,QAD ERP,QC,Admin,Shared,2025-11-09 04:10:59.744839,2026-02-16 04:10:59.744840
+user_72,TRUE,Method Admin,Søren Jørgensen,2026-03-02 04:10:59.744843,Active,,Veeva Vault,QA,Admin,Service,2026-01-12 04:10:59.744846,2026-01-16 04:10:59.744848
+user_73,Locked,Analyst,Søren Jørgensen,2025-03-24 04:10:59.744851,Terminated,,SharePoint,Manufacturing,Analyst,Service,2025-07-02 04:10:59.744854,2026-01-19 04:10:59.744856
+user_74,Active,Master Data Configurator,Søren Jørgensen,2026-04-03 04:10:59.744859,On Leave,,QAD ERP,Manufacturing,Manager,Shared,2025-08-09 04:10:59.744862,2026-01-13 04:10:59.744863
+user_75,ENABLED,Specification Editor,Alice Brown,2026-03-23 04:10:59.744866,Resigned,,LabVantage LIMS,IT,Admin,User,2025-11-09 04:10:59.744869,2026-01-10 04:10:59.744870
+user_76,Locked,Calibration Manager,María García,2026-03-19 04:10:59.744874,Inactive,,Medidata Rave,IT,Admin,Service,2026-01-08 04:10:59.744877,2025-11-23 04:10:59.744878
+user_77,Locked,Specification Editor,Søren Jørgensen,2026-03-14 04:10:59.744882,Active,N/A,SAP QM,QA,Admin,User,2025-05-08 04:10:59.744884,2025-10-23 04:10:59.744886
+user_78,ENABLED,Batch Approver,Søren Jørgensen,,Inactive,yes,Veeva Vault,Manufacturing,Admin,Service,2025-11-20 04:10:59.744891,2026-02-08 04:10:59.744893
+user_79,Inactive,Specification Editor,John Smith,2025-09-04 04:10:59.744896,Active,yes,Workday HR,QC,Admin,Shared,2026-01-10 04:10:59.744900,2026-02-20 04:10:59.744901
+user_80,ENABLED,Method Admin,Søren Jørgensen,2026-04-10 04:10:59.744904,Resigned,Analyst role per onboarding form HR-2024-0112,SAP QM,IT,Admin,Service,2025-07-20 04:10:59.744907,2026-01-26 04:10:59.744908
+user_81,ENABLED,Specification Editor,Søren Jørgensen,2026-03-27 04:10:59.744911,Terminated,N/A,QAD ERP,QA,Engineer,Service,2025-10-14 04:10:59.744914,2026-02-14 04:10:59.744915
+user_82,Inactive,Specification Editor|Void,María García,2025-03-20 04:10:59.744919,Terminated,,LabVantage LIMS,Manufacturing,Manager,Shared,2026-01-19 04:10:59.744922,2026-01-12 04:10:59.744923
+user_83,Locked,Void,María García,2026-04-02 04:10:59.744926,On Leave,,SAP QM,QC,Admin,Service,2025-10-16 04:10:59.744929,2026-03-15 04:10:59.744931
+user_84,Active,Calibration Manager,Alice Brown,2026-03-02 04:10:59.744934,Terminated,,Workday HR,IT,Analyst,User,2025-10-12 04:10:59.744936,2026-03-17 04:10:59.744938
+user_85,Locked,Batch Approver,John Smith,2026-02-16 04:10:59.744941,Active,N/A,Workday HR,QC,Admin,Service,2025-07-21 04:10:59.744944,2025-10-27 04:10:59.744945
+user_86,Locked,Method Admin|Master Data Configurator,María García,2026-03-20 04:10:59.744948,Active,,SAP QM,QA,Admin,Service,2026-01-06 04:10:59.744952,2026-01-25 04:10:59.744953
+user_87,TRUE,Calibration Manager,Søren Jørgensen,2025-10-07 04:10:59.744956,Active,,LabVantage LIMS,QA,Admin,Service,2025-06-30 04:10:59.744959,2026-03-02 04:10:59.744961
+user_88,ENABLED,Authorised Signatory,John Smith,2026-03-16 04:10:59.744964,Active,,IT Helpdesk,QA,Manager,User,2025-06-20 04:10:59.744966,2025-11-07 04:10:59.744967
+user_89,Locked,Calibration Manager|Void,Søren Jørgensen,2026-03-10 04:10:59.744971,Active,Analyst role per onboarding form HR-2024-0112,LabVantage LIMS,QC,Manager,Shared,2025-08-07 04:10:59.744974,2025-12-10 04:10:59.744975
+user_90,Locked,Batch Release,John Smith,2026-03-07 04:10:59.744978,Active,,Medidata Rave,QA,Admin,Service,2025-08-16 04:10:59.744981,2026-03-09 04:10:59.744982
+user_91,Inactive,System Admin,Søren Jørgensen,2026-03-26 04:10:59.744985,Active,Analyst role per onboarding form HR-2024-0112,LabVantage LIMS,QA,Engineer,User,2025-07-31 04:10:59.744988,2026-03-12 04:10:59.744989
+user_92,TRUE,Lot Disposition|Method Admin,Søren Jørgensen,2026-02-09 04:10:59.744992,On Leave,,SAP QM,IT,Manager,Service,2025-08-23 04:10:59.744995,2025-12-22 04:10:59.744996
+user_93,Active,Purge,John Smith,2026-03-27 04:10:59.744999,Resigned,yes,Workday HR,IT,Manager,User,2026-01-18 04:10:59.745002,2026-04-01 04:10:59.745003
+user_94,Inactive,Method Admin,Søren Jørgensen,2026-03-12 04:10:59.745006,Inactive,,Medidata Rave,IT,Manager,User,2026-02-20 04:10:59.745010,2026-03-31 04:10:59.745011
+user_95,Active,Calibration Manager,Alice Brown,2026-02-27 04:10:59.745014,Resigned,,Veeva Vault,IT,Engineer,User,2025-09-29 04:10:59.745016,2026-03-09 04:10:59.745018
+user_96,Locked,Batch Release|Master Data Configurator,María García,2025-09-30 04:10:59.745021,On Leave,N/A,IT Helpdesk,Manufacturing,Manager,Service,2026-01-18 04:10:59.745024,2025-11-04 04:10:59.745026
+user_97,Inactive,Specification Editor|System Admin,John Smith,2026-03-05 04:10:59.745030,Active,,QAD ERP,IT,Engineer,Service,2025-09-27 04:10:59.745033,2025-11-19 04:10:59.745034
+user_98,Inactive,Administrator,John Smith,2026-02-28 04:10:59.745038,Terminated,yes,IT Helpdesk,QA,Manager,User,2026-01-04 04:10:59.745040,2026-02-15 04:10:59.745042
+user_99,Locked,Analyst|Batch Release,Alice Brown,,Terminated,Analyst role per onboarding form HR-2024-0112,LabVantage LIMS,QA,Admin,Service,2025-09-08 04:10:59.745046,2026-03-30 04:10:59.745049
+svc_lims_integration,TRUE,Lot Disposition,Søren Jørgensen,2025-09-05 04:10:59.745052,Active,,SharePoint,IT,Admin,User,2026-03-31 04:10:59.745055,2025-10-30 04:10:59.745057
+user_101,Inactive,System Admin,Søren Jørgensen,2026-03-21 04:10:59.745059,Active,,IT Helpdesk,IT,Analyst,Shared,2025-04-29 04:10:59.745062,2025-12-18 04:10:59.745064
+user_102,Locked,Purge,María García,2025-04-23 04:10:59.745067,On Leave,Analyst role per onboarding form HR-2024-0112,LabVantage LIMS,QC,Engineer,Shared,2025-07-24 04:10:59.745070,2026-02-15 04:10:59.745072
+user_103,Active,Specification Editor|Method Admin,Søren Jørgensen,2026-03-18 04:10:59.745076,Inactive,Analyst role per onboarding form HR-2024-0112,IT Helpdesk,Manufacturing,Engineer,User,2026-01-12 04:10:59.745082,2025-11-28 04:10:59.745084
+user_104,ENABLED,Analyst|Administrator,María García,2026-02-17 04:10:59.745087,Active,,Medidata Rave,IT,Admin,Shared,2025-06-24 04:10:59.745090,2026-02-25 04:10:59.745091
+user_105,Inactive,Administrator,Søren Jørgensen,2025-06-12 04:10:59.745094,Terminated,N/A,Veeva Vault,QA,Admin,User,2025-11-25 04:10:59.745096,2026-01-15 04:10:59.745098
+user_106,Inactive,Authorised Signatory,John Smith,,Terminated,,IT Helpdesk,IT,Analyst,Service,2025-08-09 04:10:59.745102,2026-03-06 04:10:59.745103
+user_107,Locked,Master Data Configurator|QC Reviewer|Purge,María García,2026-03-21 04:10:59.745107,Terminated,,Medidata Rave,QC,Analyst,User,2025-07-13 04:10:59.745110,2026-02-14 04:10:59.745111
+user_108,ENABLED,Delete Records,John Smith,2026-04-06 04:10:59.745114,Inactive,N/A,SAP QM,QA,Analyst,User,2025-12-30 04:10:59.745117,2025-12-01 04:10:59.745118
+user_109,TRUE,QC Reviewer,Alice Brown,2026-02-20 04:10:59.745121,Active,N/A,Medidata Rave,Manufacturing,Manager,User,2025-09-15 04:10:59.745124,2026-01-15 04:10:59.745126
+user_110,TRUE,QC Reviewer,María García,2025-11-14 04:10:59.745129,On Leave,,Workday HR,QA,Engineer,User,2026-01-06 04:10:59.745131,2026-01-25 04:10:59.745132
+user_111,ENABLED,Authorised Signatory|Calibration Manager,Søren Jørgensen,2026-03-03 04:10:59.745136,Inactive,Analyst role per onboarding form HR-2024-0112,SAP QM,QA,Engineer,User,2025-11-16 04:10:59.745139,2025-10-23 04:10:59.745140
+user_112,Inactive,Administrator,María García,2026-03-04 04:10:59.745143,Active,yes,Medidata Rave,IT,Analyst,Service,2025-10-01 04:10:59.745146,2025-10-14 04:10:59.745147
+user_113,Inactive,Calibration Manager,María García,,Inactive,Analyst role per onboarding form HR-2024-0112,SAP QM,QC,Admin,User,2025-10-06 04:10:59.745152,2026-03-26 04:10:59.745153
+user_114,Active,Batch Approver|Method Admin|Batch Release,John Smith,2026-02-26 04:10:59.745157,Terminated,,Workday HR,QC,Manager,Service,2025-10-31 04:10:59.745159,2025-11-16 04:10:59.745160
+user_115,Locked,Calibration Manager,Alice Brown,,On Leave,Analyst role per onboarding form HR-2024-0112,Workday HR,IT,Admin,Service,2025-12-13 04:10:59.745165,2025-11-19 04:10:59.745166
+user_116,TRUE,Method Admin,Søren Jørgensen,2026-03-20 04:10:59.745169,Inactive,N/A,SAP QM,QC,Analyst,Shared,2025-09-24 04:10:59.745172,2026-03-26 04:10:59.745173
+user_117,TRUE,Administrator,John Smith,2026-03-16 04:10:59.745177,Inactive,,IT Helpdesk,Manufacturing,Manager,Shared,2025-09-20 04:10:59.745180,2026-03-13 04:10:59.745181
+user_118,ENABLED,Batch Approver|Calibration Manager,Alice Brown,2026-03-04 04:10:59.745185,Resigned,yes,IT Helpdesk,Manufacturing,Manager,Shared,2025-09-22 04:10:59.745188,2026-01-26 04:10:59.745189
+user_119,TRUE,Counter Sign,Alice Brown,,Inactive,,IT Helpdesk,QC,Analyst,Service,2025-08-16 04:10:59.745193,2026-03-22 04:10:59.745194
+user_120,Active,Administrator,Søren Jørgensen,2026-03-27 04:10:59.745198,Inactive,Analyst role per onboarding form HR-2024-0112,SAP QM,QC,Engineer,User,2025-12-23 04:10:59.745200,2026-03-02 04:10:59.745201
+user_121,ENABLED,System Admin|Master Data Configurator|Void,Alice Brown,2026-03-02 04:10:59.745205,Inactive,N/A,Workday HR,Manufacturing,Engineer,Service,2025-07-11 04:10:59.745208,2026-03-01 04:10:59.745209
+user_122,ENABLED,Specification Editor,Søren Jørgensen,2025-04-16 04:10:59.745213,Terminated,,SAP QM,QC,Analyst,User,2025-06-09 04:10:59.745215,2025-10-24 04:10:59.745217
+user_123,TRUE,Purge,John Smith,2026-03-25 04:10:59.745219,Terminated,,Medidata Rave,QC,Engineer,Shared,2025-09-28 04:10:59.745222,2026-01-04 04:10:59.745224
+user_124,Locked,System Admin|Lot Disposition,John Smith,2026-02-18 04:10:59.745227,Resigned,,LabVantage LIMS,Manufacturing,Analyst,Shared,2025-06-18 04:10:59.745230,2025-11-08 04:10:59.745231
+user_125,TRUE,Batch Release,John Smith,2025-07-30 04:10:59.745234,On Leave,,SharePoint,IT,Analyst,Shared,2025-04-17 04:10:59.745237,2025-10-15 04:10:59.745238
+user_126,Active,Delete Records,Søren Jørgensen,2025-08-19 04:10:59.745241,On Leave,yes,LabVantage LIMS,IT,Engineer,Service,2025-05-30 04:10:59.745244,2026-01-15 04:10:59.745245
+user_127,Locked,Master Data Configurator,Alice Brown,2026-03-27 04:10:59.745248,Inactive,Analyst role per onboarding form HR-2024-0112,LabVantage LIMS,QA,Engineer,Shared,2025-11-23 04:10:59.745250,2025-12-18 04:10:59.745252
+user_128,Locked,Method Admin,John Smith,2026-02-20 04:10:59.745255,Resigned,N/A,IT Helpdesk,QC,Engineer,Service,2025-12-01 04:10:59.745257,2025-12-16 04:10:59.745259
+user_129,ENABLED,DBA,Alice Brown,2026-04-04 04:10:59.745262,Active,N/A,QAD ERP,IT,Engineer,User,2026-02-09 04:10:59.745265,2025-10-18 04:10:59.745266
+user_130,ENABLED,Batch Approver,Alice Brown,2026-02-15 04:10:59.745269,On Leave,,SharePoint,QC,Manager,Shared,2026-01-27 04:10:59.745271,2026-02-13 04:10:59.745273
+user_131,ENABLED,System Admin|Counter Sign,John Smith,2026-02-12 04:10:59.745276,Inactive,Analyst role per onboarding form HR-2024-0112,IT Helpdesk,QA,Analyst,Service,2025-07-12 04:10:59.745279,2025-12-28 04:10:59.745280
+user_132,TRUE,Method Admin|Administrator,Søren Jørgensen,2026-03-24 04:10:59.745283,Inactive,,Veeva Vault,QA,Admin,User,2025-08-23 04:10:59.745286,2025-12-29 04:10:59.745287
+user_133,Active,Counter Sign,Alice Brown,2026-02-20 04:10:59.745290,Terminated,N/A,SharePoint,Manufacturing,Analyst,Shared,2025-09-18 04:10:59.745292,2026-04-07 04:10:59.745294
+user_134,TRUE,Authorised Signatory,John Smith,,Active,,LabVantage LIMS,IT,Admin,User,2025-04-16 04:10:59.745297,2026-03-03 04:10:59.745299
+user_135,TRUE,Lot Disposition,John Smith,2026-04-07 04:10:59.745302,Resigned,,IT Helpdesk,QC,Manager,Service,2025-06-08 04:10:59.745305,2026-02-13 04:10:59.745306
+user_136,TRUE,Batch Approver,Søren Jørgensen,2026-04-09 04:10:59.745309,Inactive,yes,SharePoint,Manufacturing,Admin,User,2025-11-14 04:10:59.745312,2025-12-10 04:10:59.745313
+user_137,TRUE,Delete Records|DBA,María García,2026-04-04 04:10:59.745316,On Leave,,Medidata Rave,QA,Engineer,User,2026-03-15 04:10:59.745318,2026-02-18 04:10:59.745320
+user_138,ENABLED,QC Reviewer,Søren Jørgensen,2025-09-28 04:10:59.745323,Terminated,N/A,SAP QM,QC,Engineer,User,2025-08-28 04:10:59.745326,2025-11-18 04:10:59.745327
+user_139,Locked,Purge,Alice Brown,2025-08-25 04:10:59.745330,Resigned,yes,Veeva Vault,IT,Engineer,Service,2025-11-05 04:10:59.745332,2026-02-21 04:10:59.745333
+user_140,TRUE,Lot Disposition|Administrator,Søren Jørgensen,2025-07-07 04:10:59.745337,Terminated,N/A,QAD ERP,Manufacturing,Analyst,Service,2026-03-08 04:10:59.745340,2026-04-02 04:10:59.745341
+user_141,ENABLED,Authorised Signatory,María García,2026-02-21 04:10:59.745344,On Leave,,SharePoint,QA,Engineer,User,2025-04-19 04:10:59.745347,2025-11-08 04:10:59.745348
+user_142,Inactive,System Admin,María García,2025-07-03 04:10:59.745351,Resigned,,Veeva Vault,QC,Engineer,Shared,2026-02-16 04:10:59.745354,2025-12-29 04:10:59.745355
+user_143,ENABLED,Purge|DBA,María García,2026-03-14 04:10:59.745359,Active,yes,Medidata Rave,QA,Engineer,Service,2025-11-05 04:10:59.745361,2026-03-23 04:10:59.745363
+user_144,TRUE,Calibration Manager,María García,2026-04-02 04:10:59.745365,On Leave,Analyst role per onboarding form HR-2024-0112,LabVantage LIMS,QC,Admin,Shared,2025-12-15 04:10:59.745368,2025-10-21 04:10:59.745370
+user_145,ENABLED,Batch Approver,Alice Brown,2026-02-21 04:10:59.745375,Inactive,,SharePoint,QA,Admin,Shared,2025-05-29 04:10:59.745378,2025-11-24 04:10:59.745380
+user_146,Active,Lot Disposition,María García,,Active,yes,LabVantage LIMS,QA,Engineer,Service,2026-04-03 04:10:59.745384,2025-11-21 04:10:59.745386
+user_147,Locked,Lot Disposition,Søren Jørgensen,2026-02-24 04:10:59.745389,Inactive,,LabVantage LIMS,QA,Admin,Shared,2025-08-10 04:10:59.745391,2025-12-03 04:10:59.745393
+user_148,ENABLED,System Admin|Lot Disposition,Søren Jørgensen,2026-04-04 04:10:59.745396,Active,,Workday HR,QA,Analyst,Shared,2026-02-14 04:10:59.745399,2026-01-31 04:10:59.745400
+user_149,Inactive,System Admin|Master Data Configurator,Alice Brown,2026-03-04 04:10:59.745407,Inactive,,SharePoint,Manufacturing,Engineer,Service,2025-12-03 04:10:59.745410,2025-12-15 04:10:59.745411
+user_150,Active,Counter Sign,Alice Brown,2025-05-04 04:10:59.745414,On Leave,yes,Veeva Vault,QC,Admin,User,2026-01-01 04:10:59.745417,2025-12-26 04:10:59.745418
+user_151,Active,Calibration Manager|Authorised Signatory,Alice Brown,2025-12-22 04:10:59.745421,Resigned,,SAP QM,QC,Manager,Service,2026-02-02 04:10:59.745424,2026-01-25 04:10:59.745425
+user_152,Active,System Admin,María García,2025-10-06 04:10:59.745429,On Leave,,LabVantage LIMS,QC,Manager,Service,2025-06-26 04:10:59.745432,2026-01-14 04:10:59.745433
+user_153,Inactive,Delete Records,John Smith,2026-03-25 04:10:59.745436,Inactive,,Veeva Vault,QC,Admin,Service,2026-02-03 04:10:59.745439,2025-10-27 04:10:59.745440
+user_154,Inactive,Calibration Manager,Søren Jørgensen,2025-10-29 04:10:59.745443,Inactive,Analyst role per onboarding form HR-2024-0112,QAD ERP,QC,Manager,Shared,2026-03-02 04:10:59.745445,2025-10-16 04:10:59.745447
+user_155,TRUE,Specification Editor,John Smith,,On Leave,,SAP QM,QA,Analyst,Service,2025-05-10 04:10:59.745451,2026-03-19 04:10:59.745453
+user_156,TRUE,QC Reviewer,Søren Jørgensen,2025-10-17 04:10:59.745456,Terminated,Analyst role per onboarding form HR-2024-0112,Workday HR,Manufacturing,Admin,Shared,2025-12-31 04:10:59.745459,2026-02-16 04:10:59.745460
+user_157,ENABLED,Batch Release,Alice Brown,2026-04-03 04:10:59.745463,Resigned,yes,LabVantage LIMS,IT,Manager,Shared,2026-03-27 04:10:59.745466,2026-01-24 04:10:59.745468
+user_158,Locked,Administrator,Alice Brown,2026-02-16 04:10:59.745471,Inactive,,Workday HR,QC,Analyst,Service,2025-12-31 04:10:59.745473,2026-02-02 04:10:59.745475
+user_159,ENABLED,Delete Records,María García,2026-03-11 04:10:59.745478,Terminated,,Veeva Vault,Manufacturing,Manager,Service,2025-07-23 04:10:59.745480,2025-12-31 04:10:59.745482
+user_160,TRUE,Counter Sign|Specification Editor,John Smith,2025-08-16 04:10:59.745485,Resigned,,QAD ERP,QA,Engineer,User,2025-12-13 04:10:59.745488,2026-01-01 04:10:59.745489
+user_161,Active,Delete Records,Alice Brown,2025-05-27 04:10:59.745492,Inactive,Analyst role per onboarding form HR-2024-0112,Medidata Rave,QC,Engineer,User,2025-05-24 04:10:59.745495,2025-10-21 04:10:59.745496
+user_162,ENABLED,Authorised Signatory,Søren Jørgensen,,Resigned,N/A,Medidata Rave,IT,Engineer,Shared,2025-10-27 04:10:59.745501,2026-01-29 04:10:59.745502
+user_163,ENABLED,Authorised Signatory,John Smith,,On Leave,N/A,LabVantage LIMS,IT,Analyst,Shared,2025-04-12 04:10:59.745507,2026-01-23 04:10:59.745508
+user_164,Active,Specification Editor,María García,2026-02-28 04:10:59.745512,Resigned,,SAP QM,Manufacturing,Engineer,Shared,2025-05-22 04:10:59.745514,2025-10-12 04:10:59.745515
+user_165,TRUE,Specification Editor|Batch Release,Alice Brown,2026-03-09 04:10:59.745519,Terminated,,LabVantage LIMS,QC,Engineer,User,2026-02-22 04:10:59.745521,2025-12-21 04:10:59.745523
+user_166,Locked,Purge,Søren Jørgensen,2025-09-04 04:10:59.745527,Inactive,,Medidata Rave,QA,Manager,Shared,2025-06-21 04:10:59.745529,2026-02-04 04:10:59.745531
+user_167,Active,Delete Records|Purge,John Smith,2025-08-17 04:10:59.745535,Active,Analyst role per onboarding form HR-2024-0112,LabVantage LIMS,Manufacturing,Engineer,Shared,2025-09-05 04:10:59.745537,2025-12-26 04:10:59.745538
+user_168,TRUE,Specification Editor,John Smith,,Resigned,,LabVantage LIMS,QA,Analyst,User,2025-06-09 04:10:59.745543,2026-01-27 04:10:59.745544
+user_169,Active,QC Reviewer|System Admin,Søren Jørgensen,2026-03-09 04:10:59.745548,Terminated,,Medidata Rave,Manufacturing,Engineer,Shared,2025-07-02 04:10:59.745551,2026-02-22 04:10:59.745552
+user_170,Active,Purge,Alice Brown,2026-02-14 04:10:59.745555,Terminated,,Veeva Vault,Manufacturing,Analyst,Shared,2025-08-22 04:10:59.745558,2025-10-17 04:10:59.745562
+user_171,TRUE,Void,John Smith,2025-04-13 04:10:59.745565,Terminated,,Workday HR,IT,Manager,Service,2025-05-11 04:10:59.745568,2025-11-26 04:10:59.745569
+user_172,TRUE,Delete Records,Alice Brown,2025-08-28 04:10:59.745573,On Leave,N/A,Medidata Rave,QA,Manager,Service,2025-10-23 04:10:59.745575,2025-10-19 04:10:59.745577
+user_173,Active,Delete Records,Søren Jørgensen,2026-03-05 04:10:59.745580,Inactive,,Workday HR,Manufacturing,Analyst,User,2025-07-08 04:10:59.745583,2026-01-06 04:10:59.745585
+user_174,Locked,Specification Editor,María García,2026-02-23 04:10:59.745588,Resigned,yes,SAP QM,Manufacturing,Manager,User,2026-03-13 04:10:59.745591,2026-03-05 04:10:59.745593
+user_175,Inactive,Master Data Configurator,Søren Jørgensen,2025-07-12 04:10:59.745596,On Leave,yes,QAD ERP,QA,Analyst,Shared,2025-07-27 04:10:59.745600,2025-12-15 04:10:59.745601
+user_176,ENABLED,Void,Søren Jørgensen,2026-04-10 04:10:59.745604,Terminated,Analyst role per onboarding form HR-2024-0112,Workday HR,Manufacturing,Engineer,Shared,2025-04-28 04:10:59.745606,2026-04-09 04:10:59.745608
+user_177,Active,QC Reviewer|System Admin,Alice Brown,2026-03-30 04:10:59.745611,Inactive,Analyst role per onboarding form HR-2024-0112,SharePoint,IT,Analyst,User,2025-04-25 04:10:59.745614,2025-10-21 04:10:59.745615
+user_178,TRUE,Authorised Signatory,María García,2026-04-03 04:10:59.745619,On Leave,Analyst role per onboarding form HR-2024-0112,Veeva Vault,QA,Analyst,Service,2025-07-08 04:10:59.745621,2025-11-18 04:10:59.745623
+user_179,Active,Master Data Configurator,Søren Jørgensen,2026-03-24 04:10:59.745625,Terminated,Analyst role per onboarding form HR-2024-0112,Workday HR,IT,Engineer,Service,2026-03-28 04:10:59.745628,2025-12-15 04:10:59.745630
+user_180,Locked,DBA,Søren Jørgensen,,Terminated,yes,IT Helpdesk,QA,Engineer,User,2025-04-19 04:10:59.745635,2025-10-16 04:10:59.745636
+user_181,Active,Counter Sign,Søren Jørgensen,2025-05-14 04:10:59.745639,Inactive,,SharePoint,QC,Analyst,Service,2025-06-02 04:10:59.745642,2025-11-23 04:10:59.745643
+user_182,Inactive,Counter Sign|Batch Approver,John Smith,2026-04-05 04:10:59.745646,Active,N/A,SharePoint,Manufacturing,Engineer,Service,2025-12-10 04:10:59.745649,2026-03-13 04:10:59.745651
+user_183,Locked,Method Admin|Specification Editor,María García,2026-03-19 04:10:59.745654,Terminated,yes,QAD ERP,IT,Admin,Service,2025-07-29 04:10:59.745656,2026-02-20 04:10:59.745658
+user_184,Active,System Admin,Søren Jørgensen,2026-03-28 04:10:59.745661,Active,yes,QAD ERP,Manufacturing,Manager,User,2025-09-29 04:10:59.745664,2025-11-08 04:10:59.745666
+user_185,TRUE,Batch Approver|Master Data Configurator,Søren Jørgensen,2026-04-08 04:10:59.745669,On Leave,,Medidata Rave,QA,Engineer,Shared,2025-11-30 04:10:59.745672,2026-03-21 04:10:59.745673
+user_186,Active,Batch Approver,María García,2026-02-18 04:10:59.745677,Active,N/A,IT Helpdesk,QC,Engineer,User,2026-02-17 04:10:59.745680,2025-11-17 04:10:59.745682
+user_187,Active,Batch Release|Specification Editor,María García,2026-02-28 04:10:59.745685,Inactive,N/A,QAD ERP,IT,Manager,Service,2025-12-24 04:10:59.745688,2026-02-09 04:10:59.745689
+user_188,Locked,Batch Approver|Administrator,John Smith,2026-03-14 04:10:59.745693,Terminated,,Workday HR,QA,Engineer,Shared,2026-03-22 04:10:59.745696,2026-01-20 04:10:59.745697
+user_189,Active,Void,Søren Jørgensen,2026-04-02 04:10:59.745700,Terminated,Analyst role per onboarding form HR-2024-0112,IT Helpdesk,IT,Manager,Service,2025-04-13 04:10:59.745703,2025-11-21 04:10:59.745704
+user_190,Inactive,Specification Editor,John Smith,2026-04-03 04:10:59.745708,Resigned,yes,LabVantage LIMS,IT,Analyst,Service,2026-04-07 04:10:59.745710,2026-02-01 04:10:59.745711
+user_191,TRUE,Specification Editor,Alice Brown,2026-02-18 04:10:59.745714,Terminated,N/A,Workday HR,IT,Admin,Shared,2025-08-20 04:10:59.745717,2025-12-25 04:10:59.745718
+user_192,Locked,Method Admin,Søren Jørgensen,2026-03-13 04:10:59.745722,Terminated,,SharePoint,Manufacturing,Analyst,User,2025-09-23 04:10:59.745724,2025-11-13 04:10:59.745726
+user_193,ENABLED,Counter Sign,María García,2026-02-14 04:10:59.745728,Resigned,yes,Medidata Rave,Manufacturing,Manager,Shared,2025-08-05 04:10:59.745731,2025-11-06 04:10:59.745732
+user_194,ENABLED,Specification Editor|Master Data Configurator,Alice Brown,2026-03-24 04:10:59.745741,Inactive,Analyst role per onboarding form HR-2024-0112,IT Helpdesk,QA,Analyst,Service,2025-11-27 04:10:59.745746,2026-03-27 04:10:59.745749
+user_195,Inactive,Method Admin,John Smith,2026-03-04 04:10:59.745754,Active,,Medidata Rave,QC,Admin,Service,2025-08-23 04:10:59.745758,2026-01-30 04:10:59.745760
+user_196,Active,Calibration Manager,Søren Jørgensen,2026-03-05 04:10:59.745764,Resigned,,Veeva Vault,QC,Analyst,Shared,2026-03-12 04:10:59.745766,2025-11-30 04:10:59.745768
+user_197,TRUE,Delete Records,Alice Brown,2026-04-09 04:10:59.745771,Resigned,Analyst role per onboarding form HR-2024-0112,Workday HR,QC,Engineer,User,2025-09-14 04:10:59.745774,2026-01-20 04:10:59.745775
+user_198,Locked,Void,Alice Brown,2026-03-14 04:10:59.745778,Terminated,,LabVantage LIMS,Manufacturing,Engineer,User,2025-11-25 04:10:59.745781,2025-12-19 04:10:59.745782
+user_199,Locked,Void,John Smith,2026-04-09 04:10:59.745785,Inactive,yes,SAP QM,Manufacturing,Manager,User,2025-06-11 04:10:59.745787,2025-12-20 04:10:59.745789
+lab_user1,Active,Authorised Signatory,María García,2026-03-24 04:10:59.745792,Resigned,,Veeva Vault,QA,Engineer,User,2025-08-31 04:10:59.745795,2026-01-06 04:10:59.745796
+user_201,Active,QC Reviewer|Master Data Configurator,John Smith,,On Leave,,SAP QM,QA,Engineer,Service,2025-11-06 04:10:59.745801,2025-10-18 04:10:59.745802
+user_202,Active,Purge|Delete Records,María García,2026-04-05 04:10:59.745806,Terminated,,Medidata Rave,Manufacturing,Analyst,User,2025-09-30 04:10:59.745808,2025-10-16 04:10:59.745810
+user_203,Locked,Method Admin,Alice Brown,2026-04-07 04:10:59.745812,Resigned,,Veeva Vault,QA,Engineer,Service,2026-02-27 04:10:59.745815,2026-04-05 04:10:59.745816
+user_204,ENABLED,Specification Editor,Søren Jørgensen,2026-03-31 04:10:59.745820,On Leave,Analyst role per onboarding form HR-2024-0112,IT Helpdesk,QA,Engineer,Shared,2025-12-13 04:10:59.745822,2025-12-08 04:10:59.745823
+user_205,Active,Batch Approver,John Smith,2025-10-05 04:10:59.745827,Active,,Medidata Rave,QA,Manager,User,2025-06-11 04:10:59.745830,2026-01-12 04:10:59.745831
+user_206,Locked,Calibration Manager|Administrator,John Smith,2026-03-07 04:10:59.745834,On Leave,N/A,SAP QM,IT,Admin,Shared,2025-05-02 04:10:59.745837,2025-10-25 04:10:59.745838
+user_207,Inactive,Calibration Manager,John Smith,2026-03-10 04:10:59.745842,Terminated,yes,IT Helpdesk,IT,Manager,Shared,2025-05-14 04:10:59.745844,2026-01-02 04:10:59.745845
+user_208,TRUE,Master Data Configurator|QC Reviewer,Alice Brown,,Active,,Medidata Rave,QC,Analyst,User,2025-10-11 04:10:59.745850,2026-02-09 04:10:59.745851
+user_209,TRUE,Batch Release|DBA,John Smith,2025-04-25 04:10:59.745854,Active,,IT Helpdesk,Manufacturing,Analyst,Shared,2025-09-10 04:10:59.745857,2026-03-10 04:10:59.745859
+user_210,Locked,Calibration Manager,Alice Brown,2026-03-29 04:10:59.745862,Active,,Medidata Rave,QA,Admin,User,2025-11-10 04:10:59.745864,2026-01-19 04:10:59.745866
+user_211,ENABLED,Void,Alice Brown,,Inactive,N/A,SAP QM,Manufacturing,Engineer,Service,2026-02-20 04:10:59.745870,2025-12-23 04:10:59.745871
+user_212,Inactive,Administrator,Søren Jørgensen,2025-07-24 04:10:59.745874,Inactive,,Veeva Vault,Manufacturing,Manager,Shared,2025-08-20 04:10:59.745877,2025-12-28 04:10:59.745878
+user_213,TRUE,QC Reviewer,John Smith,2026-02-15 04:10:59.745881,On Leave,,IT Helpdesk,Manufacturing,Admin,Shared,2025-06-04 04:10:59.745884,2026-03-22 04:10:59.745886
+user_214,Inactive,Delete Records,María García,2026-03-23 04:10:59.745889,Resigned,N/A,Medidata Rave,Manufacturing,Admin,Service,2025-08-13 04:10:59.745892,2026-01-03 04:10:59.745893
+user_215,Locked,Calibration Manager,John Smith,2026-02-17 04:10:59.745896,Resigned,,SharePoint,Manufacturing,Manager,Service,2025-09-14 04:10:59.745898,2026-03-01 04:10:59.745900
+user_216,Inactive,Master Data Configurator,John Smith,2026-02-24 04:10:59.745903,Terminated,N/A,SharePoint,Manufacturing,Analyst,Service,2025-07-04 04:10:59.745906,2026-02-25 04:10:59.745907
+user_217,TRUE,DBA,Søren Jørgensen,2026-03-04 04:10:59.745910,Resigned,,QAD ERP,QA,Manager,Service,2025-08-21 04:10:59.745912,2026-01-07 04:10:59.745913
+user_218,Active,Void|Lot Disposition,María García,2025-10-30 04:10:59.745917,Inactive,,SharePoint,IT,Analyst,Shared,2025-08-27 04:10:59.745919,2026-03-03 04:10:59.745921
+user_219,Active,Lot Disposition|Calibration Manager,John Smith,2026-04-09 04:10:59.745924,Inactive,N/A,QAD ERP,Manufacturing,Manager,Service,2025-12-20 04:10:59.745927,2025-11-14 04:10:59.745929
+user_220,ENABLED,Administrator|Method Admin,Søren Jørgensen,2026-02-11 04:10:59.745932,On Leave,yes,LabVantage LIMS,QA,Manager,Shared,2025-10-24 04:10:59.745934,2026-01-03 04:10:59.745936
+user_221,ENABLED,Batch Release,María García,2026-02-15 04:10:59.745939,Inactive,yes,LabVantage LIMS,QC,Engineer,Service,2026-02-25 04:10:59.745941,2025-11-12 04:10:59.745942
+user_222,Locked,Batch Approver,María García,2026-04-02 04:10:59.745946,Terminated,yes,Veeva Vault,Manufacturing,Admin,Shared,2026-03-21 04:10:59.745948,2026-02-05 04:10:59.745950
+user_223,Locked,System Admin,Alice Brown,2026-03-26 04:10:59.745952,Active,Analyst role per onboarding form HR-2024-0112,SAP QM,QA,Manager,Shared,2025-04-24 04:10:59.745955,2026-03-14 04:10:59.745956
+user_224,TRUE,Administrator|Purge|Master Data Configurator,María García,,Inactive,N/A,Workday HR,IT,Manager,Service,2025-09-18 04:10:59.745961,2026-02-09 04:10:59.745962
+user_225,Inactive,Method Admin,Søren Jørgensen,2025-08-22 04:10:59.745965,Active,,LabVantage LIMS,QC,Analyst,Service,2026-02-14 04:10:59.745968,2025-11-10 04:10:59.745969
+user_226,Locked,Analyst|Lot Disposition,Søren Jørgensen,2026-02-11 04:10:59.745973,Active,N/A,QAD ERP,IT,Analyst,Service,2026-03-03 04:10:59.745976,2025-10-20 04:10:59.745977
+user_227,ENABLED,QC Reviewer|DBA,John Smith,2026-04-07 04:10:59.745980,Active,yes,SharePoint,IT,Admin,Shared,2026-02-09 04:10:59.745983,2026-01-08 04:10:59.745984
+user_228,Active,System Admin|Administrator,Alice Brown,2026-04-05 04:10:59.745987,Terminated,yes,QAD ERP,QA,Analyst,User,2025-12-28 04:10:59.745990,2026-01-15 04:10:59.745991
+user_229,ENABLED,Lot Disposition,Alice Brown,2026-03-25 04:10:59.745994,On Leave,,LabVantage LIMS,Manufacturing,Admin,Shared,2026-02-14 04:10:59.745996,2025-10-20 04:10:59.745998
+user_230,ENABLED,Batch Approver,Søren Jørgensen,2026-03-07 04:10:59.746013,Resigned,Analyst role per onboarding form HR-2024-0112,SAP QM,QC,Manager,User,2025-10-08 04:10:59.746016,2026-01-10 04:10:59.746017
+user_231,Inactive,Administrator|Analyst,John Smith,2026-03-10 04:10:59.746021,On Leave,Analyst role per onboarding form HR-2024-0112,Workday HR,QC,Analyst,Shared,2026-02-03 04:10:59.746024,2026-01-19 04:10:59.746025
+user_232,Locked,Lot Disposition,Søren Jørgensen,2026-02-14 04:10:59.746028,Active,,Veeva Vault,QC,Analyst,User,2025-05-12 04:10:59.746031,2026-03-06 04:10:59.746032
+user_233,Active,System Admin,Alice Brown,,Terminated,yes,Medidata Rave,QC,Manager,Service,2025-06-25 04:10:59.746040,2025-10-30 04:10:59.746041
+user_234,Active,Delete Records,Alice Brown,,Active,Analyst role per onboarding form HR-2024-0112,LabVantage LIMS,IT,Engineer,Shared,2025-08-04 04:10:59.746046,2026-01-23 04:10:59.746047
+user_235,Active,Specification Editor,María García,2026-04-08 04:10:59.746050,Active,yes,QAD ERP,QC,Engineer,Service,2025-08-04 04:10:59.746052,2026-03-02 04:10:59.746054
+user_236,TRUE,Analyst,Søren Jørgensen,2026-03-25 04:10:59.746057,Resigned,N/A,SAP QM,Manufacturing,Engineer,Shared,2025-09-27 04:10:59.746059,2025-10-26 04:10:59.746061
+user_237,TRUE,System Admin|DBA,John Smith,,On Leave,,Workday HR,QC,Manager,Shared,2025-10-29 04:10:59.746065,2025-10-18 04:10:59.746066
+user_238,Inactive,QC Reviewer,John Smith,2026-04-09 04:10:59.746069,Resigned,,Medidata Rave,IT,Manager,Shared,2025-07-14 04:10:59.746072,2025-12-06 04:10:59.746073
+user_239,Inactive,Specification Editor,María García,2026-03-05 04:10:59.746078,On Leave,N/A,SharePoint,QA,Engineer,Service,2025-04-12 04:10:59.746081,2025-11-30 04:10:59.746083
+user_240,Locked,Batch Release|Lot Disposition,Alice Brown,2026-03-20 04:10:59.746086,Active,,SharePoint,Manufacturing,Admin,Shared,2026-02-23 04:10:59.746088,2026-02-03 04:10:59.746090
+user_241,ENABLED,Method Admin,Alice Brown,,Resigned,,SAP QM,IT,Analyst,Shared,2025-08-07 04:10:59.746095,2026-01-23 04:10:59.746096
+user_242,Active,System Admin,María García,2026-03-18 04:10:59.746099,On Leave,Analyst role per onboarding form HR-2024-0112,Medidata Rave,QC,Manager,Shared,2025-06-19 04:10:59.746102,2025-11-19 04:10:59.746103
+user_243,ENABLED,Specification Editor,Alice Brown,2026-02-16 04:10:59.746106,On Leave,Analyst role per onboarding form HR-2024-0112,LabVantage LIMS,QC,Manager,Service,2025-08-17 04:10:59.746109,2026-02-16 04:10:59.746110
+user_244,TRUE,Lot Disposition,Søren Jørgensen,2026-02-28 04:10:59.746113,Terminated,N/A,SAP QM,Manufacturing,Analyst,User,2025-09-29 04:10:59.746117,2025-12-16 04:10:59.746118
+user_245,Active,Batch Approver|Administrator,Alice Brown,2026-03-07 04:10:59.746121,On Leave,Analyst role per onboarding form HR-2024-0112,Veeva Vault,QA,Admin,Shared,2026-02-12 04:10:59.746124,2025-12-09 04:10:59.746125
+user_246,ENABLED,DBA,María García,2026-04-04 04:10:59.746128,On Leave,yes,Veeva Vault,Manufacturing,Admin,User,2026-02-03 04:10:59.746131,2025-12-20 04:10:59.746133
+user_247,Active,Administrator,John Smith,2026-02-24 04:10:59.746136,Active,,Veeva Vault,QC,Analyst,Shared,2025-08-10 04:10:59.746138,2025-12-01 04:10:59.746140
+user_248,Active,System Admin|Calibration Manager,John Smith,2025-06-06 04:10:59.746145,Active,N/A,LabVantage LIMS,QC,Analyst,Service,2025-07-17 04:10:59.746148,2026-02-25 04:10:59.746149
+user_249,TRUE,QC Reviewer|Delete Records,Søren Jørgensen,2026-03-22 04:10:59.746153,Active,Analyst role per onboarding form HR-2024-0112,IT Helpdesk,QA,Manager,Shared,2025-04-20 04:10:59.746155,2025-11-13 04:10:59.746156
+user_250,Active,Master Data Configurator,María García,2026-04-02 04:10:59.746160,Inactive,Analyst role per onboarding form HR-2024-0112,IT Helpdesk,QA,Analyst,User,2025-10-26 04:10:59.746162,2026-02-01 04:10:59.746164
+user_251,TRUE,Batch Approver,John Smith,2026-03-23 04:10:59.746167,Inactive,Analyst role per onboarding form HR-2024-0112,SharePoint,Manufacturing,Analyst,Service,2025-04-10 04:10:59.746170,2025-11-05 04:10:59.746171
+user_252,ENABLED,Batch Approver,John Smith,2025-11-20 04:10:59.746174,On Leave,yes,SharePoint,Manufacturing,Engineer,Shared,2025-10-27 04:10:59.746177,2025-10-21 04:10:59.746178
+user_253,TRUE,System Admin,John Smith,2026-03-14 04:10:59.746181,Terminated,,QAD ERP,IT,Admin,Shared,2026-03-26 04:10:59.746183,2025-11-09 04:10:59.746185
+user_254,TRUE,Void,María García,2026-03-30 04:10:59.746188,On Leave,,LabVantage LIMS,QA,Engineer,Shared,2026-03-09 04:10:59.746191,2025-11-29 04:10:59.746192
+user_255,TRUE,Authorised Signatory|Method Admin,John Smith,,Resigned,,Veeva Vault,QC,Engineer,Service,2026-03-14 04:10:59.746196,2025-10-14 04:10:59.746197
+user_256,Inactive,Lot Disposition,John Smith,2026-03-22 04:10:59.746201,Terminated,N/A,QAD ERP,Manufacturing,Manager,Service,2025-05-31 04:10:59.746203,2025-12-23 04:10:59.746205
+user_257,ENABLED,Calibration Manager,John Smith,,On Leave,N/A,Veeva Vault,QA,Engineer,Shared,2025-08-28 04:10:59.746212,2026-02-14 04:10:59.746214
+user_258,ENABLED,Authorised Signatory,Alice Brown,,Inactive,Analyst role per onboarding form HR-2024-0112,SharePoint,IT,Analyst,User,2025-05-18 04:10:59.746218,2026-01-09 04:10:59.746220
+user_259,ENABLED,QC Reviewer,Alice Brown,2026-02-21 04:10:59.746223,Resigned,yes,SAP QM,Manufacturing,Admin,Service,2025-09-08 04:10:59.746226,2026-02-23 04:10:59.746227
+user_260,Active,Batch Release,Søren Jørgensen,2026-02-21 04:10:59.746230,Active,yes,SharePoint,IT,Engineer,Shared,2025-07-31 04:10:59.746233,2025-11-03 04:10:59.746234
+user_261,Locked,QC Reviewer,Søren Jørgensen,2025-08-27 04:10:59.746237,Inactive,Analyst role per onboarding form HR-2024-0112,SAP QM,IT,Analyst,User,2025-12-12 04:10:59.746239,2026-02-06 04:10:59.746241
+user_262,Locked,Master Data Configurator,John Smith,2026-02-21 04:10:59.746244,On Leave,,LabVantage LIMS,QC,Analyst,Service,2025-09-08 04:10:59.746247,2025-11-25 04:10:59.746248
+user_263,Locked,DBA,Søren Jørgensen,2026-03-10 04:10:59.746252,Inactive,,Workday HR,QA,Admin,Shared,2025-05-28 04:10:59.746255,2026-03-25 04:10:59.746256
+user_264,Inactive,QC Reviewer,John Smith,2025-04-19 04:10:59.746260,Terminated,N/A,Medidata Rave,QA,Admin,Shared,2025-07-05 04:10:59.746263,2025-12-17 04:10:59.746264
+user_265,TRUE,System Admin,Alice Brown,2026-02-11 04:10:59.746267,Active,Analyst role per onboarding form HR-2024-0112,Medidata Rave,Manufacturing,Engineer,User,2025-04-28 04:10:59.746270,2026-04-05 04:10:59.746271
+user_266,TRUE,Administrator,María García,2025-12-08 04:10:59.746278,Inactive,yes,LabVantage LIMS,IT,Manager,Service,2026-02-23 04:10:59.746280,2025-10-14 04:10:59.746282
+user_267,Active,Analyst,Søren Jørgensen,2026-03-23 04:10:59.746284,Active,,QAD ERP,QC,Admin,Shared,2025-04-21 04:10:59.746287,2026-02-13 04:10:59.746288
+user_268,Active,Delete Records,Alice Brown,2026-04-02 04:10:59.746291,Resigned,Analyst role per onboarding form HR-2024-0112,LabVantage LIMS,QA,Admin,Shared,2025-09-07 04:10:59.746294,2025-10-15 04:10:59.746295
+user_269,Inactive,Counter Sign|Analyst,John Smith,2026-03-15 04:10:59.746299,Active,Analyst role per onboarding form HR-2024-0112,Veeva Vault,IT,Admin,User,2025-07-05 04:10:59.746301,2025-12-17 04:10:59.746303
+user_270,Locked,Batch Approver|Delete Records,John Smith,2026-04-09 04:10:59.746306,Terminated,Analyst role per onboarding form HR-2024-0112,Veeva Vault,QA,Admin,User,2025-10-05 04:10:59.746309,2025-11-14 04:10:59.746310
+user_271,ENABLED,System Admin,Søren Jørgensen,2026-03-08 04:10:59.746313,Resigned,Analyst role per onboarding form HR-2024-0112,SAP QM,Manufacturing,Engineer,Shared,2025-10-16 04:10:59.746315,2025-12-16 04:10:59.746317
+user_272,Active,Calibration Manager|QC Reviewer,Alice Brown,2026-03-01 04:10:59.746320,Resigned,N/A,LabVantage LIMS,IT,Engineer,Service,2025-10-28 04:10:59.746322,2025-12-05 04:10:59.746323
+user_273,Locked,Authorised Signatory,María García,2026-02-20 04:10:59.746326,Terminated,Analyst role per onboarding form HR-2024-0112,SharePoint,Manufacturing,Analyst,Service,2025-12-27 04:10:59.746329,2026-01-04 04:10:59.746330
+user_274,Active,Batch Approver|Lot Disposition,Alice Brown,,Terminated,yes,LabVantage LIMS,QC,Manager,User,2025-08-04 04:10:59.746335,2025-11-26 04:10:59.746336
+user_275,Locked,Void|Counter Sign,Søren Jørgensen,2026-02-25 04:10:59.746342,On Leave,Analyst role per onboarding form HR-2024-0112,Veeva Vault,IT,Engineer,User,2025-10-31 04:10:59.746345,2026-01-05 04:10:59.746346
+user_276,TRUE,System Admin,Søren Jørgensen,2026-04-10 04:10:59.746350,Inactive,N/A,Medidata Rave,Manufacturing,Engineer,Shared,2026-01-28 04:10:59.746353,2025-10-14 04:10:59.746354
+user_277,Inactive,Method Admin,María García,2026-02-17 04:10:59.746357,Resigned,N/A,SAP QM,QA,Manager,Service,2025-09-24 04:10:59.746360,2025-12-09 04:10:59.746361
+user_278,Locked,Analyst,Søren Jørgensen,2026-03-11 04:10:59.746364,Resigned,Analyst role per onboarding form HR-2024-0112,Medidata Rave,IT,Analyst,Shared,2026-03-22 04:10:59.746367,2025-10-29 04:10:59.746369
+user_279,TRUE,Administrator|QC Reviewer,Søren Jørgensen,2026-02-28 04:10:59.746372,Inactive,Analyst role per onboarding form HR-2024-0112,IT Helpdesk,QA,Manager,User,2026-03-03 04:10:59.746375,2025-11-16 04:10:59.746376
+user_280,Locked,Analyst,María García,2026-03-14 04:10:59.746379,Active,,Medidata Rave,IT,Admin,Service,2026-02-25 04:10:59.746382,2025-12-18 04:10:59.746383
+user_281,Inactive,System Admin,John Smith,2026-04-05 04:10:59.746387,Active,Analyst role per onboarding form HR-2024-0112,Workday HR,Manufacturing,Engineer,Shared,2025-10-20 04:10:59.746389,2026-03-21 04:10:59.746391
+user_282,Active,Method Admin,María García,2026-02-27 04:10:59.746394,On Leave,N/A,Veeva Vault,Manufacturing,Analyst,User,2025-11-22 04:10:59.746397,2025-11-01 04:10:59.746398
+user_283,ENABLED,Authorised Signatory,María García,,Resigned,,QAD ERP,IT,Analyst,Shared,2025-09-29 04:10:59.746402,2025-11-18 04:10:59.746404
+user_284,TRUE,Void,John Smith,2026-03-04 04:10:59.746409,Inactive,N/A,Workday HR,IT,Analyst,Service,2025-05-05 04:10:59.746412,2026-03-21 04:10:59.746414
+user_285,Locked,Specification Editor,John Smith,2025-11-21 04:10:59.746418,On Leave,Analyst role per onboarding form HR-2024-0112,Veeva Vault,QA,Admin,Service,2025-10-22 04:10:59.746420,2025-12-30 04:10:59.746422
+user_286,TRUE,Batch Approver|Calibration Manager,Søren Jørgensen,2026-03-06 04:10:59.746425,Inactive,yes,SAP QM,IT,Admin,Service,2025-09-25 04:10:59.746428,2026-01-12 04:10:59.746429
+user_287,ENABLED,Lot Disposition,Alice Brown,2026-02-18 04:10:59.746432,Inactive,Analyst role per onboarding form HR-2024-0112,Veeva Vault,IT,Admin,User,2025-09-06 04:10:59.746435,2026-04-03 04:10:59.746437
+user_288,ENABLED,Master Data Configurator,Alice Brown,2026-02-17 04:10:59.746440,On Leave,Analyst role per onboarding form HR-2024-0112,Veeva Vault,IT,Analyst,Shared,2025-08-30 04:10:59.746443,2025-10-25 04:10:59.746444
+user_289,Locked,Purge,Søren Jørgensen,2026-04-03 04:10:59.746448,On Leave,Analyst role per onboarding form HR-2024-0112,Workday HR,Manufacturing,Admin,User,2026-02-28 04:10:59.746450,2026-02-15 04:10:59.746452
+user_290,TRUE,Void,John Smith,2026-04-06 04:10:59.746455,Terminated,N/A,QAD ERP,Manufacturing,Manager,Service,2025-06-23 04:10:59.746458,2025-12-03 04:10:59.746459
+user_291,Inactive,Void,María García,2026-02-22 04:10:59.746462,Resigned,N/A,QAD ERP,QA,Admin,User,2025-05-21 04:10:59.746465,2025-11-18 04:10:59.746466
+user_292,TRUE,Batch Release,John Smith,,Resigned,,QAD ERP,Manufacturing,Admin,Service,2025-10-25 04:10:59.746470,2026-04-03 04:10:59.746472
+user_293,Active,System Admin,Søren Jørgensen,2026-03-02 04:10:59.746475,Resigned,N/A,IT Helpdesk,QA,Manager,Shared,2026-03-29 04:10:59.746478,2025-11-10 04:10:59.746479
+user_294,Inactive,QC Reviewer,Søren Jørgensen,2026-02-23 04:10:59.746486,On Leave,Analyst role per onboarding form HR-2024-0112,IT Helpdesk,IT,Analyst,Shared,2025-10-27 04:10:59.746489,2026-01-05 04:10:59.746491
+user_295,Inactive,Batch Approver|Method Admin,María García,2026-04-04 04:10:59.746495,Terminated,,Veeva Vault,QC,Manager,Service,2025-06-25 04:10:59.746497,2026-01-14 04:10:59.746498
+user_296,Inactive,Batch Release,María García,2026-03-21 04:10:59.746502,Inactive,N/A,QAD ERP,QC,Engineer,Shared,2025-09-25 04:10:59.746505,2025-12-23 04:10:59.746506
+user_297,Active,System Admin,Alice Brown,2026-02-25 04:10:59.746509,On Leave,N/A,Workday HR,Manufacturing,Manager,Shared,2025-07-26 04:10:59.746512,2026-02-12 04:10:59.746514
+user_298,ENABLED,Batch Approver,John Smith,2026-03-13 04:10:59.746517,Active,yes,LabVantage LIMS,QC,Admin,User,2025-09-04 04:10:59.746519,2025-10-24 04:10:59.746521
+user_299,Active,Batch Approver,John Smith,2026-02-10 04:10:59.746524,Active,,IT Helpdesk,QA,Admin,Shared,2025-10-05 04:10:59.746526,2025-11-13 04:10:59.746528
+shared_analyst,ENABLED,Administrator,Alice Brown,2026-04-04 04:10:59.746531,On Leave,,Medidata Rave,IT,Engineer,Shared,2025-11-21 04:10:59.746534,2026-03-05 04:10:59.746536
+user_301,ENABLED,Batch Approver|Specification Editor,Alice Brown,2026-04-01 04:10:59.746539,Resigned,yes,IT Helpdesk,QA,Analyst,Service,2026-02-13 04:10:59.746542,2026-03-20 04:10:59.746543
+user_302,Locked,Delete Records,María García,2026-03-21 04:10:59.746546,Inactive,Analyst role per onboarding form HR-2024-0112,Workday HR,QC,Engineer,Service,2025-05-30 04:10:59.746549,2025-10-29 04:10:59.746550
+user_303,Locked,Batch Approver|Purge|Purge,María García,2026-03-26 04:10:59.746557,Active,,Medidata Rave,Manufacturing,Manager,Service,2026-02-11 04:10:59.746559,2026-02-06 04:10:59.746561
+user_304,Inactive,Calibration Manager,Søren Jørgensen,2026-03-20 04:10:59.746564,Resigned,,Medidata Rave,QA,Admin,Shared,2025-04-27 04:10:59.746566,2025-11-10 04:10:59.746568
+user_305,ENABLED,Batch Approver|Analyst,Alice Brown,2026-03-18 04:10:59.746572,On Leave,yes,Medidata Rave,QC,Manager,Service,2026-01-03 04:10:59.746575,2025-11-30 04:10:59.746576
+user_306,ENABLED,Method Admin,Søren Jørgensen,2026-04-07 04:10:59.746579,Active,,Veeva Vault,Manufacturing,Manager,Shared,2025-12-18 04:10:59.746582,2025-11-19 04:10:59.746583
+user_307,Inactive,Analyst,John Smith,2026-03-28 04:10:59.746586,Resigned,N/A,Veeva Vault,QA,Engineer,Service,2026-02-10 04:10:59.746589,2026-03-16 04:10:59.746590
+user_308,Active,Specification Editor|Administrator,María García,2026-04-06 04:10:59.746594,Resigned,yes,SharePoint,QC,Engineer,Shared,2025-05-11 04:10:59.746597,2025-10-17 04:10:59.746598
+user_309,Active,Delete Records,Søren Jørgensen,2026-04-09 04:10:59.746603,Resigned,N/A,Workday HR,QC,Admin,Service,2025-04-19 04:10:59.746605,2026-01-14 04:10:59.746607
+user_310,Inactive,Purge,John Smith,2026-02-11 04:10:59.746610,Resigned,yes,LabVantage LIMS,QC,Admin,Shared,2025-06-05 04:10:59.746613,2026-03-26 04:10:59.746614
+user_311,Inactive,Batch Approver,María García,,Inactive,yes,QAD ERP,IT,Analyst,User,2025-06-02 04:10:59.746618,2025-10-16 04:10:59.746619
+user_312,Locked,Administrator,Alice Brown,2026-02-23 04:10:59.746625,Inactive,,SAP QM,IT,Analyst,User,2026-02-22 04:10:59.746628,2026-02-07 04:10:59.746630
+user_313,ENABLED,Delete Records,Alice Brown,2025-10-02 04:10:59.746633,On Leave,,Workday HR,Manufacturing,Analyst,Service,2025-12-29 04:10:59.746635,2025-11-03 04:10:59.746637
+user_314,Locked,System Admin,John Smith,2026-04-04 04:10:59.746640,Active,,QAD ERP,QC,Analyst,Service,2025-11-06 04:10:59.746642,2026-01-05 04:10:59.746644
+user_315,Inactive,Delete Records,Søren Jørgensen,2026-02-26 04:10:59.746647,On Leave,N/A,LabVantage LIMS,QC,Analyst,User,2025-05-19 04:10:59.746650,2026-01-29 04:10:59.746651
+user_316,Active,Method Admin|Purge,Søren Jørgensen,2026-03-10 04:10:59.746654,Inactive,Analyst role per onboarding form HR-2024-0112,SharePoint,Manufacturing,Admin,Shared,2026-01-10 04:10:59.746656,2026-03-29 04:10:59.746658
+user_317,Active,Void,María García,,On Leave,,LabVantage LIMS,QC,Engineer,Service,2026-03-14 04:10:59.746662,2025-10-20 04:10:59.746663
+user_318,ENABLED,Void,Alice Brown,,On Leave,,SharePoint,Manufacturing,Manager,Service,2025-04-29 04:10:59.746667,2026-03-24 04:10:59.746669
+user_319,Locked,System Admin,John Smith,2025-08-31 04:10:59.746672,Inactive,,Veeva Vault,IT,Admin,User,2025-07-18 04:10:59.746675,2026-03-07 04:10:59.746677
+user_320,ENABLED,Delete Records,Søren Jørgensen,2026-02-28 04:10:59.746680,Terminated,,IT Helpdesk,QA,Admin,Service,2026-03-04 04:10:59.746682,2026-02-04 04:10:59.746683
+user_321,Inactive,Master Data Configurator,Søren Jørgensen,2026-03-01 04:10:59.746689,Active,,QAD ERP,Manufacturing,Engineer,User,2025-10-18 04:10:59.746691,2025-11-17 04:10:59.746693
+user_322,Active,Batch Release,John Smith,2026-03-10 04:10:59.746696,Inactive,,QAD ERP,Manufacturing,Manager,User,2026-02-14 04:10:59.746700,2026-01-25 04:10:59.746701
+user_323,Active,Master Data Configurator,John Smith,2026-02-13 04:10:59.746704,Terminated,Analyst role per onboarding form HR-2024-0112,Medidata Rave,QC,Engineer,User,2025-10-08 04:10:59.746707,2026-02-24 04:10:59.746708
+user_324,ENABLED,DBA|Batch Release,Søren Jørgensen,2026-04-01 04:10:59.746712,Inactive,yes,QAD ERP,IT,Analyst,Shared,2025-06-20 04:10:59.746715,2025-11-09 04:10:59.746716
+user_325,ENABLED,Specification Editor,Alice Brown,2026-03-21 04:10:59.746719,Active,,SharePoint,QA,Manager,Service,2026-03-25 04:10:59.746721,2026-03-24 04:10:59.746723
+user_326,Locked,Lot Disposition|Delete Records,María García,2026-03-28 04:10:59.746727,Inactive,Analyst role per onboarding form HR-2024-0112,Veeva Vault,IT,Analyst,Shared,2025-12-25 04:10:59.746729,2026-03-21 04:10:59.746731
+user_327,ENABLED,Batch Approver,María García,,Resigned,,IT Helpdesk,IT,Manager,Shared,2026-03-17 04:10:59.746735,2025-12-14 04:10:59.746736
+user_328,Locked,Purge|Batch Release,John Smith,2026-02-16 04:10:59.746740,Inactive,Analyst role per onboarding form HR-2024-0112,QAD ERP,Manufacturing,Engineer,Service,2026-03-07 04:10:59.746742,2026-01-22 04:10:59.746744
+user_329,Inactive,Batch Release|System Admin,John Smith,2026-03-25 04:10:59.746747,Terminated,,Medidata Rave,Manufacturing,Admin,User,2025-12-04 04:10:59.746750,2025-11-27 04:10:59.746751
+user_330,Active,Lot Disposition|Calibration Manager,Alice Brown,2026-02-27 04:10:59.746757,Inactive,,LabVantage LIMS,QC,Admin,User,2025-11-27 04:10:59.746759,2026-02-15 04:10:59.746761
+user_331,ENABLED,Batch Approver|Counter Sign,Søren Jørgensen,2025-04-27 04:10:59.746764,Resigned,,LabVantage LIMS,QA,Analyst,Service,2025-06-25 04:10:59.746768,2025-10-12 04:10:59.746769
+user_332,TRUE,Batch Release,Alice Brown,2025-03-10 04:10:59.746772,Resigned,Analyst role per onboarding form HR-2024-0112,SharePoint,Manufacturing,Analyst,Shared,2026-01-17 04:10:59.746774,2026-04-04 04:10:59.746776
+user_333,Active,Delete Records|Analyst,Søren Jørgensen,2026-03-07 04:10:59.746779,On Leave,N/A,SAP QM,IT,Admin,User,2025-10-07 04:10:59.746782,2026-01-28 04:10:59.746783
+user_334,Inactive,Void,Søren Jørgensen,2026-03-25 04:10:59.746786,On Leave,yes,LabVantage LIMS,QC,Manager,User,2026-01-01 04:10:59.746789,2025-12-25 04:10:59.746790
+user_335,ENABLED,Administrator,Søren Jørgensen,2026-03-20 04:10:59.746794,Resigned,,LabVantage LIMS,Manufacturing,Admin,User,2025-09-28 04:10:59.746796,2025-12-16 04:10:59.746798
+user_336,Inactive,Master Data Configurator,Søren Jørgensen,2025-09-24 04:10:59.746804,Terminated,,QAD ERP,Manufacturing,Engineer,User,2026-03-03 04:10:59.746809,2026-03-31 04:10:59.746811
+user_337,Active,Specification Editor,Søren Jørgensen,2026-02-09 04:10:59.746815,Active,,IT Helpdesk,IT,Admin,User,2025-04-13 04:10:59.746820,2026-01-18 04:10:59.746831
+user_338,Inactive,Lot Disposition,Alice Brown,2026-03-28 04:10:59.746835,Resigned,,IT Helpdesk,IT,Analyst,Shared,2026-03-09 04:10:59.746839,2025-11-25 04:10:59.746840
+user_339,ENABLED,Lot Disposition|System Admin,Søren Jørgensen,2026-03-05 04:10:59.746845,Terminated,Analyst role per onboarding form HR-2024-0112,SAP QM,QC,Manager,User,2025-06-26 04:10:59.746848,2026-02-02 04:10:59.746849
+user_340,TRUE,Delete Records|Calibration Manager,María García,2026-02-10 04:10:59.746852,On Leave,Analyst role per onboarding form HR-2024-0112,Veeva Vault,QA,Admin,Shared,2025-04-19 04:10:59.746855,2025-11-12 04:10:59.746856
+user_341,Active,Calibration Manager,María García,2026-02-21 04:10:59.746859,Inactive,,Medidata Rave,Manufacturing,Engineer,Service,2026-03-08 04:10:59.746861,2025-12-20 04:10:59.746863
+user_342,Active,Analyst|Batch Release,John Smith,2025-05-04 04:10:59.746866,Active,Analyst role per onboarding form HR-2024-0112,Workday HR,QC,Analyst,User,2025-06-13 04:10:59.746869,2025-12-27 04:10:59.746870
+user_343,Active,Void,María García,2026-03-25 04:10:59.746873,Inactive,Analyst role per onboarding form HR-2024-0112,Medidata Rave,Manufacturing,Admin,Shared,2025-05-24 04:10:59.746876,2026-03-11 04:10:59.746878
+user_344,ENABLED,QC Reviewer,John Smith,2026-03-16 04:10:59.746881,Terminated,Analyst role per onboarding form HR-2024-0112,Veeva Vault,IT,Admin,Service,2025-08-20 04:10:59.746884,2025-11-05 04:10:59.746885
+user_345,TRUE,Analyst,John Smith,2026-03-08 04:10:59.746888,On Leave,N/A,LabVantage LIMS,QC,Manager,Shared,2026-02-17 04:10:59.746891,2026-02-06 04:10:59.746892
+user_346,ENABLED,Lot Disposition,Alice Brown,,Resigned,N/A,Medidata Rave,QA,Admin,User,2026-01-02 04:10:59.746897,2025-11-25 04:10:59.746898
+user_347,ENABLED,Void,John Smith,2026-02-19 04:10:59.746901,Resigned,Analyst role per onboarding form HR-2024-0112,QAD ERP,IT,Analyst,Shared,2025-12-05 04:10:59.746904,2025-11-18 04:10:59.746905
+user_348,ENABLED,Method Admin|Method Admin,Alice Brown,2026-04-06 04:10:59.746911,On Leave,Analyst role per onboarding form HR-2024-0112,IT Helpdesk,Manufacturing,Analyst,User,2025-08-19 04:10:59.746913,2025-11-02 04:10:59.746914
+user_349,TRUE,Batch Approver,John Smith,2026-03-08 04:10:59.746918,On Leave,,LabVantage LIMS,Manufacturing,Manager,User,2026-03-26 04:10:59.746920,2025-12-19 04:10:59.746922
+user_350,Active,Master Data Configurator,Alice Brown,2026-03-30 04:10:59.746925,Inactive,N/A,SAP QM,QC,Engineer,Shared,2025-08-06 04:10:59.746929,2025-11-19 04:10:59.746931
+user_351,Inactive,Void,María García,2026-02-11 04:10:59.746934,Resigned,yes,SAP QM,IT,Manager,Service,2026-01-11 04:10:59.746937,2025-12-04 04:10:59.746938
+user_352,ENABLED,Specification Editor,Søren Jørgensen,2026-03-10 04:10:59.746941,Terminated,,Workday HR,IT,Analyst,Shared,2025-05-18 04:10:59.746944,2026-02-05 04:10:59.746946
+user_353,ENABLED,Analyst,John Smith,2026-03-17 04:10:59.746949,Inactive,Analyst role per onboarding form HR-2024-0112,Medidata Rave,QC,Analyst,Shared,2025-04-22 04:10:59.746952,2026-03-01 04:10:59.746953
+user_354,TRUE,Void,John Smith,2026-03-15 04:10:59.746957,Inactive,,Medidata Rave,QA,Manager,Shared,2025-05-30 04:10:59.746959,2026-02-06 04:10:59.746961
+user_355,Active,Calibration Manager|Authorised Signatory,John Smith,2026-02-11 04:10:59.746964,Terminated,,SharePoint,Manufacturing,Engineer,User,2025-04-10 04:10:59.746967,2026-03-09 04:10:59.746968
+user_356,TRUE,Authorised Signatory,Søren Jørgensen,2026-03-30 04:10:59.746971,Active,N/A,SharePoint,Manufacturing,Manager,User,2025-12-06 04:10:59.746974,2026-01-12 04:10:59.746975
+user_357,Active,Batch Approver,Alice Brown,2026-02-22 04:10:59.746978,Active,N/A,Medidata Rave,QA,Analyst,Shared,2025-12-16 04:10:59.746980,2026-01-10 04:10:59.746981
+user_358,Inactive,DBA,Søren Jørgensen,2026-03-27 04:10:59.746987,Active,yes,LabVantage LIMS,QC,Analyst,Shared,2025-04-25 04:10:59.746990,2025-11-24 04:10:59.746991
+user_359,Locked,Authorised Signatory,Søren Jørgensen,,Active,N/A,Workday HR,Manufacturing,Admin,User,2026-01-01 04:10:59.747029,2026-04-10 04:10:59.747031
+user_360,Inactive,Administrator|Administrator,John Smith,2026-03-06 04:10:59.747035,Inactive,N/A,Workday HR,Manufacturing,Analyst,Service,2026-03-20 04:10:59.747037,2025-12-10 04:10:59.747038
+user_361,Inactive,Void|System Admin,Alice Brown,2026-02-20 04:10:59.747042,Terminated,,IT Helpdesk,QA,Manager,Service,2026-01-29 04:10:59.747045,2026-03-25 04:10:59.747046
+user_362,Inactive,System Admin,Søren Jørgensen,2026-03-05 04:10:59.747052,Resigned,,SharePoint,QA,Manager,Shared,2025-09-23 04:10:59.747055,2026-02-24 04:10:59.747057
+user_363,Locked,Authorised Signatory,Alice Brown,2026-03-11 04:10:59.747060,Inactive,,Medidata Rave,IT,Analyst,Shared,2026-02-15 04:10:59.747063,2025-11-11 04:10:59.747064
+user_364,Active,Administrator,Søren Jørgensen,2025-08-12 04:10:59.747067,On Leave,yes,SAP QM,IT,Engineer,Service,2025-05-14 04:10:59.747070,2025-11-30 04:10:59.747072
+user_365,Locked,Void,María García,2026-02-16 04:10:59.747075,Terminated,yes,SAP QM,Manufacturing,Manager,User,2026-01-29 04:10:59.747077,2026-01-27 04:10:59.747079
+user_366,ENABLED,Calibration Manager,Søren Jørgensen,2025-05-15 04:10:59.747082,Inactive,Analyst role per onboarding form HR-2024-0112,QAD ERP,QA,Analyst,Service,2025-09-23 04:10:59.747084,2026-02-26 04:10:59.747086
+user_367,Inactive,Method Admin|Purge,María García,2026-03-03 04:10:59.747092,Terminated,Analyst role per onboarding form HR-2024-0112,SAP QM,Manufacturing,Analyst,User,2025-10-18 04:10:59.747094,2026-01-24 04:10:59.747096
+user_368,ENABLED,System Admin|Delete Records,Alice Brown,2025-09-09 04:10:59.747099,Inactive,,Medidata Rave,QA,Engineer,Service,2026-03-07 04:10:59.747102,2025-12-25 04:10:59.747103
+user_369,Inactive,Purge,María García,2026-04-02 04:10:59.747107,Active,yes,QAD ERP,QA,Admin,Service,2025-11-08 04:10:59.747109,2025-11-12 04:10:59.747110
+user_370,ENABLED,Counter Sign|Void|Specification Editor,John Smith,2026-03-27 04:10:59.747114,Active,Analyst role per onboarding form HR-2024-0112,SAP QM,QA,Engineer,User,2025-11-01 04:10:59.747117,2026-01-24 04:10:59.747118
+user_371,Active,DBA,Søren Jørgensen,2026-02-20 04:10:59.747122,Inactive,Analyst role per onboarding form HR-2024-0112,Medidata Rave,QC,Engineer,Service,2025-11-13 04:10:59.747124,2026-02-26 04:10:59.747125
+user_372,Locked,Master Data Configurator,Søren Jørgensen,2026-03-01 04:10:59.747128,Terminated,yes,QAD ERP,QC,Manager,User,2025-12-21 04:10:59.747131,2026-03-11 04:10:59.747132
+user_373,Inactive,Batch Release|Administrator,John Smith,2025-09-14 04:10:59.747135,Inactive,Analyst role per onboarding form HR-2024-0112,LabVantage LIMS,QA,Manager,Service,2025-10-23 04:10:59.747138,2026-01-16 04:10:59.747139
+user_374,TRUE,System Admin,Søren Jørgensen,2026-03-05 04:10:59.747142,On Leave,,SAP QM,QC,Analyst,Shared,2025-09-14 04:10:59.747145,2025-10-29 04:10:59.747146
+user_375,Locked,QC Reviewer|Calibration Manager,Søren Jørgensen,2026-02-24 04:10:59.747149,Resigned,,Medidata Rave,IT,Analyst,User,2026-03-23 04:10:59.747152,2026-01-05 04:10:59.747153
+user_376,Locked,Counter Sign|Purge,María García,2026-03-08 04:10:59.747158,Inactive,yes,QAD ERP,Manufacturing,Engineer,Shared,2025-12-19 04:10:59.747161,2026-03-07 04:10:59.747162
+user_377,ENABLED,Specification Editor,Søren Jørgensen,2026-03-01 04:10:59.747165,Inactive,,SharePoint,Manufacturing,Admin,Shared,2025-05-07 04:10:59.747169,2026-01-21 04:10:59.747170
+user_378,Active,Void,María García,2026-03-22 04:10:59.747173,Inactive,N/A,Workday HR,Manufacturing,Analyst,Service,2026-01-07 04:10:59.747176,2026-01-14 04:10:59.747180
+user_379,TRUE,Void,Søren Jørgensen,2025-09-27 04:10:59.747184,Terminated,,Veeva Vault,QC,Manager,Service,2025-05-07 04:10:59.747187,2026-02-11 04:10:59.747188
+user_380,Inactive,Lot Disposition,Alice Brown,2026-03-15 04:10:59.747191,Inactive,Analyst role per onboarding form HR-2024-0112,SAP QM,IT,Admin,Shared,2025-09-15 04:10:59.747193,2026-03-19 04:10:59.747195
+user_381,TRUE,Void|Void,John Smith,2026-02-28 04:10:59.747198,On Leave,Analyst role per onboarding form HR-2024-0112,SAP QM,QA,Admin,Shared,2026-03-18 04:10:59.747201,2026-02-12 04:10:59.747203
+user_382,ENABLED,Lot Disposition,María García,2026-02-10 04:10:59.747206,Terminated,,IT Helpdesk,QC,Admin,Shared,2025-08-19 04:10:59.747208,2025-10-24 04:10:59.747210
+user_383,TRUE,Master Data Configurator|Lot Disposition,Alice Brown,2025-09-17 04:10:59.747214,Resigned,,IT Helpdesk,QC,Admin,Shared,2025-09-14 04:10:59.747217,2025-12-04 04:10:59.747218
+user_384,Active,Purge,Søren Jørgensen,2026-03-16 04:10:59.747221,Inactive,Analyst role per onboarding form HR-2024-0112,SharePoint,QA,Engineer,Service,2025-05-07 04:10:59.747224,2026-01-29 04:10:59.747225
+user_385,TRUE,Method Admin,John Smith,2025-07-31 04:10:59.747230,Resigned,,SharePoint,QA,Admin,Shared,2025-11-15 04:10:59.747233,2026-01-23 04:10:59.747234
+user_386,TRUE,Administrator,María García,2026-04-06 04:10:59.747237,Resigned,,Veeva Vault,QA,Manager,Shared,2025-05-12 04:10:59.747240,2026-03-22 04:10:59.747241
+user_387,Active,Void,Søren Jørgensen,2025-12-20 04:10:59.747244,Inactive,yes,Medidata Rave,QA,Analyst,User,2025-12-23 04:10:59.747247,2026-03-22 04:10:59.747248
+user_388,TRUE,Administrator,Alice Brown,2025-03-24 04:10:59.747252,Inactive,,IT Helpdesk,QC,Admin,Shared,2025-10-17 04:10:59.747255,2026-03-01 04:10:59.747256
+user_389,Active,Purge,Søren Jørgensen,,Terminated,yes,Veeva Vault,QC,Admin,Service,2026-04-07 04:10:59.747261,2026-01-21 04:10:59.747262
+user_390,Active,Method Admin,John Smith,2026-03-30 04:10:59.747266,Inactive,N/A,Veeva Vault,Manufacturing,Admin,User,2026-03-18 04:10:59.747269,2025-10-22 04:10:59.747270
+user_391,Locked,Method Admin|Counter Sign,John Smith,,Terminated,yes,Medidata Rave,QC,Manager,User,2026-01-19 04:10:59.747274,2026-02-09 04:10:59.747276
+user_392,Inactive,Counter Sign,Søren Jørgensen,2026-02-23 04:10:59.747279,Inactive,yes,SharePoint,Manufacturing,Admin,Shared,2025-04-26 04:10:59.747281,2026-03-19 04:10:59.747283
+user_393,Active,Purge,María García,2026-02-23 04:10:59.747286,Resigned,,IT Helpdesk,IT,Manager,Service,2025-08-28 04:10:59.747288,2026-01-08 04:10:59.747290
+user_394,Locked,DBA,María García,2026-03-24 04:10:59.747295,Terminated,N/A,Workday HR,QC,Admin,Service,2025-12-10 04:10:59.747298,2026-01-01 04:10:59.747300
+user_395,Inactive,Batch Release,María García,2026-03-17 04:10:59.747303,Inactive,,Medidata Rave,Manufacturing,Admin,Shared,2026-01-26 04:10:59.747305,2026-02-19 04:10:59.747307
+user_396,TRUE,Analyst,María García,2025-12-25 04:10:59.747310,Active,N/A,Workday HR,Manufacturing,Analyst,User,2025-12-14 04:10:59.747313,2025-11-16 04:10:59.747314
+user_397,Locked,Analyst,María García,2026-02-22 04:10:59.747318,Resigned,,Workday HR,Manufacturing,Engineer,User,2026-01-01 04:10:59.747320,2025-10-31 04:10:59.747321
+user_398,TRUE,Batch Release,María García,2026-03-31 04:10:59.747324,Terminated,,QAD ERP,IT,Analyst,User,2025-09-11 04:10:59.747327,2026-03-16 04:10:59.747329
+user_399,Active,Method Admin,Søren Jørgensen,2026-03-12 04:10:59.747332,Active,N/A,SharePoint,IT,Admin,User,2026-02-20 04:10:59.747334,2026-01-01 04:10:59.747336
+lab_user1,ENABLED,Lot Disposition,María García,2026-04-03 04:10:59.747339,Inactive,,Workday HR,Manufacturing,Manager,Service,2026-02-11 04:10:59.747342,2026-02-18 04:10:59.747344
+user_401,Inactive,Void,Alice Brown,2026-03-15 04:10:59.747349,Terminated,,Veeva Vault,IT,Engineer,Shared,2025-04-28 04:10:59.747352,2026-01-23 04:10:59.747354
+user_402,ENABLED,Void|Calibration Manager|Method Admin,María García,2026-04-01 04:10:59.747357,Inactive,N/A,Medidata Rave,IT,Engineer,User,2026-02-09 04:10:59.747360,2025-11-16 04:10:59.747361
+user_403,Locked,Purge,Søren Jørgensen,2025-11-18 04:10:59.747366,Terminated,N/A,IT Helpdesk,Manufacturing,Engineer,Service,2025-08-13 04:10:59.747369,2025-12-27 04:10:59.747370
+user_404,TRUE,System Admin,María García,2026-02-14 04:10:59.747373,Inactive,yes,Veeva Vault,Manufacturing,Engineer,User,2025-10-19 04:10:59.747376,2026-01-12 04:10:59.747377
+user_405,TRUE,Lot Disposition|Analyst,Alice Brown,2026-02-22 04:10:59.747380,Active,,Medidata Rave,IT,Analyst,Shared,2025-11-23 04:10:59.747383,2025-12-23 04:10:59.747385
+user_406,Inactive,Calibration Manager,John Smith,2026-03-18 04:10:59.747388,Inactive,,Workday HR,QC,Admin,Shared,2025-09-08 04:10:59.747390,2026-02-20 04:10:59.747391
+user_407,Active,Counter Sign,Alice Brown,2026-02-27 04:10:59.747394,Active,,QAD ERP,Manufacturing,Manager,User,2025-07-26 04:10:59.747397,2026-04-04 04:10:59.747398
+user_408,Active,Calibration Manager|System Admin,John Smith,2026-03-31 04:10:59.747401,On Leave,,QAD ERP,QA,Manager,User,2025-12-05 04:10:59.747404,2025-11-16 04:10:59.747405
+user_409,TRUE,Lot Disposition|Specification Editor,Alice Brown,2026-02-19 04:10:59.747408,On Leave,Analyst role per onboarding form HR-2024-0112,Medidata Rave,IT,Analyst,Service,2026-03-29 04:10:59.747411,2026-03-22 04:10:59.747412
+user_410,Active,Specification Editor,Søren Jørgensen,2026-03-30 04:10:59.747416,Inactive,Analyst role per onboarding form HR-2024-0112,SAP QM,Manufacturing,Analyst,Shared,2025-05-28 04:10:59.747419,2026-01-01 04:10:59.747420
+user_411,Active,Administrator|System Admin,John Smith,2026-02-21 04:10:59.747424,Active,Analyst role per onboarding form HR-2024-0112,Veeva Vault,Manufacturing,Engineer,Service,2025-12-05 04:10:59.747426,2025-11-16 04:10:59.747428
+user_412,TRUE,Authorised Signatory,María García,2026-02-16 04:10:59.747432,Resigned,yes,Medidata Rave,QA,Admin,Service,2026-01-12 04:10:59.747435,2025-12-08 04:10:59.747436
+user_413,ENABLED,DBA,John Smith,2025-12-02 04:10:59.747439,Active,,Workday HR,Manufacturing,Engineer,User,2025-08-07 04:10:59.747442,2025-12-19 04:10:59.747443
+user_414,ENABLED,Calibration Manager,Søren Jørgensen,2026-03-26 04:10:59.747447,Inactive,yes,IT Helpdesk,IT,Admin,Shared,2025-12-16 04:10:59.747450,2026-04-06 04:10:59.747451
+user_415,Active,Batch Release|QC Reviewer,Alice Brown,2025-09-14 04:10:59.747454,Resigned,N/A,SAP QM,Manufacturing,Engineer,User,2026-01-21 04:10:59.747457,2026-01-12 04:10:59.747458
+user_416,Locked,QC Reviewer,Alice Brown,2025-08-07 04:10:59.747461,Inactive,,LabVantage LIMS,IT,Manager,Shared,2025-07-21 04:10:59.747464,2026-01-14 04:10:59.747466
+user_417,ENABLED,Lot Disposition|Analyst,Alice Brown,2026-03-14 04:10:59.747470,On Leave,,IT Helpdesk,QA,Manager,Service,2025-08-26 04:10:59.747473,2026-01-19 04:10:59.747474
+user_418,Active,Purge|Batch Release,John Smith,2026-03-31 04:10:59.747477,On Leave,Analyst role per onboarding form HR-2024-0112,Veeva Vault,IT,Analyst,Shared,2025-09-11 04:10:59.747480,2026-02-15 04:10:59.747481
+user_419,ENABLED,Counter Sign,María García,,Resigned,,SAP QM,Manufacturing,Manager,Service,2026-03-12 04:10:59.747486,2026-02-03 04:10:59.747487
+user_420,Inactive,Method Admin,Alice Brown,2026-02-25 04:10:59.747490,Inactive,Analyst role per onboarding form HR-2024-0112,Veeva Vault,Manufacturing,Manager,User,2025-07-02 04:10:59.747493,2025-11-04 04:10:59.747494
+user_421,Inactive,QC Reviewer,Søren Jørgensen,2025-11-19 04:10:59.747497,Inactive,,QAD ERP,IT,Admin,Shared,2026-01-04 04:10:59.747500,2026-01-11 04:10:59.747501
+user_422,Locked,Calibration Manager,María García,2026-02-18 04:10:59.747507,Resigned,,Medidata Rave,Manufacturing,Engineer,Shared,2026-01-07 04:10:59.747510,2026-01-28 04:10:59.747511
+user_423,ENABLED,Purge,María García,2026-03-22 04:10:59.747515,Active,,Workday HR,QA,Admin,Service,2025-10-29 04:10:59.747518,2026-01-29 04:10:59.747519
+user_424,Inactive,Batch Release|Batch Approver,Søren Jørgensen,2025-11-20 04:10:59.747523,Inactive,,SharePoint,QA,Engineer,Shared,2025-09-16 04:10:59.747525,2025-10-13 04:10:59.747527
+user_425,Active,Master Data Configurator,María García,2026-02-26 04:10:59.747530,On Leave,N/A,Veeva Vault,Manufacturing,Engineer,User,2025-09-14 04:10:59.747533,2025-12-20 04:10:59.747534
+user_426,Locked,Administrator|QC Reviewer,Alice Brown,2025-12-27 04:10:59.747538,Inactive,N/A,Veeva Vault,QA,Admin,User,2025-10-02 04:10:59.747540,2025-12-12 04:10:59.747541
+user_427,ENABLED,Batch Release,María García,2026-03-13 04:10:59.747544,Active,N/A,Workday HR,IT,Admin,Shared,2025-11-18 04:10:59.747547,2025-12-14 04:10:59.747548
+user_428,Active,Administrator,María García,,Resigned,Analyst role per onboarding form HR-2024-0112,QAD ERP,QA,Analyst,Service,2025-09-16 04:10:59.747552,2026-01-14 04:10:59.747554
+user_429,Locked,Calibration Manager,Alice Brown,,Resigned,,SharePoint,Manufacturing,Admin,Service,2025-06-20 04:10:59.747558,2026-01-11 04:10:59.747559
+user_430,ENABLED,Calibration Manager,John Smith,2025-10-07 04:10:59.747563,Resigned,yes,LabVantage LIMS,QC,Manager,User,2025-12-19 04:10:59.747565,2026-03-14 04:10:59.747566
+user_431,TRUE,Administrator,Alice Brown,2026-04-06 04:10:59.747572,Inactive,Analyst role per onboarding form HR-2024-0112,IT Helpdesk,QA,Engineer,Service,2026-03-29 04:10:59.747575,2026-01-05 04:10:59.747576
+user_432,Active,Specification Editor|Master Data Configurator,John Smith,2025-03-25 04:10:59.747581,Terminated,Analyst role per onboarding form HR-2024-0112,Workday HR,QA,Analyst,User,2026-02-04 04:10:59.747583,2026-02-17 04:10:59.747585
+user_433,Inactive,Delete Records,Alice Brown,2026-02-17 04:10:59.747588,Inactive,yes,SAP QM,IT,Admin,Service,2026-02-07 04:10:59.747591,2025-10-13 04:10:59.747592
+user_434,ENABLED,Calibration Manager,Alice Brown,2026-03-07 04:10:59.747595,On Leave,Analyst role per onboarding form HR-2024-0112,SAP QM,QC,Manager,Shared,2025-05-27 04:10:59.747597,2025-12-12 04:10:59.747599
+user_435,Inactive,Batch Release,John Smith,2025-12-09 04:10:59.747602,On Leave,N/A,Veeva Vault,Manufacturing,Engineer,Shared,2025-06-07 04:10:59.747605,2026-01-01 04:10:59.747606
+user_436,ENABLED,Method Admin|Analyst,Søren Jørgensen,2026-02-27 04:10:59.747609,Resigned,,QAD ERP,Manufacturing,Admin,Service,2026-02-16 04:10:59.747612,2026-01-04 04:10:59.747613
+user_437,Locked,System Admin,Alice Brown,2026-03-15 04:10:59.747616,On Leave,N/A,LabVantage LIMS,IT,Manager,Service,2026-02-18 04:10:59.747621,2026-03-16 04:10:59.747622
+user_438,Inactive,Calibration Manager,Alice Brown,2026-04-03 04:10:59.747626,On Leave,,Veeva Vault,QA,Engineer,Service,2025-11-10 04:10:59.747628,2025-10-13 04:10:59.747630
+user_439,ENABLED,Purge|System Admin,John Smith,2025-07-25 04:10:59.747633,Resigned,N/A,LabVantage LIMS,Manufacturing,Admin,User,2025-05-09 04:10:59.747636,2025-11-19 04:10:59.747638
+user_440,TRUE,System Admin,Søren Jørgensen,,On Leave,Analyst role per onboarding form HR-2024-0112,LabVantage LIMS,IT,Manager,Service,2025-04-27 04:10:59.747644,2025-11-05 04:10:59.747646
+user_441,ENABLED,Purge|QC Reviewer,Søren Jørgensen,,On Leave,,SAP QM,Manufacturing,Manager,User,2026-03-30 04:10:59.747650,2025-12-13 04:10:59.747652
+user_442,Locked,Analyst,Søren Jørgensen,2026-03-29 04:10:59.747655,Inactive,yes,Medidata Rave,IT,Analyst,Shared,2025-06-23 04:10:59.747658,2026-04-04 04:10:59.747659
+user_443,TRUE,Master Data Configurator|Analyst,John Smith,2026-03-04 04:10:59.747663,Resigned,,SAP QM,Manufacturing,Admin,User,2025-11-03 04:10:59.747666,2026-02-19 04:10:59.747667
+user_444,TRUE,Lot Disposition|Void,John Smith,2025-10-13 04:10:59.747671,On Leave,,IT Helpdesk,QA,Admin,User,2026-01-07 04:10:59.747674,2025-10-15 04:10:59.747675
+user_445,ENABLED,Batch Release,Søren Jørgensen,,Active,N/A,Medidata Rave,QC,Engineer,Service,2026-02-23 04:10:59.747680,2025-10-22 04:10:59.747682
+user_446,TRUE,Lot Disposition|Batch Release,María García,2026-04-06 04:10:59.747685,Active,,IT Helpdesk,QC,Manager,User,2025-07-30 04:10:59.747688,2026-02-17 04:10:59.747689
+user_447,ENABLED,Void|Administrator,Alice Brown,2026-02-23 04:10:59.747693,Active,,SharePoint,QC,Engineer,User,2025-12-02 04:10:59.747695,2026-01-15 04:10:59.747697
+user_448,Locked,Void|Specification Editor,Søren Jørgensen,2026-03-23 04:10:59.747700,Resigned,,LabVantage LIMS,QC,Admin,Shared,2025-08-05 04:10:59.747703,2026-01-07 04:10:59.747704
+user_449,Active,Master Data Configurator,John Smith,2026-03-05 04:10:59.747710,Inactive,N/A,IT Helpdesk,IT,Analyst,Shared,2025-10-07 04:10:59.747712,2026-03-11 04:10:59.747714
+user_450,Active,QC Reviewer,Alice Brown,,Inactive,N/A,LabVantage LIMS,IT,Analyst,User,2026-02-12 04:10:59.747718,2025-11-05 04:10:59.747720
+user_451,Inactive,Lot Disposition,Alice Brown,2026-03-23 04:10:59.747723,Terminated,yes,QAD ERP,QC,Analyst,Service,2026-02-11 04:10:59.747725,2026-01-14 04:10:59.747727
+user_452,ENABLED,Batch Approver,Alice Brown,2025-06-17 04:10:59.747730,Inactive,N/A,LabVantage LIMS,QC,Admin,Shared,2025-10-07 04:10:59.747733,2026-04-08 04:10:59.747734
+user_453,TRUE,Void,Søren Jørgensen,2026-02-28 04:10:59.747739,Inactive,,SAP QM,Manufacturing,Admin,User,2025-07-29 04:10:59.747742,2026-03-23 04:10:59.747744
+user_454,TRUE,Batch Approver,Alice Brown,2026-03-07 04:10:59.747746,On Leave,,IT Helpdesk,QA,Analyst,User,2026-02-04 04:10:59.747749,2026-02-27 04:10:59.747751
+user_455,Locked,Purge,John Smith,2026-02-28 04:10:59.747754,On Leave,,LabVantage LIMS,QC,Admin,Service,2025-05-03 04:10:59.747756,2025-11-06 04:10:59.747758
+user_456,Locked,Lot Disposition|System Admin,María García,2025-04-16 04:10:59.747761,Resigned,,Veeva Vault,Manufacturing,Analyst,User,2026-02-02 04:10:59.747764,2026-03-29 04:10:59.747765
+user_457,Inactive,DBA,Alice Brown,2026-03-26 04:10:59.747769,Terminated,yes,IT Helpdesk,QC,Engineer,User,2025-12-09 04:10:59.747772,2025-11-19 04:10:59.747773
+user_458,ENABLED,Method Admin,Søren Jørgensen,2026-02-28 04:10:59.747777,Resigned,,IT Helpdesk,QC,Manager,User,2026-01-23 04:10:59.747780,2025-12-07 04:10:59.747782
+user_459,ENABLED,Batch Release,John Smith,2025-08-12 04:10:59.747785,On Leave,,IT Helpdesk,QA,Manager,Shared,2025-10-19 04:10:59.747788,2026-01-09 04:10:59.747789
+user_460,TRUE,Lot Disposition,María García,2026-03-23 04:10:59.747793,Terminated,,Veeva Vault,QC,Manager,User,2025-05-20 04:10:59.747795,2025-11-04 04:10:59.747797
+user_461,TRUE,Lot Disposition,Alice Brown,2026-02-19 04:10:59.747800,Inactive,,Medidata Rave,Manufacturing,Manager,User,2025-05-09 04:10:59.747803,2026-03-12 04:10:59.747804
+user_462,TRUE,Analyst,Søren Jørgensen,2026-02-17 04:10:59.747807,Resigned,yes,QAD ERP,Manufacturing,Analyst,Shared,2025-07-24 04:10:59.747810,2025-10-17 04:10:59.747811
+user_463,Locked,Void,John Smith,2026-02-10 04:10:59.747814,Inactive,,SharePoint,IT,Engineer,Service,2025-11-22 04:10:59.747817,2026-01-25 04:10:59.747818
+user_464,TRUE,Lot Disposition,Søren Jørgensen,,On Leave,Analyst role per onboarding form HR-2024-0112,Veeva Vault,QC,Admin,Service,2025-12-05 04:10:59.747822,2025-10-30 04:10:59.747823
+user_465,Active,Counter Sign,John Smith,2026-03-22 04:10:59.747826,Terminated,Analyst role per onboarding form HR-2024-0112,Workday HR,QA,Analyst,Service,2025-10-21 04:10:59.747829,2025-11-06 04:10:59.747831
+user_466,Active,Calibration Manager,Alice Brown,2026-02-22 04:10:59.747833,On Leave,Analyst role per onboarding form HR-2024-0112,LabVantage LIMS,Manufacturing,Manager,Shared,2026-02-07 04:10:59.747836,2026-01-17 04:10:59.747837
+user_467,Active,System Admin,Søren Jørgensen,2026-04-01 04:10:59.747843,Terminated,N/A,LabVantage LIMS,Manufacturing,Admin,User,2025-12-07 04:10:59.747847,2026-01-16 04:10:59.747849
+user_468,ENABLED,Lot Disposition,María García,2025-07-28 04:10:59.747852,Inactive,Analyst role per onboarding form HR-2024-0112,Medidata Rave,IT,Analyst,Service,2025-10-04 04:10:59.747855,2026-03-26 04:10:59.747856
+user_469,Inactive,Administrator,Søren Jørgensen,2026-03-14 04:10:59.747859,Active,N/A,SharePoint,QA,Admin,Shared,2025-04-14 04:10:59.747862,2026-02-01 04:10:59.747863
+user_470,TRUE,Administrator,Søren Jørgensen,2026-03-05 04:10:59.747869,Active,,QAD ERP,QA,Engineer,User,2025-09-11 04:10:59.747875,2026-04-08 04:10:59.747877
+user_471,Locked,Administrator|Master Data Configurator,Alice Brown,2026-03-24 04:10:59.747884,Terminated,yes,IT Helpdesk,IT,Analyst,User,2025-12-02 04:10:59.747888,2025-11-13 04:10:59.747890
+user_472,Active,Master Data Configurator|DBA,Søren Jørgensen,2026-02-21 04:10:59.747895,On Leave,,Veeva Vault,IT,Engineer,Shared,2025-12-14 04:10:59.747898,2025-12-01 04:10:59.747899
+user_473,Locked,System Admin,Søren Jørgensen,2026-03-10 04:10:59.747902,Terminated,Analyst role per onboarding form HR-2024-0112,Workday HR,QC,Analyst,User,2025-11-24 04:10:59.747905,2026-01-20 04:10:59.747906
+user_474,TRUE,QC Reviewer,John Smith,2026-03-21 04:10:59.747909,Terminated,,Medidata Rave,IT,Engineer,Shared,2026-03-27 04:10:59.747912,2026-03-20 04:10:59.747913
+user_475,ENABLED,DBA|Lot Disposition,Alice Brown,2026-03-24 04:10:59.747916,Inactive,,Veeva Vault,QC,Manager,Shared,2025-09-12 04:10:59.747919,2025-12-28 04:10:59.747921
+user_476,TRUE,Void,John Smith,2026-02-22 04:10:59.747927,Inactive,,LabVantage LIMS,QC,Manager,Shared,2025-05-14 04:10:59.747930,2026-04-06 04:10:59.747931
+user_477,Inactive,Master Data Configurator,Søren Jørgensen,2026-02-21 04:10:59.747935,Active,,QAD ERP,IT,Engineer,User,2026-01-09 04:10:59.747937,2026-03-30 04:10:59.747939
+user_478,ENABLED,Specification Editor|Delete Records,John Smith,2026-02-17 04:10:59.747943,Resigned,yes,SharePoint,QC,Analyst,User,2025-10-11 04:10:59.747945,2025-10-26 04:10:59.747947
+user_479,Inactive,Purge,John Smith,2026-02-17 04:10:59.747950,On Leave,,IT Helpdesk,QC,Manager,Service,2025-12-17 04:10:59.747952,2025-12-30 04:10:59.747954
+user_480,ENABLED,Batch Approver,Søren Jørgensen,2025-04-26 04:10:59.747957,Resigned,N/A,SharePoint,IT,Engineer,User,2025-08-28 04:10:59.747959,2026-01-16 04:10:59.747961
+user_481,Inactive,System Admin,María García,2026-02-18 04:10:59.747964,Active,yes,SAP QM,QC,Analyst,Shared,2025-10-05 04:10:59.747967,2026-01-07 04:10:59.747968
+user_482,Active,Calibration Manager,Søren Jørgensen,2026-02-15 04:10:59.747971,On Leave,yes,IT Helpdesk,QC,Manager,Shared,2025-09-09 04:10:59.747973,2025-12-27 04:10:59.747975
+user_483,Active,Method Admin,Alice Brown,2026-03-29 04:10:59.747978,On Leave,N/A,LabVantage LIMS,Manufacturing,Analyst,Service,2025-05-25 04:10:59.747981,2026-04-06 04:10:59.747983
+user_484,TRUE,System Admin|Analyst,María García,2026-04-07 04:10:59.747986,Inactive,Analyst role per onboarding form HR-2024-0112,Medidata Rave,Manufacturing,Engineer,Shared,2025-10-08 04:10:59.747989,2026-04-09 04:10:59.747990
+user_485,Active,Administrator|Authorised Signatory,María García,2025-11-18 04:10:59.747993,Active,Analyst role per onboarding form HR-2024-0112,SAP QM,QC,Admin,Service,2025-10-22 04:10:59.747996,2025-12-04 04:10:59.747998
+user_486,ENABLED,Specification Editor,John Smith,2026-03-12 04:10:59.748004,On Leave,,Workday HR,IT,Manager,User,2025-09-10 04:10:59.748008,2025-10-29 04:10:59.748009
+user_487,ENABLED,Void,Alice Brown,2025-04-07 04:10:59.748013,On Leave,,SharePoint,QC,Manager,Service,2025-12-09 04:10:59.748016,2026-02-10 04:10:59.748017
+user_488,ENABLED,Lot Disposition,John Smith,2026-04-02 04:10:59.748020,On Leave,,SAP QM,QC,Admin,User,2026-03-15 04:10:59.748023,2026-02-15 04:10:59.748024
+user_489,ENABLED,Batch Release|Purge,John Smith,2026-02-24 04:10:59.748028,On Leave,N/A,Workday HR,QA,Engineer,Shared,2025-05-19 04:10:59.748030,2026-01-23 04:10:59.748032
+user_490,TRUE,Specification Editor,John Smith,2026-03-18 04:10:59.748035,Resigned,yes,Workday HR,Manufacturing,Analyst,User,2025-05-29 04:10:59.748037,2025-10-30 04:10:59.748039
+user_491,TRUE,Lot Disposition|Method Admin|Specification Editor,John Smith,2026-04-01 04:10:59.748044,Resigned,,Medidata Rave,IT,Engineer,Shared,2026-04-06 04:10:59.748046,2026-02-11 04:10:59.748047
+user_492,Locked,Authorised Signatory,Søren Jørgensen,2026-02-12 04:10:59.748050,Inactive,,SAP QM,QA,Analyst,Shared,2026-01-30 04:10:59.748053,2026-03-28 04:10:59.748054
+user_493,Active,Analyst|Counter Sign,María García,2026-03-21 04:10:59.748058,On Leave,N/A,LabVantage LIMS,QC,Admin,User,2026-02-18 04:10:59.748061,2026-02-18 04:10:59.748062
+user_494,ENABLED,Void,John Smith,2026-04-09 04:10:59.748066,On Leave,Analyst role per onboarding form HR-2024-0112,Workday HR,Manufacturing,Engineer,Shared,2025-12-01 04:10:59.748069,2026-03-09 04:10:59.748071
+user_495,Locked,Method Admin|Method Admin,Alice Brown,2026-03-02 04:10:59.748076,On Leave,yes,Medidata Rave,QC,Manager,Shared,2025-07-27 04:10:59.748079,2025-10-23 04:10:59.748080
+user_496,Active,Batch Approver,Søren Jørgensen,2025-06-13 04:10:59.748085,On Leave,,IT Helpdesk,IT,Engineer,User,2026-03-14 04:10:59.748089,2025-11-27 04:10:59.748090
+user_497,Inactive,Method Admin|Authorised Signatory,María García,2026-03-19 04:10:59.748093,Resigned,N/A,SAP QM,QC,Manager,Shared,2025-09-19 04:10:59.748096,2025-12-29 04:10:59.748097
+user_498,Inactive,Delete Records,John Smith,,Active,yes,Workday HR,QA,Analyst,Service,2025-12-03 04:10:59.748102,2026-01-03 04:10:59.748103
+user_499,ENABLED,Method Admin,Alice Brown,2026-02-28 04:10:59.748106,Inactive,yes,LabVantage LIMS,IT,Manager,Service,2025-06-06 04:10:59.748109,2025-12-02 04:10:59.748110
+shared_analyst,ENABLED,Purge,John Smith,2026-03-05 04:10:59.748113,Resigned,N/A,IT Helpdesk,Manufacturing,Analyst,Service,2025-08-27 04:10:59.748116,2026-02-08 04:10:59.748117
+user_501,TRUE,Calibration Manager,Alice Brown,2026-02-18 04:10:59.748121,Inactive,N/A,SharePoint,QA,Admin,Shared,2025-05-31 04:10:59.748123,2025-10-16 04:10:59.748125
+user_502,Active,Purge,John Smith,2026-03-09 04:10:59.748128,Resigned,N/A,Veeva Vault,Manufacturing,Analyst,User,2026-02-08 04:10:59.748131,2026-01-28 04:10:59.748132
+user_503,Active,System Admin,Søren Jørgensen,2026-03-28 04:10:59.748135,On Leave,yes,Workday HR,QA,Admin,Service,2026-02-23 04:10:59.748137,2025-12-13 04:10:59.748139
+user_504,Active,QC Reviewer|DBA,Søren Jørgensen,2025-08-28 04:10:59.748144,On Leave,N/A,SharePoint,QC,Admin,User,2025-09-06 04:10:59.748147,2025-10-21 04:10:59.748148
+user_505,Locked,Master Data Configurator|Master Data Configurator,John Smith,2026-02-21 04:10:59.748151,Terminated,yes,IT Helpdesk,QA,Manager,User,2025-04-21 04:10:59.748154,2026-03-06 04:10:59.748155
+user_506,Active,System Admin,Alice Brown,2026-04-05 04:10:59.748158,Resigned,yes,SAP QM,Manufacturing,Manager,Shared,2025-05-02 04:10:59.748161,2025-10-18 04:10:59.748163
+user_507,Active,DBA,María García,2026-02-18 04:10:59.748166,Terminated,,Workday HR,QA,Analyst,Service,2025-06-18 04:10:59.748169,2026-03-03 04:10:59.748170
+user_508,TRUE,Calibration Manager,John Smith,2026-03-13 04:10:59.748173,On Leave,Analyst role per onboarding form HR-2024-0112,IT Helpdesk,IT,Engineer,User,2026-02-24 04:10:59.748176,2025-11-06 04:10:59.748177
+user_509,TRUE,DBA,John Smith,2026-01-23 04:10:59.748180,Resigned,,LabVantage LIMS,IT,Admin,Shared,2025-11-04 04:10:59.748183,2026-03-15 04:10:59.748185
+user_510,TRUE,Batch Approver,María García,2026-03-31 04:10:59.748188,Resigned,yes,Medidata Rave,Manufacturing,Manager,Service,2026-01-11 04:10:59.748191,2025-12-24 04:10:59.748193
+user_511,Locked,Administrator,John Smith,2026-02-21 04:10:59.748196,Active,yes,Workday HR,Manufacturing,Admin,Service,2026-03-21 04:10:59.748199,2026-04-01 04:10:59.748200
+user_512,Active,Master Data Configurator,Søren Jørgensen,2026-02-18 04:10:59.748203,Active,,Workday HR,QA,Admin,Shared,2026-01-11 04:10:59.748206,2026-01-12 04:10:59.748207
+user_513,Active,QC Reviewer,María García,2026-03-02 04:10:59.748212,Active,Analyst role per onboarding form HR-2024-0112,SAP QM,Manufacturing,Analyst,User,2025-12-09 04:10:59.748215,2026-01-22 04:10:59.748217
+user_514,Locked,Lot Disposition|Lot Disposition|System Admin,Alice Brown,2026-03-26 04:10:59.748221,On Leave,Analyst role per onboarding form HR-2024-0112,Medidata Rave,IT,Manager,Service,2026-02-12 04:10:59.748224,2025-12-14 04:10:59.748225
+user_515,TRUE,Batch Release,John Smith,2026-03-10 04:10:59.748230,Inactive,yes,Veeva Vault,Manufacturing,Analyst,Service,2025-09-25 04:10:59.748233,2026-01-29 04:10:59.748234
+user_516,Locked,Batch Release,John Smith,,Inactive,N/A,IT Helpdesk,Manufacturing,Analyst,User,2025-11-24 04:10:59.748239,2026-02-25 04:10:59.748240
+user_517,Active,Batch Approver,John Smith,2026-02-19 04:10:59.748244,On Leave,yes,Medidata Rave,QC,Admin,Shared,2025-12-12 04:10:59.748247,2025-12-03 04:10:59.748248
+user_518,Locked,Counter Sign,Alice Brown,2026-03-20 04:10:59.748251,Terminated,yes,Workday HR,IT,Engineer,Shared,2025-07-30 04:10:59.748254,2025-12-21 04:10:59.748255
+user_519,Inactive,Lot Disposition,María García,,On Leave,,IT Helpdesk,IT,Engineer,User,2025-05-13 04:10:59.748259,2025-12-18 04:10:59.748261
+user_520,ENABLED,Specification Editor,John Smith,2026-03-06 04:10:59.748264,Active,yes,IT Helpdesk,IT,Analyst,Service,2025-10-18 04:10:59.748266,2026-04-05 04:10:59.748268
+user_521,Locked,Purge|Analyst,Søren Jørgensen,2025-08-24 04:10:59.748272,Active,yes,SAP QM,QC,Engineer,Shared,2025-06-11 04:10:59.748275,2026-03-07 04:10:59.748276
+user_522,TRUE,Lot Disposition,John Smith,2026-02-21 04:10:59.748282,Active,yes,SharePoint,QA,Analyst,Shared,2026-02-12 04:10:59.748285,2025-12-27 04:10:59.748287
+user_523,Active,Batch Release,John Smith,2026-02-13 04:10:59.748290,On Leave,,Workday HR,QA,Manager,Shared,2026-04-03 04:10:59.748293,2026-03-03 04:10:59.748294
+user_524,Locked,Void,Alice Brown,2026-03-28 04:10:59.748297,Terminated,,Workday HR,IT,Engineer,Service,2025-04-25 04:10:59.748300,2026-02-08 04:10:59.748301
+user_525,Active,DBA,Søren Jørgensen,2026-03-24 04:10:59.748304,Inactive,N/A,Medidata Rave,QC,Admin,Shared,2026-01-31 04:10:59.748309,2026-02-26 04:10:59.748311
+user_526,Locked,Void,John Smith,2026-01-26 04:10:59.748314,Inactive,Analyst role per onboarding form HR-2024-0112,QAD ERP,Manufacturing,Manager,Shared,2025-10-25 04:10:59.748317,2026-03-12 04:10:59.748318
+user_527,ENABLED,Analyst|Purge,Søren Jørgensen,2026-02-26 04:10:59.748322,Active,Analyst role per onboarding form HR-2024-0112,Medidata Rave,IT,Manager,Service,2025-06-03 04:10:59.748324,2025-10-25 04:10:59.748326
+user_528,Active,Method Admin,María García,2026-04-07 04:10:59.748329,Terminated,Analyst role per onboarding form HR-2024-0112,Veeva Vault,Manufacturing,Admin,Shared,2025-08-03 04:10:59.748332,2025-12-13 04:10:59.748333
+user_529,Locked,Purge,María García,2025-09-10 04:10:59.748336,Inactive,,Medidata Rave,Manufacturing,Manager,User,2025-12-29 04:10:59.748339,2025-11-01 04:10:59.748340
+user_530,TRUE,DBA|QC Reviewer,Søren Jørgensen,2026-02-24 04:10:59.748344,On Leave,Analyst role per onboarding form HR-2024-0112,SharePoint,Manufacturing,Admin,Service,2025-06-23 04:10:59.748347,2026-03-10 04:10:59.748348
+user_531,Inactive,Specification Editor,María García,2026-04-06 04:10:59.748353,Active,,SharePoint,QC,Engineer,Service,2026-02-24 04:10:59.748356,2026-02-03 04:10:59.748357
+user_532,Active,QC Reviewer,John Smith,2025-09-02 04:10:59.748360,Resigned,,LabVantage LIMS,Manufacturing,Engineer,Service,2026-01-31 04:10:59.748363,2026-02-01 04:10:59.748364
+user_533,Inactive,Method Admin,Søren Jørgensen,2026-04-02 04:10:59.748367,Resigned,,SharePoint,QC,Manager,Shared,2025-10-25 04:10:59.748370,2025-11-15 04:10:59.748371
+user_534,TRUE,Lot Disposition,John Smith,2026-02-18 04:10:59.748374,On Leave,Analyst role per onboarding form HR-2024-0112,Veeva Vault,IT,Analyst,Shared,2025-12-08 04:10:59.748377,2026-03-09 04:10:59.748378
+user_535,Active,Lot Disposition|Master Data Configurator,Alice Brown,2026-02-05 04:10:59.748381,Terminated,Analyst role per onboarding form HR-2024-0112,Veeva Vault,QA,Admin,User,2025-08-28 04:10:59.748384,2026-03-22 04:10:59.748385
+user_536,Active,Calibration Manager,Alice Brown,2026-03-30 04:10:59.748388,On Leave,,SAP QM,IT,Admin,Service,2026-04-08 04:10:59.748391,2025-11-21 04:10:59.748392
+user_537,Locked,QC Reviewer,Søren Jørgensen,2026-02-11 04:10:59.748395,Inactive,,LabVantage LIMS,Manufacturing,Admin,Service,2026-04-09 04:10:59.748397,2025-12-19 04:10:59.748398
+user_538,Inactive,Purge,María García,2025-07-12 04:10:59.748401,Inactive,Analyst role per onboarding form HR-2024-0112,SAP QM,Manufacturing,Engineer,Shared,2025-07-18 04:10:59.748404,2026-03-30 04:10:59.748406
+user_539,TRUE,Batch Release,Søren Jørgensen,2026-02-13 04:10:59.748409,Inactive,yes,LabVantage LIMS,QC,Analyst,Service,2025-08-26 04:10:59.748411,2026-03-29 04:10:59.748412
+user_540,Active,Counter Sign,Søren Jørgensen,2026-03-26 04:10:59.748418,On Leave,N/A,IT Helpdesk,QC,Admin,User,2025-10-13 04:10:59.748420,2026-02-19 04:10:59.748422
+user_541,TRUE,Batch Approver|Lot Disposition,John Smith,2025-07-06 04:10:59.748425,Active,Analyst role per onboarding form HR-2024-0112,Medidata Rave,Manufacturing,Analyst,Service,2025-12-29 04:10:59.748428,2025-10-15 04:10:59.748430
+user_542,ENABLED,Purge,John Smith,2026-03-05 04:10:59.748432,Active,,Medidata Rave,QC,Engineer,Shared,2025-06-10 04:10:59.748435,2025-12-12 04:10:59.748436
+user_543,ENABLED,Method Admin,María García,2026-03-29 04:10:59.748440,Active,,SAP QM,QC,Manager,User,2025-06-30 04:10:59.748442,2025-12-02 04:10:59.748444
+user_544,TRUE,Batch Approver|Batch Release,Alice Brown,2025-09-16 04:10:59.748447,On Leave,Analyst role per onboarding form HR-2024-0112,Workday HR,Manufacturing,Engineer,Service,2025-11-15 04:10:59.748450,2026-02-06 04:10:59.748451
+user_545,ENABLED,Administrator,Søren Jørgensen,2026-02-14 04:10:59.748456,Terminated,,SharePoint,QC,Admin,User,2025-12-14 04:10:59.748459,2026-01-15 04:10:59.748463
+user_546,Active,Authorised Signatory|Master Data Configurator,Søren Jørgensen,2026-04-08 04:10:59.748468,Active,Analyst role per onboarding form HR-2024-0112,Medidata Rave,QA,Admin,User,2025-08-26 04:10:59.748471,2025-11-08 04:10:59.748472
+user_547,TRUE,Method Admin,Søren Jørgensen,,Active,N/A,QAD ERP,Manufacturing,Admin,Service,2025-10-28 04:10:59.748476,2025-12-03 04:10:59.748478
+user_548,Locked,Batch Release,Søren Jørgensen,2026-02-25 04:10:59.748481,Terminated,,QAD ERP,QA,Admin,User,2025-07-02 04:10:59.748484,2026-01-04 04:10:59.748485
+user_549,Locked,Method Admin|Batch Approver,John Smith,2026-03-18 04:10:59.748488,Active,yes,SharePoint,QA,Admin,Service,2025-05-16 04:10:59.748492,2025-11-28 04:10:59.748493
+user_550,TRUE,Analyst|Master Data Configurator,Søren Jørgensen,2026-02-26 04:10:59.748499,Active,yes,Medidata Rave,Manufacturing,Engineer,Service,2026-02-19 04:10:59.748502,2025-12-30 04:10:59.748503
+user_551,Locked,Administrator|Method Admin|Counter Sign,Alice Brown,2026-04-05 04:10:59.748506,On Leave,,SAP QM,QA,Engineer,Service,2025-07-30 04:10:59.748509,2025-11-30 04:10:59.748510
+user_552,TRUE,Specification Editor,Alice Brown,,Inactive,Analyst role per onboarding form HR-2024-0112,LabVantage LIMS,QC,Engineer,Shared,2026-03-10 04:10:59.748514,2025-10-17 04:10:59.748516
+user_553,Locked,Void,María García,2026-03-25 04:10:59.748527,On Leave,yes,SAP QM,QC,Manager,User,2025-07-01 04:10:59.748530,2026-01-29 04:10:59.748531
+user_554,ENABLED,Administrator|Master Data Configurator,María García,2026-02-23 04:10:59.748535,Inactive,yes,SharePoint,IT,Admin,Shared,2025-06-18 04:10:59.748540,2026-03-20 04:10:59.748542
+user_555,Active,Method Admin,Søren Jørgensen,2026-02-21 04:10:59.748545,On Leave,yes,Veeva Vault,QC,Engineer,Service,2025-08-06 04:10:59.748547,2026-02-10 04:10:59.748549
+user_556,Active,Delete Records,María García,,Active,,Medidata Rave,QC,Engineer,User,2025-04-14 04:10:59.748553,2025-11-15 04:10:59.748554
+user_557,Active,QC Reviewer|System Admin,María García,,Terminated,,IT Helpdesk,QC,Manager,User,2025-05-19 04:10:59.748559,2025-12-28 04:10:59.748560
+user_558,Inactive,Administrator,Søren Jørgensen,2025-12-04 04:10:59.748563,On Leave,Analyst role per onboarding form HR-2024-0112,IT Helpdesk,QA,Manager,Service,2026-02-12 04:10:59.748565,2026-02-27 04:10:59.748567
+user_559,Locked,QC Reviewer,Alice Brown,2026-03-18 04:10:59.748574,Inactive,N/A,SharePoint,Manufacturing,Admin,Service,2025-11-11 04:10:59.748576,2026-01-22 04:10:59.748578
+user_560,Inactive,QC Reviewer,Alice Brown,2025-05-08 04:10:59.748581,Inactive,,IT Helpdesk,Manufacturing,Analyst,User,2025-10-24 04:10:59.748584,2026-03-25 04:10:59.748585
+user_561,TRUE,Analyst|Specification Editor,Søren Jørgensen,2026-03-08 04:10:59.748589,On Leave,,Workday HR,IT,Analyst,User,2025-11-20 04:10:59.748591,2025-10-29 04:10:59.748593
+user_562,ENABLED,Authorised Signatory,María García,2025-05-09 04:10:59.748595,Resigned,Analyst role per onboarding form HR-2024-0112,IT Helpdesk,IT,Engineer,User,2025-07-19 04:10:59.748599,2026-01-08 04:10:59.748600
+user_563,ENABLED,Void,John Smith,2026-03-04 04:10:59.748603,Resigned,,IT Helpdesk,QC,Analyst,User,2025-06-22 04:10:59.748606,2025-11-13 04:10:59.748608
+user_564,ENABLED,Void,Alice Brown,,Inactive,yes,QAD ERP,Manufacturing,Manager,Service,2025-07-24 04:10:59.748612,2025-11-23 04:10:59.748614
+user_565,Locked,Calibration Manager,Søren Jørgensen,2026-03-03 04:10:59.748617,Terminated,Analyst role per onboarding form HR-2024-0112,IT Helpdesk,Manufacturing,Admin,Service,2025-11-10 04:10:59.748620,2026-03-14 04:10:59.748621
+user_566,ENABLED,Batch Release|Lot Disposition,María García,2026-03-21 04:10:59.748625,Inactive,,Medidata Rave,QC,Analyst,User,2025-09-29 04:10:59.748627,2026-04-06 04:10:59.748629
+user_567,ENABLED,QC Reviewer,Søren Jørgensen,2026-03-08 04:10:59.748632,Active,yes,IT Helpdesk,IT,Analyst,User,2025-09-02 04:10:59.748635,2026-03-09 04:10:59.748636
+user_568,Inactive,Batch Release|DBA|Method Admin,Alice Brown,2026-02-09 04:10:59.748642,Terminated,,Workday HR,IT,Manager,Shared,2025-08-28 04:10:59.748645,2026-02-24 04:10:59.748646
+user_569,Active,Void,Alice Brown,2026-03-09 04:10:59.748649,On Leave,Analyst role per onboarding form HR-2024-0112,SharePoint,QC,Manager,User,2025-06-17 04:10:59.748652,2026-03-01 04:10:59.748653
+user_570,Locked,Void,John Smith,2026-02-21 04:10:59.748656,Resigned,,Workday HR,QA,Analyst,Shared,2025-07-07 04:10:59.748659,2025-10-22 04:10:59.748660
+user_571,ENABLED,System Admin|Specification Editor,Søren Jørgensen,2025-09-08 04:10:59.748664,Resigned,yes,Workday HR,IT,Analyst,Shared,2025-04-19 04:10:59.748667,2025-11-29 04:10:59.748668
+user_572,Locked,Purge,John Smith,,On Leave,yes,QAD ERP,IT,Analyst,Shared,2025-09-04 04:10:59.748672,2025-10-19 04:10:59.748673
+user_573,Inactive,Batch Release,Alice Brown,2026-03-25 04:10:59.748676,On Leave,N/A,Veeva Vault,QC,Manager,Shared,2026-03-10 04:10:59.748679,2026-03-10 04:10:59.748681
+user_574,TRUE,Void,María García,2026-03-12 04:10:59.748684,Inactive,,QAD ERP,Manufacturing,Manager,User,2025-12-02 04:10:59.748687,2025-10-30 04:10:59.748688
+user_575,TRUE,QC Reviewer,María García,2026-02-09 04:10:59.748692,Active,Analyst role per onboarding form HR-2024-0112,Workday HR,Manufacturing,Engineer,Service,2025-08-21 04:10:59.748694,2026-04-02 04:10:59.748696
+user_576,Inactive,Administrator,María García,2025-08-21 04:10:59.748699,Inactive,,SAP QM,Manufacturing,Admin,User,2025-11-07 04:10:59.748702,2025-12-08 04:10:59.748703
+user_577,ENABLED,Counter Sign,María García,2026-03-09 04:10:59.748710,Terminated,,SAP QM,QA,Analyst,Shared,2025-07-03 04:10:59.748713,2025-10-16 04:10:59.748714
+user_578,Active,System Admin|Analyst,María García,2026-02-27 04:10:59.748718,Inactive,yes,Workday HR,Manufacturing,Manager,User,2025-04-18 04:10:59.748720,2025-12-27 04:10:59.748721
+user_579,TRUE,Counter Sign,Alice Brown,2026-03-29 04:10:59.748724,Active,,QAD ERP,Manufacturing,Analyst,Shared,2025-11-05 04:10:59.748727,2026-03-10 04:10:59.748728
+user_580,ENABLED,Batch Release|Batch Approver,John Smith,2026-01-27 04:10:59.748731,Active,N/A,Workday HR,IT,Manager,Shared,2025-12-06 04:10:59.748734,2026-03-09 04:10:59.748735
+user_581,TRUE,Calibration Manager,John Smith,2026-02-22 04:10:59.748738,Terminated,Analyst role per onboarding form HR-2024-0112,SharePoint,QC,Engineer,Service,2025-11-19 04:10:59.748741,2026-03-20 04:10:59.748742
+user_582,TRUE,Method Admin,Søren Jørgensen,2025-12-10 04:10:59.748745,Terminated,N/A,IT Helpdesk,IT,Analyst,Service,2025-12-17 04:10:59.748748,2026-01-24 04:10:59.748749
+user_583,ENABLED,Batch Release,María García,2026-04-02 04:10:59.748752,Inactive,N/A,IT Helpdesk,IT,Manager,Shared,2025-12-06 04:10:59.748755,2025-12-30 04:10:59.748756
+user_584,Locked,Batch Release,María García,,Resigned,,IT Helpdesk,Manufacturing,Manager,Service,2025-04-29 04:10:59.748761,2025-11-15 04:10:59.748765
+user_585,Active,Specification Editor,Alice Brown,2026-04-07 04:10:59.748769,Terminated,Analyst role per onboarding form HR-2024-0112,IT Helpdesk,QA,Engineer,User,2025-05-02 04:10:59.748771,2026-02-27 04:10:59.748773
+user_586,Active,Batch Approver,John Smith,2026-03-07 04:10:59.748777,On Leave,N/A,Medidata Rave,Manufacturing,Admin,Service,2025-10-23 04:10:59.748780,2025-12-20 04:10:59.748782
+user_587,TRUE,Batch Release,Søren Jørgensen,,Active,,SAP QM,Manufacturing,Analyst,Shared,2026-03-23 04:10:59.748786,2026-02-24 04:10:59.748788
+user_588,Locked,DBA,John Smith,2026-03-02 04:10:59.748791,Resigned,,SharePoint,Manufacturing,Engineer,Service,2025-11-01 04:10:59.748794,2025-12-14 04:10:59.748795
+user_589,Inactive,Lot Disposition,Søren Jørgensen,2025-08-13 04:10:59.748798,Active,N/A,Medidata Rave,QA,Manager,Service,2025-08-05 04:10:59.748801,2026-02-13 04:10:59.748802
+user_590,TRUE,Method Admin,John Smith,2025-08-29 04:10:59.748807,Active,Analyst role per onboarding form HR-2024-0112,SAP QM,Manufacturing,Manager,Shared,2025-07-10 04:10:59.748809,2025-11-01 04:10:59.748811
+user_591,Inactive,Purge,María García,2026-04-02 04:10:59.748814,Inactive,,Veeva Vault,QC,Analyst,Shared,2025-06-28 04:10:59.748816,2026-03-08 04:10:59.748818
+user_592,TRUE,Lot Disposition,Søren Jørgensen,2026-02-27 04:10:59.748821,Terminated,yes,SharePoint,QC,Engineer,Shared,2025-12-21 04:10:59.748824,2026-01-28 04:10:59.748825
+user_593,ENABLED,Lot Disposition,John Smith,2026-04-01 04:10:59.748829,Active,,Workday HR,QC,Analyst,User,2025-10-23 04:10:59.748831,2025-11-10 04:10:59.748832
+user_594,ENABLED,Method Admin|Specification Editor,Søren Jørgensen,2025-07-15 04:10:59.748836,Terminated,N/A,LabVantage LIMS,Manufacturing,Manager,Shared,2025-11-09 04:10:59.748839,2025-12-25 04:10:59.748840
+user_595,Active,Batch Release,Søren Jørgensen,,Terminated,Analyst role per onboarding form HR-2024-0112,Medidata Rave,QC,Engineer,Shared,2025-11-13 04:10:59.748847,2025-12-18 04:10:59.748848
+user_596,Inactive,Administrator,María García,2026-03-11 04:10:59.748851,Resigned,,LabVantage LIMS,QC,Manager,User,2026-02-01 04:10:59.748853,2025-10-15 04:10:59.748855
+user_597,Locked,Delete Records,John Smith,2026-03-11 04:10:59.748857,Terminated,yes,IT Helpdesk,QC,Manager,User,2025-07-18 04:10:59.748860,2026-01-04 04:10:59.748862
+user_598,Inactive,Authorised Signatory,Alice Brown,2026-02-24 04:10:59.748865,Resigned,Analyst role per onboarding form HR-2024-0112,IT Helpdesk,IT,Engineer,Service,2026-03-15 04:10:59.748868,2025-11-26 04:10:59.748869
+user_599,Inactive,Counter Sign,John Smith,2026-02-18 04:10:59.748872,On Leave,yes,IT Helpdesk,Manufacturing,Manager,Shared,2026-02-09 04:10:59.748874,2026-04-01 04:10:59.748876
+shared_analyst,Active,QC Reviewer,John Smith,2026-04-09 04:10:59.748879,Active,yes,SharePoint,IT,Manager,User,2025-09-20 04:10:59.749213,2025-12-03 04:10:59.749220
+user_601,Inactive,Master Data Configurator,Alice Brown,2026-02-20 04:10:59.749231,Resigned,,Veeva Vault,IT,Manager,Shared,2025-06-19 04:10:59.749234,2025-10-19 04:10:59.749237
+user_602,Inactive,System Admin,John Smith,2026-02-14 04:10:59.749241,Inactive,N/A,IT Helpdesk,IT,Admin,User,2025-08-21 04:10:59.749244,2026-03-24 04:10:59.749246
+user_603,TRUE,Purge|Void,Søren Jørgensen,2025-03-29 04:10:59.749250,Active,,IT Helpdesk,IT,Analyst,Service,2025-05-10 04:10:59.749253,2026-04-02 04:10:59.749255
+user_604,TRUE,Authorised Signatory,Søren Jørgensen,2026-02-15 04:10:59.749268,Terminated,,Workday HR,IT,Manager,User,2025-11-24 04:10:59.749273,2025-12-30 04:10:59.749276
+user_605,Inactive,Void,John Smith,2026-02-20 04:10:59.749280,On Leave,yes,Medidata Rave,Manufacturing,Analyst,User,2025-08-11 04:10:59.749285,2025-11-18 04:10:59.749287
+user_606,ENABLED,Delete Records,John Smith,2026-04-01 04:10:59.749293,On Leave,yes,SAP QM,QA,Engineer,Shared,2025-09-29 04:10:59.749312,2026-01-20 04:10:59.749316
+user_607,Inactive,Method Admin,Søren Jørgensen,2026-02-21 04:10:59.749322,Active,yes,Veeva Vault,Manufacturing,Engineer,Service,2025-04-14 04:10:59.749326,2025-12-16 04:10:59.749344
+user_608,Active,Delete Records,Alice Brown,2025-07-09 04:10:59.749348,Inactive,,SharePoint,QC,Engineer,User,2026-04-09 04:10:59.749351,2025-12-18 04:10:59.749352
+user_609,TRUE,Purge|Master Data Configurator,John Smith,2026-02-21 04:10:59.749355,Terminated,,Veeva Vault,Manufacturing,Engineer,Shared,2025-10-04 04:10:59.749358,2025-10-15 04:10:59.749360
+user_610,Active,Batch Approver,Alice Brown,2026-03-21 04:10:59.749363,Resigned,yes,Medidata Rave,QA,Manager,Shared,2025-12-04 04:10:59.749366,2026-03-24 04:10:59.749368
+user_611,Active,Batch Approver|System Admin,Alice Brown,2026-03-24 04:10:59.749372,Active,Analyst role per onboarding form HR-2024-0112,IT Helpdesk,QA,Admin,Shared,2026-01-08 04:10:59.749375,2025-10-19 04:10:59.749376
+user_612,Locked,Purge,Søren Jørgensen,2026-03-07 04:10:59.749383,Active,,QAD ERP,QA,Engineer,User,2026-02-04 04:10:59.749386,2025-11-20 04:10:59.749387
+user_613,TRUE,Void,María García,2026-01-18 04:10:59.749391,On Leave,Analyst role per onboarding form HR-2024-0112,SAP QM,QA,Analyst,Shared,2025-05-12 04:10:59.749393,2026-03-25 04:10:59.749397
+user_614,Locked,Purge,John Smith,2025-03-16 04:10:59.749402,Terminated,Analyst role per onboarding form HR-2024-0112,Workday HR,Manufacturing,Manager,User,2025-05-05 04:10:59.749405,2026-02-23 04:10:59.749407
+user_615,TRUE,Specification Editor|System Admin,Søren Jørgensen,2026-04-09 04:10:59.749411,Inactive,Analyst role per onboarding form HR-2024-0112,Workday HR,QC,Analyst,Shared,2025-06-15 04:10:59.749413,2026-01-16 04:10:59.749415
+user_616,Active,Specification Editor,Søren Jørgensen,2026-04-05 04:10:59.749418,Terminated,,Veeva Vault,QC,Admin,Shared,2026-02-13 04:10:59.749421,2025-10-12 04:10:59.749422
+user_617,Locked,Counter Sign,Søren Jørgensen,2026-04-04 04:10:59.749426,On Leave,Analyst role per onboarding form HR-2024-0112,IT Helpdesk,Manufacturing,Manager,Service,2025-09-20 04:10:59.749429,2025-11-01 04:10:59.749430
+user_618,TRUE,Batch Release,Søren Jørgensen,2026-03-29 04:10:59.749434,Resigned,N/A,SharePoint,QA,Manager,Service,2025-09-24 04:10:59.749436,2026-02-03 04:10:59.749438
+user_619,ENABLED,Method Admin|Batch Release,Alice Brown,2026-03-01 04:10:59.749443,Terminated,yes,LabVantage LIMS,QA,Analyst,Shared,2025-08-15 04:10:59.749446,2026-03-06 04:10:59.749447
+user_620,Locked,Master Data Configurator,Søren Jørgensen,2025-05-03 04:10:59.749450,Active,yes,Medidata Rave,IT,Manager,Service,2025-04-19 04:10:59.749453,2025-12-19 04:10:59.749454
+user_621,Inactive,Batch Approver,John Smith,2025-05-30 04:10:59.749457,Terminated,Analyst role per onboarding form HR-2024-0112,LabVantage LIMS,Manufacturing,Engineer,Service,2025-11-24 04:10:59.749460,2026-02-03 04:10:59.749461
+user_622,ENABLED,Master Data Configurator,John Smith,2026-04-05 04:10:59.749465,Inactive,,QAD ERP,Manufacturing,Admin,User,2025-06-13 04:10:59.749468,2025-10-13 04:10:59.749469
+user_623,Active,Analyst,María García,2026-03-17 04:10:59.749472,Inactive,Analyst role per onboarding form HR-2024-0112,Veeva Vault,IT,Manager,Shared,2026-01-13 04:10:59.749475,2025-10-17 04:10:59.749477
+user_624,TRUE,Purge,María García,2025-08-22 04:10:59.749480,Terminated,N/A,QAD ERP,QC,Analyst,User,2025-07-29 04:10:59.749482,2026-02-28 04:10:59.749484
+user_625,ENABLED,QC Reviewer,María García,2026-02-10 04:10:59.749487,Inactive,N/A,QAD ERP,IT,Admin,User,2025-05-01 04:10:59.749490,2025-11-29 04:10:59.749491
+user_626,TRUE,Master Data Configurator,Alice Brown,2026-02-24 04:10:59.749494,Active,yes,SAP QM,QC,Manager,Shared,2025-06-05 04:10:59.749497,2026-01-02 04:10:59.749498
+user_627,TRUE,Method Admin|QC Reviewer,John Smith,2026-03-16 04:10:59.749502,Terminated,Analyst role per onboarding form HR-2024-0112,Workday HR,QA,Analyst,Shared,2026-01-11 04:10:59.749505,2026-01-02 04:10:59.749506
+user_628,TRUE,Delete Records,María García,2026-03-23 04:10:59.749510,Resigned,yes,Workday HR,QC,Manager,Service,2025-04-15 04:10:59.749513,2025-12-20 04:10:59.749514
+user_629,TRUE,Specification Editor,John Smith,2026-03-08 04:10:59.749517,Inactive,N/A,IT Helpdesk,QC,Analyst,Shared,2025-07-22 04:10:59.749520,2025-11-10 04:10:59.749521
+user_630,ENABLED,Lot Disposition|Batch Release,John Smith,2025-06-09 04:10:59.749525,On Leave,Analyst role per onboarding form HR-2024-0112,SAP QM,QC,Admin,Service,2025-07-19 04:10:59.749528,2026-01-07 04:10:59.749529
+user_631,TRUE,Method Admin,María García,,Resigned,Analyst role per onboarding form HR-2024-0112,QAD ERP,QA,Admin,Service,2025-07-05 04:10:59.749533,2025-12-28 04:10:59.749535
+user_632,TRUE,Administrator,Alice Brown,2026-03-21 04:10:59.749538,On Leave,Analyst role per onboarding form HR-2024-0112,Workday HR,Manufacturing,Analyst,Shared,2025-07-03 04:10:59.749540,2026-01-02 04:10:59.749542
+user_633,Active,Counter Sign,John Smith,2026-02-23 04:10:59.749545,Terminated,,IT Helpdesk,IT,Admin,Shared,2025-09-19 04:10:59.749548,2025-11-03 04:10:59.749549
+user_634,Inactive,QC Reviewer,Søren Jørgensen,2026-02-15 04:10:59.749552,On Leave,,SharePoint,QA,Engineer,User,2025-05-26 04:10:59.749555,2026-01-01 04:10:59.749557
+user_635,Active,Batch Release,Søren Jørgensen,2026-04-01 04:10:59.749560,Inactive,yes,Workday HR,IT,Analyst,User,2026-04-03 04:10:59.749563,2026-04-05 04:10:59.749565
+user_636,ENABLED,Void,Alice Brown,2026-03-24 04:10:59.749568,Terminated,N/A,SharePoint,QC,Engineer,User,2025-12-06 04:10:59.749570,2026-01-21 04:10:59.749572
+user_637,Inactive,Master Data Configurator,John Smith,2026-03-14 04:10:59.749575,On Leave,Analyst role per onboarding form HR-2024-0112,Medidata Rave,Manufacturing,Engineer,User,2025-05-16 04:10:59.749577,2026-04-04 04:10:59.749579
+user_638,ENABLED,Purge,María García,2026-02-16 04:10:59.749582,Active,,SharePoint,Manufacturing,Admin,User,2026-03-26 04:10:59.749584,2025-11-26 04:10:59.749586
+user_639,Active,Batch Release,María García,,On Leave,N/A,LabVantage LIMS,Manufacturing,Analyst,User,2025-08-05 04:10:59.749590,2025-10-14 04:10:59.749591
+user_640,Locked,Method Admin,María García,2026-02-13 04:10:59.749594,Terminated,,LabVantage LIMS,QC,Analyst,Shared,2025-07-26 04:10:59.749597,2025-12-13 04:10:59.749598
+user_641,Active,Batch Approver,Søren Jørgensen,2026-03-14 04:10:59.749605,Terminated,,IT Helpdesk,QC,Engineer,Service,2026-04-09 04:10:59.749609,2025-11-08 04:10:59.749610
+user_642,TRUE,Void|Void,Søren Jørgensen,2025-03-26 04:10:59.749614,Terminated,N/A,IT Helpdesk,IT,Admin,Service,2025-09-03 04:10:59.749616,2025-12-20 04:10:59.749620
+user_643,Inactive,Master Data Configurator|System Admin,John Smith,2026-04-04 04:10:59.749626,Terminated,N/A,SAP QM,Manufacturing,Engineer,User,2025-10-22 04:10:59.749629,2026-01-07 04:10:59.749630
+user_644,Inactive,Master Data Configurator,Søren Jørgensen,2026-02-11 04:10:59.749633,On Leave,Analyst role per onboarding form HR-2024-0112,LabVantage LIMS,IT,Manager,User,2025-09-26 04:10:59.749636,2026-02-11 04:10:59.749637
+user_645,Locked,Void,John Smith,2026-03-11 04:10:59.749641,On Leave,,Medidata Rave,QC,Analyst,User,2026-04-01 04:10:59.749644,2026-01-24 04:10:59.749645
+user_646,TRUE,Administrator,María García,2026-03-11 04:10:59.749648,Active,N/A,IT Helpdesk,IT,Analyst,Service,2025-10-03 04:10:59.749651,2026-01-15 04:10:59.749652
+user_647,ENABLED,Specification Editor|Batch Approver,Søren Jørgensen,2026-02-27 04:10:59.749655,Resigned,Analyst role per onboarding form HR-2024-0112,Workday HR,IT,Manager,Shared,2025-08-21 04:10:59.749658,2025-11-26 04:10:59.749660
+user_648,Locked,QC Reviewer,John Smith,2026-03-01 04:10:59.749663,Inactive,yes,IT Helpdesk,QA,Admin,User,2025-09-04 04:10:59.749666,2026-03-19 04:10:59.749667
+user_649,Locked,System Admin|Specification Editor,John Smith,2026-03-25 04:10:59.749671,Active,N/A,Medidata Rave,QC,Analyst,Shared,2026-02-11 04:10:59.749673,2025-12-28 04:10:59.749674
+user_650,Locked,QC Reviewer,Alice Brown,2025-09-18 04:10:59.749680,Resigned,,Medidata Rave,QA,Engineer,Shared,2025-04-21 04:10:59.749683,2025-11-20 04:10:59.749685
+user_651,Inactive,Method Admin,John Smith,2026-03-06 04:10:59.749689,Resigned,,IT Helpdesk,QA,Engineer,Shared,2025-09-09 04:10:59.749692,2025-10-21 04:10:59.749693
+user_652,TRUE,DBA|QC Reviewer,María García,,Inactive,N/A,Medidata Rave,QA,Engineer,Service,2025-07-20 04:10:59.749697,2025-12-03 04:10:59.749699
+user_653,Active,DBA,John Smith,2026-04-09 04:10:59.749702,Terminated,yes,SAP QM,QA,Admin,User,2026-01-16 04:10:59.749704,2025-11-27 04:10:59.749706
+user_654,TRUE,Administrator,John Smith,2026-03-26 04:10:59.749709,Active,N/A,Medidata Rave,Manufacturing,Manager,Shared,2025-05-02 04:10:59.749712,2026-01-25 04:10:59.749713
+user_655,Locked,Authorised Signatory,María García,2025-11-15 04:10:59.749717,Terminated,Analyst role per onboarding form HR-2024-0112,Veeva Vault,Manufacturing,Admin,Shared,2025-09-18 04:10:59.749719,2026-01-22 04:10:59.749721
+user_656,TRUE,Master Data Configurator,John Smith,2026-03-09 04:10:59.749724,On Leave,N/A,Veeva Vault,QA,Engineer,User,2025-05-09 04:10:59.749727,2026-01-11 04:10:59.749728
+user_657,Active,Counter Sign,María García,2026-02-15 04:10:59.749731,Active,N/A,Medidata Rave,QC,Manager,Service,2026-03-31 04:10:59.749734,2025-12-20 04:10:59.749735
+user_658,ENABLED,QC Reviewer|Calibration Manager,John Smith,2026-03-11 04:10:59.749739,Active,N/A,Medidata Rave,Manufacturing,Engineer,Service,2025-11-24 04:10:59.749743,2025-10-15 04:10:59.749744
+user_659,Locked,DBA,Alice Brown,2026-01-10 04:10:59.749749,Terminated,,IT Helpdesk,QC,Engineer,Shared,2025-04-28 04:10:59.749753,2025-12-08 04:10:59.749755
+user_660,Inactive,DBA,María García,2025-11-04 04:10:59.749758,Inactive,,QAD ERP,Manufacturing,Manager,User,2025-10-28 04:10:59.749760,2025-12-17 04:10:59.749762
+user_661,ENABLED,Counter Sign,Søren Jørgensen,2026-04-06 04:10:59.749765,On Leave,,LabVantage LIMS,Manufacturing,Engineer,User,2026-02-04 04:10:59.749767,2025-12-12 04:10:59.749768
+user_662,TRUE,Authorised Signatory,Søren Jørgensen,2026-04-09 04:10:59.749772,Inactive,yes,LabVantage LIMS,QA,Analyst,Service,2025-05-23 04:10:59.749774,2026-03-27 04:10:59.749776
+user_663,ENABLED,Void,Alice Brown,2026-03-29 04:10:59.749779,Inactive,,LabVantage LIMS,IT,Admin,User,2025-12-27 04:10:59.749782,2026-01-24 04:10:59.749786
+user_664,TRUE,Batch Approver|Authorised Signatory,John Smith,2026-02-25 04:10:59.749792,Active,,Workday HR,Manufacturing,Engineer,Service,2025-08-07 04:10:59.749796,2025-10-24 04:10:59.749798
+user_665,Active,QC Reviewer,Søren Jørgensen,2026-03-02 04:10:59.749803,Resigned,,IT Helpdesk,QA,Engineer,Service,2026-01-11 04:10:59.749807,2026-03-03 04:10:59.749809
+user_666,TRUE,QC Reviewer,María García,2026-03-06 04:10:59.749813,Resigned,N/A,SharePoint,Manufacturing,Manager,User,2025-05-16 04:10:59.749818,2026-01-24 04:10:59.749820
+user_667,Inactive,Counter Sign|Method Admin,María García,2025-04-21 04:10:59.749835,On Leave,N/A,Workday HR,IT,Manager,Shared,2026-02-04 04:10:59.749838,2026-01-23 04:10:59.749839
+user_668,ENABLED,QC Reviewer|Batch Approver,Søren Jørgensen,2026-02-17 04:10:59.749845,Active,,Medidata Rave,IT,Manager,Service,2025-12-22 04:10:59.749848,2026-01-30 04:10:59.749850
+user_669,Locked,Analyst,John Smith,2026-03-22 04:10:59.749853,On Leave,yes,SharePoint,QC,Admin,User,2025-10-30 04:10:59.749856,2025-12-15 04:10:59.749857
+user_670,Inactive,Batch Approver|Authorised Signatory,María García,2025-04-20 04:10:59.749860,Inactive,Analyst role per onboarding form HR-2024-0112,IT Helpdesk,IT,Engineer,Shared,2025-07-01 04:10:59.749863,2026-04-02 04:10:59.749865
+user_671,Locked,Analyst|QC Reviewer,Alice Brown,2025-05-12 04:10:59.749868,Resigned,N/A,SharePoint,Manufacturing,Admin,Service,2025-11-10 04:10:59.749871,2025-10-12 04:10:59.749875
+user_672,Inactive,Analyst,Søren Jørgensen,2026-02-19 04:10:59.749878,Resigned,N/A,IT Helpdesk,QC,Analyst,Service,2025-11-25 04:10:59.749881,2026-04-05 04:10:59.749882
+user_673,Locked,Void,John Smith,,Active,yes,LabVantage LIMS,QC,Manager,User,2025-11-24 04:10:59.749887,2026-02-04 04:10:59.749889
+user_674,Active,Batch Approver|Batch Approver,Søren Jørgensen,2026-03-27 04:10:59.749892,Resigned,,Workday HR,Manufacturing,Admin,Shared,2025-09-01 04:10:59.749895,2026-02-06 04:10:59.749897
+user_675,Active,Void,Søren Jørgensen,2026-03-05 04:10:59.749900,Terminated,,Veeva Vault,IT,Engineer,User,2026-02-28 04:10:59.749903,2026-01-17 04:10:59.749905
+user_676,Locked,QC Reviewer,John Smith,2026-02-15 04:10:59.749908,Active,N/A,SAP QM,QA,Admin,Shared,2026-03-18 04:10:59.749911,2025-11-22 04:10:59.749912
+user_677,ENABLED,Void,John Smith,,Active,yes,QAD ERP,QA,Engineer,User,2026-02-22 04:10:59.749916,2025-12-21 04:10:59.749918
+user_678,TRUE,Delete Records,Alice Brown,2026-02-28 04:10:59.749923,Inactive,yes,QAD ERP,QA,Admin,Shared,2025-05-21 04:10:59.749926,2025-12-26 04:10:59.749928
+user_679,Locked,QC Reviewer|DBA,John Smith,2026-04-10 04:10:59.749932,Inactive,,SAP QM,QA,Admin,Shared,2026-02-09 04:10:59.749935,2026-02-23 04:10:59.749937
+user_680,Active,Batch Approver,Alice Brown,2025-05-07 04:10:59.749940,Inactive,Analyst role per onboarding form HR-2024-0112,SAP QM,IT,Manager,User,2025-11-12 04:10:59.749943,2026-02-19 04:10:59.749945
+user_681,ENABLED,Batch Release,Søren Jørgensen,2026-03-20 04:10:59.749948,Active,,LabVantage LIMS,QA,Manager,User,2025-10-03 04:10:59.749951,2026-02-03 04:10:59.749952
+user_682,ENABLED,Delete Records,John Smith,2026-03-22 04:10:59.749956,Resigned,Analyst role per onboarding form HR-2024-0112,SharePoint,QA,Manager,Service,2025-07-25 04:10:59.749958,2025-12-17 04:10:59.749960
+user_683,Inactive,Authorised Signatory,John Smith,2026-03-08 04:10:59.749964,On Leave,N/A,LabVantage LIMS,QA,Admin,User,2025-08-11 04:10:59.749966,2026-02-18 04:10:59.749968
+user_684,TRUE,Delete Records|Delete Records,Alice Brown,2026-02-19 04:10:59.749971,Inactive,Analyst role per onboarding form HR-2024-0112,Workday HR,Manufacturing,Analyst,Shared,2026-03-12 04:10:59.749974,2026-01-13 04:10:59.749975
+user_685,TRUE,DBA,María García,,Resigned,,Medidata Rave,IT,Admin,Shared,2025-09-14 04:10:59.749980,2025-12-25 04:10:59.749981
+user_686,Active,Batch Release,Alice Brown,2026-03-07 04:10:59.749985,Inactive,N/A,Medidata Rave,QA,Manager,Service,2025-12-25 04:10:59.749987,2025-11-13 04:10:59.749989
+user_687,Inactive,Master Data Configurator,Søren Jørgensen,2026-03-24 04:10:59.749997,On Leave,N/A,IT Helpdesk,QA,Admin,Shared,2025-07-16 04:10:59.750000,2026-02-18 04:10:59.750002
+user_688,TRUE,DBA,Alice Brown,2026-03-25 04:10:59.750006,Resigned,N/A,LabVantage LIMS,QA,Manager,Service,2026-03-27 04:10:59.750009,2026-03-27 04:10:59.750010
+user_689,ENABLED,Void,Alice Brown,2025-07-26 04:10:59.750014,On Leave,,Veeva Vault,QC,Engineer,Service,2025-11-17 04:10:59.750016,2026-03-25 04:10:59.750018
+user_690,TRUE,Purge|DBA,Søren Jørgensen,2026-02-17 04:10:59.750021,On Leave,yes,SAP QM,QA,Admin,User,2025-05-19 04:10:59.750024,2025-12-12 04:10:59.750026
+user_691,Locked,Authorised Signatory,John Smith,2025-12-09 04:10:59.750029,Resigned,,Veeva Vault,QA,Admin,User,2026-03-09 04:10:59.750032,2026-03-04 04:10:59.750033
+user_692,Inactive,DBA,Alice Brown,2026-04-02 04:10:59.750037,Inactive,N/A,SAP QM,IT,Analyst,Service,2025-12-14 04:10:59.750040,2025-11-11 04:10:59.750041
+user_693,Inactive,Void,John Smith,2025-11-15 04:10:59.750044,Active,yes,LabVantage LIMS,Manufacturing,Manager,Shared,2025-06-10 04:10:59.750047,2025-11-24 04:10:59.750048
+user_694,TRUE,Delete Records|Method Admin|Purge,María García,2026-02-23 04:10:59.750055,Terminated,Analyst role per onboarding form HR-2024-0112,SAP QM,QC,Engineer,User,2025-12-06 04:10:59.750057,2026-02-13 04:10:59.750059
+user_695,TRUE,DBA,Alice Brown,2026-02-18 04:10:59.750063,Active,,SAP QM,IT,Analyst,Service,2025-10-22 04:10:59.750065,2025-12-28 04:10:59.750067
+user_696,Locked,Counter Sign,Søren Jørgensen,2026-04-08 04:10:59.750072,On Leave,N/A,SAP QM,QC,Engineer,Shared,2026-01-15 04:10:59.750075,2026-04-07 04:10:59.750076
+user_697,Locked,Lot Disposition|Batch Approver,Søren Jørgensen,2026-03-18 04:10:59.750080,Inactive,,SAP QM,QC,Analyst,Shared,2025-07-12 04:10:59.750082,2025-10-14 04:10:59.750084
+user_698,TRUE,Calibration Manager,Søren Jørgensen,2026-03-30 04:10:59.750087,Inactive,yes,Workday HR,QA,Manager,Shared,2025-12-02 04:10:59.750090,2026-01-29 04:10:59.750091
+user_699,ENABLED,Lot Disposition|Specification Editor,John Smith,,Active,yes,Veeva Vault,QC,Manager,User,2025-05-31 04:10:59.750096,2026-01-21 04:10:59.750098
+svc_lims_integration,TRUE,System Admin,Søren Jørgensen,2026-03-06 04:10:59.750101,Terminated,N/A,IT Helpdesk,Manufacturing,Admin,User,2025-11-14 04:10:59.750103,2026-03-15 04:10:59.750105
+user_701,Active,Lot Disposition|Analyst,Søren Jørgensen,2025-08-25 04:10:59.750109,On Leave,,LabVantage LIMS,IT,Analyst,User,2025-06-08 04:10:59.750111,2026-01-10 04:10:59.750113
+user_702,Locked,Delete Records,Søren Jørgensen,2026-03-27 04:10:59.750116,Resigned,yes,SharePoint,QC,Analyst,Shared,2025-05-25 04:10:59.750119,2026-01-24 04:10:59.750121
+user_703,Active,System Admin,Søren Jørgensen,2026-03-30 04:10:59.750124,Terminated,,Medidata Rave,Manufacturing,Manager,Service,2025-09-08 04:10:59.750126,2026-01-19 04:10:59.750128
+user_704,ENABLED,QC Reviewer|Authorised Signatory,María García,2026-02-18 04:10:59.750131,Resigned,,SAP QM,QC,Admin,Shared,2025-04-29 04:10:59.750134,2025-11-04 04:10:59.750135
+user_705,TRUE,Calibration Manager,John Smith,2026-03-27 04:10:59.750141,Inactive,Analyst role per onboarding form HR-2024-0112,LabVantage LIMS,IT,Engineer,Service,2025-09-30 04:10:59.750143,2026-03-10 04:10:59.750144
+user_706,Locked,Method Admin,Søren Jørgensen,2026-03-16 04:10:59.750147,Active,N/A,QAD ERP,Manufacturing,Analyst,User,2026-02-15 04:10:59.750150,2025-12-11 04:10:59.750151
+user_707,Locked,Calibration Manager,María García,2026-03-31 04:10:59.750155,Terminated,,IT Helpdesk,QA,Admin,User,2025-10-03 04:10:59.750157,2026-01-31 04:10:59.750159
+user_708,Inactive,Master Data Configurator,John Smith,2025-11-12 04:10:59.750162,Terminated,N/A,SharePoint,Manufacturing,Analyst,User,2025-07-14 04:10:59.750165,2026-04-01 04:10:59.750167
+user_709,Inactive,Counter Sign,John Smith,2026-02-13 04:10:59.750170,Active,Analyst role per onboarding form HR-2024-0112,Workday HR,Manufacturing,Analyst,Shared,2026-02-02 04:10:59.750172,2025-10-13 04:10:59.750173
+user_710,ENABLED,QC Reviewer,María García,2026-02-15 04:10:59.750176,Resigned,Analyst role per onboarding form HR-2024-0112,Workday HR,Manufacturing,Manager,Service,2025-07-17 04:10:59.750179,2026-03-29 04:10:59.750181
+user_711,ENABLED,Counter Sign|Purge,John Smith,2026-03-20 04:10:59.750184,On Leave,Analyst role per onboarding form HR-2024-0112,IT Helpdesk,IT,Engineer,Service,2025-04-16 04:10:59.750186,2025-12-05 04:10:59.750188
+user_712,Active,Counter Sign,Alice Brown,2025-08-26 04:10:59.750190,Inactive,,SAP QM,Manufacturing,Admin,Service,2026-01-26 04:10:59.750193,2026-03-08 04:10:59.750195
+user_713,Locked,QC Reviewer,John Smith,2026-03-13 04:10:59.750198,Active,Analyst role per onboarding form HR-2024-0112,SAP QM,QA,Manager,User,2026-02-14 04:10:59.750201,2026-03-31 04:10:59.750203
+user_714,Active,Lot Disposition,María García,2026-02-11 04:10:59.750208,Inactive,Analyst role per onboarding form HR-2024-0112,SharePoint,QC,Admin,Service,2025-10-08 04:10:59.750211,2025-11-27 04:10:59.750212
+user_715,Active,Calibration Manager,María García,2026-01-29 04:10:59.750215,Inactive,yes,Workday HR,QC,Manager,User,2026-01-28 04:10:59.750218,2025-12-21 04:10:59.750219
+user_716,Active,Void,John Smith,,On Leave,yes,SAP QM,QC,Admin,Shared,2025-11-14 04:10:59.750223,2026-01-05 04:10:59.750225
+user_717,TRUE,QC Reviewer,Alice Brown,,Inactive,yes,Medidata Rave,QA,Admin,User,2025-07-19 04:10:59.750229,2025-11-02 04:10:59.750230
+user_718,Inactive,Specification Editor,Søren Jørgensen,2026-03-25 04:10:59.750233,Inactive,,IT Helpdesk,QA,Manager,Shared,2025-12-06 04:10:59.750235,2026-02-19 04:10:59.750237
+user_719,ENABLED,Authorised Signatory,María García,2026-03-06 04:10:59.750241,Active,N/A,SharePoint,IT,Engineer,Shared,2025-11-12 04:10:59.750243,2026-02-22 04:10:59.750245
+user_720,Inactive,QC Reviewer,John Smith,2026-03-15 04:10:59.750247,Terminated,N/A,Workday HR,QA,Admin,Service,2026-02-03 04:10:59.750250,2025-12-25 04:10:59.750251
+user_721,Inactive,Master Data Configurator,John Smith,2026-03-12 04:10:59.750254,Active,,QAD ERP,IT,Analyst,User,2025-09-25 04:10:59.750257,2025-10-21 04:10:59.750258
+user_722,TRUE,Lot Disposition|Batch Approver,María García,2025-05-01 04:10:59.750262,Active,,SAP QM,QA,Engineer,User,2026-01-19 04:10:59.750264,2026-02-20 04:10:59.750265
+user_723,ENABLED,Batch Approver|Batch Approver,John Smith,2026-03-30 04:10:59.750271,Inactive,N/A,Veeva Vault,QA,Admin,Service,2026-04-02 04:10:59.750274,2026-02-22 04:10:59.750275
+user_724,TRUE,Batch Release,Søren Jørgensen,2025-03-26 04:10:59.750278,On Leave,Analyst role per onboarding form HR-2024-0112,SAP QM,QA,Manager,Service,2025-08-29 04:10:59.750281,2025-11-19 04:10:59.750283
+user_725,Inactive,Authorised Signatory,Alice Brown,2026-03-31 04:10:59.750286,On Leave,Analyst role per onboarding form HR-2024-0112,Veeva Vault,QC,Admin,Service,2026-02-15 04:10:59.750288,2026-01-01 04:10:59.750290
+user_726,Active,Batch Approver,María García,,On Leave,N/A,Medidata Rave,Manufacturing,Admin,User,2026-03-17 04:10:59.750294,2025-11-17 04:10:59.750296
+user_727,TRUE,DBA|Method Admin,María García,2025-04-12 04:10:59.750299,Inactive,Analyst role per onboarding form HR-2024-0112,Workday HR,QC,Engineer,Service,2025-07-30 04:10:59.750302,2026-02-04 04:10:59.750304
+user_728,TRUE,QC Reviewer,María García,2026-04-06 04:10:59.750306,Inactive,N/A,Medidata Rave,IT,Admin,Service,2025-06-17 04:10:59.750309,2026-01-22 04:10:59.750310
+user_729,TRUE,Void,Alice Brown,2026-03-07 04:10:59.750313,Inactive,Analyst role per onboarding form HR-2024-0112,SharePoint,QC,Admin,User,2025-04-18 04:10:59.750315,2025-11-14 04:10:59.750317
+user_730,Locked,Counter Sign|DBA,María García,2026-04-04 04:10:59.750320,Resigned,,QAD ERP,IT,Engineer,Service,2026-02-05 04:10:59.750322,2026-01-13 04:10:59.750324
+user_731,TRUE,Administrator,Søren Jørgensen,,Resigned,Analyst role per onboarding form HR-2024-0112,QAD ERP,QA,Admin,Service,2025-07-27 04:10:59.750328,2025-10-12 04:10:59.750329
+user_732,Locked,Authorised Signatory|Administrator,María García,2026-03-05 04:10:59.750335,On Leave,Analyst role per onboarding form HR-2024-0112,SharePoint,Manufacturing,Manager,Service,2025-12-25 04:10:59.750338,2025-11-22 04:10:59.750340
+user_733,Active,Counter Sign,Alice Brown,,Active,Analyst role per onboarding form HR-2024-0112,Veeva Vault,IT,Analyst,Service,2025-07-19 04:10:59.750344,2026-01-09 04:10:59.750345
+user_734,TRUE,Delete Records|QC Reviewer,Søren Jørgensen,2026-03-14 04:10:59.750349,On Leave,,QAD ERP,QA,Analyst,User,2025-07-07 04:10:59.750352,2026-02-25 04:10:59.750353
+user_735,ENABLED,QC Reviewer,John Smith,2026-03-04 04:10:59.750356,On Leave,Analyst role per onboarding form HR-2024-0112,QAD ERP,Manufacturing,Engineer,Service,2025-06-01 04:10:59.750359,2026-01-28 04:10:59.750360
+user_736,ENABLED,Analyst,María García,2025-04-12 04:10:59.750363,Terminated,yes,Workday HR,IT,Analyst,Shared,2026-01-30 04:10:59.750366,2025-11-21 04:10:59.750367
+user_737,Active,Master Data Configurator,María García,2026-04-10 04:10:59.750373,Terminated,yes,LabVantage LIMS,Manufacturing,Analyst,Service,2025-07-01 04:10:59.750376,2025-12-24 04:10:59.750378
+user_738,Active,Administrator,Alice Brown,2025-10-20 04:10:59.750381,On Leave,,QAD ERP,QA,Analyst,Shared,2025-12-14 04:10:59.750384,2026-03-29 04:10:59.750386
+user_739,TRUE,Lot Disposition,Søren Jørgensen,,Inactive,yes,IT Helpdesk,QC,Manager,Service,2025-05-30 04:10:59.750390,2026-02-14 04:10:59.750391
+user_740,ENABLED,Counter Sign,Alice Brown,2026-03-02 04:10:59.750394,On Leave,yes,Medidata Rave,Manufacturing,Analyst,User,2026-01-26 04:10:59.750397,2026-01-21 04:10:59.750398
+user_741,Locked,Master Data Configurator|Counter Sign,Alice Brown,2026-02-09 04:10:59.750402,Terminated,N/A,IT Helpdesk,Manufacturing,Admin,Shared,2025-12-26 04:10:59.750405,2026-01-07 04:10:59.750406
+user_742,TRUE,Authorised Signatory,Søren Jørgensen,2026-04-08 04:10:59.750412,Terminated,,SharePoint,QC,Admin,User,2025-10-02 04:10:59.750415,2026-03-16 04:10:59.750416
+user_743,TRUE,System Admin,John Smith,2026-02-22 04:10:59.750419,Active,,Medidata Rave,IT,Engineer,Service,2025-09-13 04:10:59.750422,2026-02-10 04:10:59.750424
+user_744,ENABLED,Void,Alice Brown,2026-03-18 04:10:59.750427,Resigned,,IT Helpdesk,IT,Manager,User,2026-03-13 04:10:59.750430,2026-03-14 04:10:59.750432
+user_745,ENABLED,Lot Disposition,John Smith,2026-03-31 04:10:59.750435,Active,yes,SAP QM,Manufacturing,Analyst,User,2025-04-20 04:10:59.750438,2026-02-09 04:10:59.750439
+user_746,Active,Authorised Signatory,Søren Jørgensen,2026-02-15 04:10:59.750442,Terminated,,IT Helpdesk,QC,Analyst,User,2025-07-27 04:10:59.750445,2026-03-23 04:10:59.750446
+user_747,ENABLED,QC Reviewer|Administrator,María García,2026-04-05 04:10:59.750450,Resigned,N/A,Medidata Rave,Manufacturing,Analyst,Service,2025-07-16 04:10:59.750452,2025-10-27 04:10:59.750453
+user_748,Active,Analyst,John Smith,2026-02-17 04:10:59.750456,Inactive,,LabVantage LIMS,Manufacturing,Engineer,Shared,2025-06-04 04:10:59.750459,2026-03-02 04:10:59.750461
+user_749,Locked,Purge,Søren Jørgensen,2026-02-11 04:10:59.750463,Terminated,yes,QAD ERP,IT,Manager,Shared,2026-01-01 04:10:59.750466,2026-03-31 04:10:59.750467
+user_750,Inactive,Authorised Signatory,John Smith,2025-05-19 04:10:59.750471,Active,Analyst role per onboarding form HR-2024-0112,SharePoint,QC,Engineer,Shared,2025-12-06 04:10:59.750474,2026-03-22 04:10:59.750475
+user_751,Inactive,DBA|System Admin,John Smith,2026-02-21 04:10:59.750481,Resigned,,Veeva Vault,IT,Admin,User,2025-12-26 04:10:59.750484,2025-12-07 04:10:59.750485
+user_752,Inactive,Lot Disposition,Alice Brown,2026-02-27 04:10:59.750488,Active,,IT Helpdesk,QC,Manager,Service,2025-11-07 04:10:59.750492,2026-04-09 04:10:59.750493
+user_753,Active,QC Reviewer,John Smith,2026-02-23 04:10:59.750496,Resigned,N/A,Veeva Vault,QC,Analyst,Shared,2025-05-09 04:10:59.750499,2025-11-09 04:10:59.750500
+user_754,Locked,Void,John Smith,2026-03-16 04:10:59.750503,Terminated,,IT Helpdesk,QA,Manager,User,2025-10-08 04:10:59.750506,2026-02-17 04:10:59.750508
+user_755,Inactive,Method Admin,Søren Jørgensen,2026-04-03 04:10:59.750511,Inactive,yes,IT Helpdesk,QA,Manager,Service,2025-05-27 04:10:59.750513,2025-11-15 04:10:59.750515
+user_756,Active,Lot Disposition,Søren Jørgensen,2026-03-15 04:10:59.750518,Active,,Veeva Vault,Manufacturing,Admin,Service,2025-12-25 04:10:59.750520,2026-04-02 04:10:59.750522
+user_757,ENABLED,Delete Records|Administrator,John Smith,2025-09-16 04:10:59.750525,Resigned,N/A,Veeva Vault,QA,Engineer,User,2026-02-08 04:10:59.750527,2026-02-03 04:10:59.750529
+user_758,TRUE,Calibration Manager,Søren Jørgensen,2026-03-13 04:10:59.750532,Terminated,yes,SharePoint,QC,Admin,Shared,2026-01-09 04:10:59.750535,2026-03-14 04:10:59.750536
+user_759,Inactive,Delete Records,María García,2025-12-22 04:10:59.750540,Resigned,N/A,Medidata Rave,IT,Analyst,User,2026-03-11 04:10:59.750542,2025-11-27 04:10:59.750544
+user_760,ENABLED,Batch Release,María García,,Terminated,Analyst role per onboarding form HR-2024-0112,IT Helpdesk,QC,Engineer,Shared,2025-06-03 04:10:59.750550,2026-01-08 04:10:59.750552
+user_761,Active,Lot Disposition|Method Admin,John Smith,2025-04-18 04:10:59.750562,Inactive,Analyst role per onboarding form HR-2024-0112,Medidata Rave,QA,Engineer,Shared,2025-06-13 04:10:59.750565,2025-12-17 04:10:59.750566
+user_762,Inactive,Batch Approver|Counter Sign,John Smith,2026-02-13 04:10:59.750570,Inactive,,IT Helpdesk,QA,Manager,Service,2026-03-09 04:10:59.750572,2025-12-03 04:10:59.750574
+user_763,TRUE,Administrator,Søren Jørgensen,2026-03-26 04:10:59.750577,Terminated,,Medidata Rave,Manufacturing,Admin,Shared,2025-06-22 04:10:59.750579,2025-12-11 04:10:59.750581
+user_764,TRUE,Master Data Configurator,Søren Jørgensen,2025-10-12 04:10:59.750584,Active,yes,QAD ERP,QC,Admin,Service,2025-08-24 04:10:59.750586,2026-03-15 04:10:59.750588
+user_765,Active,Specification Editor|System Admin,Søren Jørgensen,2026-03-24 04:10:59.750591,Active,N/A,Workday HR,Manufacturing,Manager,Shared,2025-07-18 04:10:59.750594,2026-03-20 04:10:59.750595
+user_766,Active,Administrator|Purge,John Smith,2026-03-06 04:10:59.750599,Active,N/A,IT Helpdesk,Manufacturing,Manager,Shared,2025-12-18 04:10:59.750602,2026-01-25 04:10:59.750603
+user_767,Inactive,Calibration Manager,John Smith,2026-02-15 04:10:59.750608,Resigned,yes,Medidata Rave,IT,Engineer,Shared,2025-06-29 04:10:59.750611,2026-03-08 04:10:59.750613
+user_768,Inactive,DBA,John Smith,2025-12-12 04:10:59.750616,Terminated,,SAP QM,IT,Manager,Service,2026-03-17 04:10:59.750619,2025-10-17 04:10:59.750620
+user_769,TRUE,Batch Release,María García,2026-04-03 04:10:59.750628,On Leave,N/A,LabVantage LIMS,IT,Manager,Service,2025-09-26 04:10:59.750631,2026-03-13 04:10:59.750633
+user_770,TRUE,DBA,Søren Jørgensen,2026-03-05 04:10:59.750637,Terminated,Analyst role per onboarding form HR-2024-0112,Veeva Vault,QC,Analyst,Service,2026-01-01 04:10:59.750639,2026-01-31 04:10:59.750641
+user_771,Inactive,Batch Release|Void,María García,2026-04-08 04:10:59.750644,On Leave,Analyst role per onboarding form HR-2024-0112,QAD ERP,Manufacturing,Analyst,Shared,2025-07-30 04:10:59.750647,2025-10-17 04:10:59.750648
+user_772,Inactive,System Admin,Alice Brown,2026-03-06 04:10:59.750652,Resigned,yes,LabVantage LIMS,IT,Manager,Service,2025-10-20 04:10:59.750654,2026-01-01 04:10:59.750656
+user_773,Active,Administrator,Søren Jørgensen,2026-04-10 04:10:59.750659,Terminated,,IT Helpdesk,Manufacturing,Engineer,Shared,2026-01-12 04:10:59.750661,2025-10-26 04:10:59.750663
+user_774,Inactive,Method Admin,Søren Jørgensen,2026-03-29 04:10:59.750666,Active,Analyst role per onboarding form HR-2024-0112,Veeva Vault,QA,Admin,User,2026-01-10 04:10:59.750669,2026-02-20 04:10:59.750670
+user_775,Active,Administrator|Counter Sign,Søren Jørgensen,2025-09-08 04:10:59.750674,On Leave,Analyst role per onboarding form HR-2024-0112,SAP QM,QA,Manager,Shared,2026-03-27 04:10:59.750676,2026-03-26 04:10:59.750678
+user_776,Locked,Analyst|Authorised Signatory,María García,2026-03-19 04:10:59.750681,Terminated,,QAD ERP,Manufacturing,Analyst,User,2026-03-22 04:10:59.750684,2026-03-02 04:10:59.750686
+user_777,ENABLED,Administrator,Søren Jørgensen,2026-02-20 04:10:59.750689,Resigned,yes,QAD ERP,Manufacturing,Engineer,Service,2025-06-30 04:10:59.750691,2026-01-23 04:10:59.750693
+user_778,Inactive,Batch Approver|Authorised Signatory,Søren Jørgensen,2026-02-18 04:10:59.750699,On Leave,yes,SAP QM,QC,Engineer,Service,2025-06-23 04:10:59.750702,2026-01-10 04:10:59.750703
+user_779,Inactive,Analyst|Authorised Signatory,Søren Jørgensen,2026-04-10 04:10:59.750706,Terminated,,QAD ERP,Manufacturing,Engineer,Service,2026-01-18 04:10:59.750709,2025-11-20 04:10:59.750710
+user_780,Inactive,DBA|Void,Søren Jørgensen,2026-03-05 04:10:59.750713,Resigned,,LabVantage LIMS,QC,Admin,Shared,2026-02-10 04:10:59.750716,2026-01-29 04:10:59.750717
+user_781,Inactive,Lot Disposition,María García,2026-03-31 04:10:59.750720,Active,N/A,SAP QM,QC,Admin,User,2026-02-19 04:10:59.750722,2026-03-09 04:10:59.750724
+user_782,ENABLED,Batch Release,Søren Jørgensen,2026-03-19 04:10:59.750727,Inactive,,QAD ERP,QC,Engineer,User,2026-02-07 04:10:59.750730,2025-10-15 04:10:59.750731
+user_783,TRUE,Batch Release,John Smith,2026-03-12 04:10:59.750734,On Leave,,Veeva Vault,IT,Analyst,User,2026-02-18 04:10:59.750737,2025-11-15 04:10:59.750738
+user_784,ENABLED,Delete Records|Method Admin,Søren Jørgensen,2026-03-02 04:10:59.750741,Terminated,N/A,Workday HR,IT,Analyst,Service,2025-08-28 04:10:59.750744,2026-03-05 04:10:59.750746
+user_785,Inactive,Batch Release|Method Admin,Alice Brown,2026-03-12 04:10:59.750749,Terminated,N/A,SharePoint,Manufacturing,Manager,Service,2026-01-05 04:10:59.750751,2026-03-08 04:10:59.750753
+user_786,Locked,Purge,María García,2026-04-03 04:10:59.750756,On Leave,,Medidata Rave,IT,Admin,Shared,2026-03-19 04:10:59.750758,2025-11-26 04:10:59.750760
+user_787,Locked,Analyst,Søren Jørgensen,2026-03-06 04:10:59.750765,On Leave,N/A,SharePoint,IT,Admin,User,2025-09-24 04:10:59.750768,2026-02-25 04:10:59.750769
+user_788,Inactive,Purge,Søren Jørgensen,2026-03-10 04:10:59.750773,Resigned,,LabVantage LIMS,IT,Engineer,Shared,2025-09-19 04:10:59.750775,2026-02-08 04:10:59.750777
+user_789,TRUE,Method Admin,John Smith,2025-08-11 04:10:59.750779,Resigned,N/A,Veeva Vault,IT,Manager,User,2026-04-10 04:10:59.750782,2026-03-22 04:10:59.750784
+user_790,ENABLED,Delete Records,María García,2026-03-06 04:10:59.750787,Terminated,N/A,Workday HR,Manufacturing,Analyst,Shared,2026-03-23 04:10:59.750790,2026-01-29 04:10:59.750791
+user_791,Locked,Analyst|Authorised Signatory,John Smith,2026-03-12 04:10:59.750795,Active,,SAP QM,IT,Admin,Shared,2025-10-25 04:10:59.750798,2025-10-16 04:10:59.750801
+user_792,ENABLED,Delete Records,María García,2026-02-10 04:10:59.750804,Inactive,N/A,Veeva Vault,QC,Admin,User,2025-05-08 04:10:59.750807,2026-03-26 04:10:59.750808
+user_793,ENABLED,Master Data Configurator|Authorised Signatory,María García,2026-04-01 04:10:59.750814,Inactive,,LabVantage LIMS,QC,Engineer,Shared,2026-03-13 04:10:59.750817,2026-01-05 04:10:59.750818
+user_794,Active,Master Data Configurator,María García,2026-03-28 04:10:59.750822,Terminated,yes,IT Helpdesk,QC,Manager,Service,2025-12-30 04:10:59.750825,2026-04-01 04:10:59.750826
+user_795,TRUE,System Admin|Administrator,María García,2026-02-22 04:10:59.750829,On Leave,yes,SharePoint,IT,Analyst,User,2025-11-10 04:10:59.750832,2026-02-08 04:10:59.750834
+user_796,Inactive,Specification Editor,María García,,Active,N/A,LabVantage LIMS,Manufacturing,Manager,Shared,2026-01-18 04:10:59.750840,2026-03-26 04:10:59.750842
+user_797,Inactive,Purge,Søren Jørgensen,2026-02-27 04:10:59.750845,Active,Analyst role per onboarding form HR-2024-0112,Workday HR,QC,Engineer,Service,2025-08-14 04:10:59.750848,2026-02-02 04:10:59.750849
+user_798,ENABLED,Lot Disposition,John Smith,2026-02-18 04:10:59.750852,Active,,Workday HR,IT,Admin,Shared,2025-10-29 04:10:59.750855,2025-11-22 04:10:59.750856
+user_799,ENABLED,Calibration Manager|Calibration Manager|System Admin,Alice Brown,2025-11-09 04:10:59.750860,Active,N/A,Workday HR,Manufacturing,Manager,User,2026-03-04 04:10:59.750863,2025-12-25 04:10:59.750865
+batch_release_svc,TRUE,Authorised Signatory|Authorised Signatory,María García,2026-03-06 04:10:59.750869,Resigned,Analyst role per onboarding form HR-2024-0112,Medidata Rave,Manufacturing,Analyst,Shared,2026-02-02 04:10:59.750871,2025-11-24 04:10:59.750873
+user_801,Active,Lot Disposition,María García,2026-03-05 04:10:59.750879,Resigned,Analyst role per onboarding form HR-2024-0112,QAD ERP,QC,Analyst,User,2026-01-06 04:10:59.750883,2025-10-20 04:10:59.750884
+user_802,Active,Batch Release,Alice Brown,2025-07-04 04:10:59.750887,Inactive,yes,Workday HR,IT,Engineer,Service,2025-06-20 04:10:59.750890,2026-01-14 04:10:59.750891
+user_803,Locked,Method Admin|Calibration Manager,John Smith,,Inactive,,QAD ERP,QA,Analyst,User,2025-11-19 04:10:59.750896,2025-11-06 04:10:59.750898
+user_804,Inactive,Analyst|QC Reviewer|Counter Sign,John Smith,2026-03-25 04:10:59.750902,On Leave,N/A,QAD ERP,QA,Analyst,Service,2025-04-25 04:10:59.750905,2026-04-05 04:10:59.750906
+user_805,Active,Authorised Signatory|Batch Approver,María García,2026-02-24 04:10:59.750909,Resigned,Analyst role per onboarding form HR-2024-0112,SharePoint,Manufacturing,Engineer,User,2025-07-26 04:10:59.750912,2026-01-03 04:10:59.750913
+user_806,ENABLED,QC Reviewer|Master Data Configurator,John Smith,2026-03-06 04:10:59.750919,Terminated,,SharePoint,QA,Admin,Service,2025-05-22 04:10:59.750922,2025-10-12 04:10:59.750923
+user_807,TRUE,Delete Records,John Smith,2026-03-09 04:10:59.750926,On Leave,,SharePoint,IT,Engineer,Service,2025-12-21 04:10:59.750929,2026-01-20 04:10:59.750931
+user_808,ENABLED,Calibration Manager,Alice Brown,2026-03-23 04:10:59.750934,Resigned,,Workday HR,Manufacturing,Manager,Shared,2025-05-13 04:10:59.750937,2026-01-19 04:10:59.750938
+user_809,Locked,Void,María García,2026-03-15 04:10:59.750942,On Leave,,IT Helpdesk,QA,Manager,Service,2026-02-08 04:10:59.750944,2025-11-07 04:10:59.750945
+user_810,Inactive,Analyst,María García,2025-03-18 04:10:59.750948,Resigned,,Veeva Vault,Manufacturing,Manager,Shared,2026-04-09 04:10:59.750951,2026-02-25 04:10:59.750952
+user_811,TRUE,System Admin|Analyst,Alice Brown,2026-04-02 04:10:59.750956,Active,yes,Workday HR,Manufacturing,Engineer,Service,2025-08-22 04:10:59.750958,2025-12-19 04:10:59.750960
+user_812,Inactive,DBA,John Smith,2026-02-09 04:10:59.750963,Inactive,,Veeva Vault,QC,Manager,User,2026-02-14 04:10:59.750965,2025-10-31 04:10:59.750967
+user_813,Active,System Admin,Alice Brown,2026-04-08 04:10:59.750969,Active,,Medidata Rave,Manufacturing,Manager,User,2025-09-11 04:10:59.750972,2026-01-20 04:10:59.750973
+user_814,Active,Batch Approver,Søren Jørgensen,2026-03-14 04:10:59.750976,On Leave,Analyst role per onboarding form HR-2024-0112,Medidata Rave,Manufacturing,Admin,Service,2025-04-21 04:10:59.750979,2026-02-28 04:10:59.750980
+user_815,Inactive,Administrator,Søren Jørgensen,2026-02-23 04:10:59.750985,On Leave,,IT Helpdesk,QC,Manager,User,2025-07-31 04:10:59.750988,2026-03-12 04:10:59.750989
+user_816,Locked,Batch Approver|Void|Authorised Signatory,Søren Jørgensen,2026-02-21 04:10:59.751043,Inactive,Analyst role per onboarding form HR-2024-0112,LabVantage LIMS,QA,Analyst,Shared,2025-10-27 04:10:59.751047,2025-11-28 04:10:59.751048
+user_817,Locked,QC Reviewer,Søren Jørgensen,2026-04-06 04:10:59.751051,Active,N/A,Veeva Vault,QC,Analyst,User,2026-01-19 04:10:59.751054,2025-11-30 04:10:59.751056
+user_818,Inactive,Method Admin,Alice Brown,,Resigned,N/A,LabVantage LIMS,QC,Engineer,Shared,2025-05-12 04:10:59.751060,2025-12-29 04:10:59.751061
+user_819,ENABLED,Purge,John Smith,2025-08-13 04:10:59.751068,Terminated,N/A,SAP QM,Manufacturing,Engineer,Service,2026-01-23 04:10:59.751070,2025-11-08 04:10:59.751072
+user_820,Locked,Analyst,Søren Jørgensen,2026-03-16 04:10:59.751075,Terminated,yes,IT Helpdesk,IT,Admin,Shared,2025-11-15 04:10:59.751078,2025-12-30 04:10:59.751079
+user_821,ENABLED,Analyst,Søren Jørgensen,2026-03-09 04:10:59.751082,Active,yes,QAD ERP,Manufacturing,Manager,User,2026-02-01 04:10:59.751085,2025-12-09 04:10:59.751086
+user_822,Locked,Administrator,Søren Jørgensen,2026-04-02 04:10:59.751089,Terminated,yes,SAP QM,Manufacturing,Admin,Shared,2025-07-22 04:10:59.751092,2025-10-28 04:10:59.751093
+user_823,Locked,System Admin,Alice Brown,2026-04-03 04:10:59.751096,Inactive,,IT Helpdesk,QC,Admin,Shared,2025-07-30 04:10:59.751099,2026-02-14 04:10:59.751100
+user_824,Active,Batch Release|DBA,María García,2026-03-21 04:10:59.751106,Terminated,yes,Medidata Rave,QA,Manager,Shared,2026-01-24 04:10:59.751109,2025-11-15 04:10:59.751110
+user_825,Active,Purge,Alice Brown,2025-09-04 04:10:59.751113,Terminated,yes,SharePoint,Manufacturing,Manager,Service,2025-04-19 04:10:59.751116,2025-10-27 04:10:59.751117
+user_826,ENABLED,Counter Sign|DBA,María García,2026-04-06 04:10:59.751120,Terminated,,Veeva Vault,Manufacturing,Analyst,User,2025-04-10 04:10:59.751123,2026-02-06 04:10:59.751124
+user_827,TRUE,Master Data Configurator,Alice Brown,2025-08-02 04:10:59.751127,Inactive,,SharePoint,Manufacturing,Admin,User,2025-12-11 04:10:59.751130,2025-12-21 04:10:59.751131
+user_828,Active,Method Admin,Alice Brown,2026-04-06 04:10:59.751134,Terminated,,SharePoint,QC,Admin,Service,2025-05-25 04:10:59.751137,2026-01-23 04:10:59.751138
+user_829,ENABLED,Batch Release|Void,María García,2026-04-06 04:10:59.751141,Inactive,,LabVantage LIMS,QA,Engineer,User,2025-06-23 04:10:59.751144,2025-11-20 04:10:59.751145
+user_830,Active,Analyst,Søren Jørgensen,,Active,yes,SAP QM,IT,Analyst,Service,2025-04-14 04:10:59.751150,2025-10-16 04:10:59.751151
+user_831,TRUE,Authorised Signatory|Specification Editor,Alice Brown,,Active,,Medidata Rave,QC,Manager,Shared,2025-05-09 04:10:59.751168,2025-11-18 04:10:59.751169
+user_832,Locked,Purge,Alice Brown,2026-03-12 04:10:59.751172,Resigned,N/A,Workday HR,IT,Manager,User,2025-12-19 04:10:59.751175,2026-03-31 04:10:59.751176
+user_833,Inactive,System Admin,María García,2026-03-10 04:10:59.751181,Inactive,Analyst role per onboarding form HR-2024-0112,Medidata Rave,Manufacturing,Admin,User,2026-01-08 04:10:59.751184,2025-12-02 04:10:59.751185
+user_834,Inactive,Lot Disposition,Alice Brown,2026-02-10 04:10:59.751188,Resigned,,SharePoint,QA,Analyst,Shared,2025-04-13 04:10:59.751190,2026-03-09 04:10:59.751192
+user_835,Inactive,Purge,Alice Brown,2026-02-10 04:10:59.751195,Inactive,N/A,SAP QM,QA,Admin,Shared,2025-07-07 04:10:59.751198,2025-10-29 04:10:59.751199
+user_836,Inactive,Authorised Signatory|Delete Records,Søren Jørgensen,2026-03-25 04:10:59.751202,Terminated,,SAP QM,QA,Engineer,Shared,2025-07-02 04:10:59.751204,2025-12-27 04:10:59.751206
+user_837,Active,Counter Sign,Alice Brown,2025-06-16 04:10:59.751209,Terminated,yes,Veeva Vault,IT,Admin,Service,2025-07-07 04:10:59.751212,2025-12-10 04:10:59.751213
+user_838,ENABLED,Method Admin,María García,2026-02-16 04:10:59.751217,Terminated,,QAD ERP,Manufacturing,Admin,Service,2025-06-18 04:10:59.751220,2025-12-15 04:10:59.751221
+user_839,Inactive,Lot Disposition,John Smith,2026-03-01 04:10:59.751225,On Leave,yes,Workday HR,IT,Admin,User,2025-05-22 04:10:59.751228,2025-12-02 04:10:59.751229
+user_840,Inactive,Authorised Signatory|System Admin,Alice Brown,2026-02-23 04:10:59.751232,Active,N/A,QAD ERP,Manufacturing,Analyst,Service,2025-11-01 04:10:59.751235,2026-02-03 04:10:59.751237
+user_841,Inactive,Batch Approver,Søren Jørgensen,2026-02-22 04:10:59.751240,Resigned,yes,Workday HR,Manufacturing,Analyst,Service,2026-02-15 04:10:59.751242,2025-11-10 04:10:59.751243
+user_842,Locked,QC Reviewer,John Smith,2026-03-11 04:10:59.751248,Inactive,,SharePoint,QA,Analyst,User,2026-03-02 04:10:59.751251,2026-01-15 04:10:59.751252
+user_843,Active,Delete Records|Lot Disposition,Søren Jørgensen,2026-02-25 04:10:59.751256,Active,,SharePoint,QC,Engineer,User,2025-05-15 04:10:59.751259,2026-01-15 04:10:59.751260
+user_844,Locked,Batch Release,John Smith,2026-03-16 04:10:59.751263,Active,N/A,IT Helpdesk,QC,Analyst,Service,2025-12-10 04:10:59.751266,2026-01-25 04:10:59.751267
+user_845,Inactive,DBA,Søren Jørgensen,2025-09-01 04:10:59.751270,Terminated,yes,Veeva Vault,QC,Manager,Service,2026-02-16 04:10:59.751273,2026-03-04 04:10:59.751275
+user_846,ENABLED,System Admin,María García,2026-02-25 04:10:59.751278,Active,yes,Medidata Rave,IT,Engineer,Service,2025-09-17 04:10:59.751280,2026-02-22 04:10:59.751282
+user_847,TRUE,Counter Sign,Søren Jørgensen,2026-01-20 04:10:59.751285,On Leave,yes,Veeva Vault,IT,Admin,Shared,2026-04-04 04:10:59.751287,2026-03-04 04:10:59.751289
+user_848,TRUE,Analyst,John Smith,2026-02-11 04:10:59.751294,Active,,Workday HR,QA,Engineer,User,2025-09-26 04:10:59.751297,2026-02-17 04:10:59.751298
+user_849,ENABLED,Void,María García,2026-03-10 04:10:59.751301,Inactive,yes,Veeva Vault,IT,Admin,Shared,2025-10-28 04:10:59.751304,2026-01-13 04:10:59.751305
+user_850,Inactive,Method Admin,Søren Jørgensen,2026-02-20 04:10:59.751308,Inactive,,Veeva Vault,QA,Admin,Service,2026-01-05 04:10:59.751311,2025-12-16 04:10:59.751312
+user_851,Inactive,Batch Release|Delete Records,Søren Jørgensen,2026-04-02 04:10:59.751319,Inactive,,QAD ERP,Manufacturing,Engineer,User,2026-02-17 04:10:59.751322,2026-02-15 04:10:59.751324
+user_852,TRUE,Lot Disposition|Specification Editor,María García,2026-03-13 04:10:59.751327,On Leave,Analyst role per onboarding form HR-2024-0112,SAP QM,QC,Analyst,Service,2026-01-08 04:10:59.751329,2026-02-22 04:10:59.751331
+user_853,ENABLED,Master Data Configurator,Alice Brown,2026-02-18 04:10:59.751334,Inactive,,Workday HR,IT,Admin,Shared,2026-03-13 04:10:59.751337,2025-11-03 04:10:59.751338
+user_854,Inactive,Master Data Configurator,María García,2026-03-19 04:10:59.751342,Active,,SAP QM,QC,Analyst,User,2025-07-01 04:10:59.751344,2026-02-16 04:10:59.751346
+user_855,Active,Batch Release,María García,2026-04-08 04:10:59.751349,Terminated,,IT Helpdesk,IT,Manager,Service,2025-08-14 04:10:59.751352,2025-11-17 04:10:59.751353
+user_856,Locked,Purge,Alice Brown,2026-04-10 04:10:59.751356,Terminated,yes,LabVantage LIMS,QA,Analyst,User,2025-08-22 04:10:59.751359,2026-03-27 04:10:59.751360
+user_857,ENABLED,System Admin,Alice Brown,2026-04-10 04:10:59.751363,Resigned,yes,Workday HR,QA,Admin,Service,2025-06-08 04:10:59.751366,2026-04-02 04:10:59.751368
+user_858,Inactive,Calibration Manager,John Smith,2026-03-25 04:10:59.751371,On Leave,yes,IT Helpdesk,Manufacturing,Manager,User,2025-05-08 04:10:59.751374,2025-12-15 04:10:59.751376
+user_859,TRUE,Method Admin,Søren Jørgensen,2026-02-17 04:10:59.751379,Active,,Medidata Rave,IT,Engineer,Shared,2025-06-17 04:10:59.751381,2025-10-19 04:10:59.751383
+user_860,TRUE,Analyst|QC Reviewer,Alice Brown,2026-04-09 04:10:59.751388,Inactive,,SharePoint,Manufacturing,Engineer,User,2026-01-25 04:10:59.751391,2026-02-16 04:10:59.751393
+user_861,TRUE,Method Admin|Analyst,María García,2025-04-22 04:10:59.751402,Resigned,,LabVantage LIMS,QA,Analyst,Shared,2025-06-22 04:10:59.751404,2025-11-12 04:10:59.751406
+user_862,TRUE,Counter Sign,María García,2026-04-04 04:10:59.751411,Active,,LabVantage LIMS,QC,Analyst,Shared,2025-06-23 04:10:59.751414,2025-12-15 04:10:59.751415
+user_863,Locked,Batch Approver,Søren Jørgensen,2026-02-25 04:10:59.751418,On Leave,,Medidata Rave,Manufacturing,Manager,Service,2025-08-04 04:10:59.751420,2025-12-27 04:10:59.751422
+user_864,Inactive,Analyst,John Smith,2025-11-13 04:10:59.751425,Inactive,Analyst role per onboarding form HR-2024-0112,LabVantage LIMS,IT,Manager,Service,2025-06-23 04:10:59.751428,2026-01-27 04:10:59.751429
+user_865,TRUE,QC Reviewer|QC Reviewer,John Smith,2026-03-17 04:10:59.751433,Resigned,,QAD ERP,QA,Engineer,Shared,2025-11-02 04:10:59.751435,2026-02-21 04:10:59.751436
+user_866,ENABLED,Authorised Signatory,John Smith,2026-02-18 04:10:59.751440,Active,yes,IT Helpdesk,Manufacturing,Analyst,User,2025-08-01 04:10:59.751442,2025-11-17 04:10:59.751443
+user_867,Active,DBA,María García,,Terminated,yes,LabVantage LIMS,IT,Engineer,Shared,2026-01-02 04:10:59.751448,2025-12-18 04:10:59.751449
+user_868,Locked,Administrator|Master Data Configurator,Søren Jørgensen,2026-04-03 04:10:59.751453,Resigned,,SharePoint,Manufacturing,Admin,Service,2025-10-23 04:10:59.751456,2026-01-19 04:10:59.751457
+user_869,TRUE,Purge,John Smith,2026-04-01 04:10:59.751460,On Leave,N/A,IT Helpdesk,QC,Admin,User,2025-11-28 04:10:59.751463,2026-01-23 04:10:59.751465
+user_870,ENABLED,Counter Sign,Alice Brown,2026-03-12 04:10:59.751474,Inactive,yes,SAP QM,QC,Engineer,User,2025-11-27 04:10:59.751477,2025-11-07 04:10:59.751478
+user_871,Locked,Master Data Configurator,María García,2026-03-12 04:10:59.751483,Resigned,N/A,QAD ERP,IT,Analyst,Service,2025-04-12 04:10:59.751486,2026-03-22 04:10:59.751487
+user_872,Locked,Counter Sign|Purge,María García,2026-03-25 04:10:59.751491,Resigned,N/A,SAP QM,QC,Analyst,Shared,2025-09-01 04:10:59.751494,2026-01-06 04:10:59.751496
+user_873,Inactive,Purge|Counter Sign,María García,,Inactive,,SharePoint,QA,Engineer,Shared,2026-02-21 04:10:59.751500,2025-10-20 04:10:59.751502
+user_874,Locked,Purge,Søren Jørgensen,2026-03-01 04:10:59.751505,Resigned,yes,Workday HR,Manufacturing,Engineer,User,2025-11-06 04:10:59.751508,2026-02-20 04:10:59.751509
+user_875,TRUE,Purge,María García,2026-03-26 04:10:59.751512,Inactive,,Workday HR,Manufacturing,Analyst,Service,2025-09-08 04:10:59.751515,2026-03-15 04:10:59.751518
+user_876,Inactive,Authorised Signatory,Alice Brown,2026-02-12 04:10:59.751521,Inactive,,SharePoint,QC,Analyst,Service,2025-07-07 04:10:59.751524,2026-01-01 04:10:59.751526
+user_877,Active,Batch Release,María García,2026-03-20 04:10:59.751529,Terminated,Analyst role per onboarding form HR-2024-0112,SharePoint,QC,Manager,User,2026-03-15 04:10:59.751531,2026-02-19 04:10:59.751533
+user_878,Locked,Administrator,Alice Brown,2026-04-08 04:10:59.751536,Resigned,,Medidata Rave,IT,Manager,Service,2025-06-16 04:10:59.751539,2026-02-03 04:10:59.751540
+user_879,Locked,Calibration Manager,María García,2026-02-21 04:10:59.751546,Active,yes,QAD ERP,QA,Manager,User,2025-05-09 04:10:59.751548,2026-03-05 04:10:59.751549
+user_880,Inactive,Lot Disposition,María García,2026-03-23 04:10:59.751553,Resigned,N/A,Veeva Vault,QC,Manager,Service,2025-09-20 04:10:59.751556,2026-02-02 04:10:59.751557
+user_881,ENABLED,Batch Approver,María García,,Terminated,Analyst role per onboarding form HR-2024-0112,SAP QM,QC,Analyst,User,2025-09-23 04:10:59.751561,2026-01-12 04:10:59.751563
+user_882,TRUE,Method Admin,John Smith,,Resigned,,Workday HR,QC,Admin,Shared,2025-08-12 04:10:59.751567,2025-10-20 04:10:59.751569
+user_883,ENABLED,Batch Approver,Søren Jørgensen,2025-12-25 04:10:59.751572,Inactive,,IT Helpdesk,QC,Admin,User,2026-01-26 04:10:59.751575,2025-12-24 04:10:59.751576
+user_884,Inactive,Counter Sign,María García,2025-03-10 04:10:59.751579,On Leave,yes,Medidata Rave,IT,Engineer,Shared,2025-06-04 04:10:59.751582,2026-01-23 04:10:59.751583
+user_885,Active,Void|QC Reviewer,Søren Jørgensen,2026-03-02 04:10:59.751586,Terminated,,Medidata Rave,QA,Analyst,Service,2025-06-15 04:10:59.751589,2025-11-03 04:10:59.751591
+user_886,Active,Calibration Manager,John Smith,,Resigned,yes,Medidata Rave,Manufacturing,Analyst,User,2026-01-08 04:10:59.751595,2026-01-17 04:10:59.751596
+user_887,ENABLED,Method Admin|Batch Approver,Søren Jørgensen,2026-03-27 04:10:59.751600,Terminated,N/A,SharePoint,IT,Admin,User,2025-12-21 04:10:59.751602,2026-04-04 04:10:59.751604
+user_888,Inactive,Lot Disposition,María García,2026-03-29 04:10:59.751609,Inactive,,Medidata Rave,QC,Admin,Service,2025-12-29 04:10:59.751612,2026-03-10 04:10:59.751613
+user_889,ENABLED,Calibration Manager|Batch Approver,María García,2026-03-09 04:10:59.751617,Terminated,yes,Workday HR,QC,Engineer,Service,2025-12-22 04:10:59.751619,2026-03-18 04:10:59.751621
+user_890,TRUE,System Admin|QC Reviewer,Søren Jørgensen,2026-03-27 04:10:59.751624,Resigned,Analyst role per onboarding form HR-2024-0112,Workday HR,QC,Analyst,Shared,2025-11-04 04:10:59.751627,2026-01-15 04:10:59.751629
+user_891,Inactive,QC Reviewer,Alice Brown,2026-03-02 04:10:59.751632,Terminated,,SharePoint,QA,Analyst,Service,2025-09-07 04:10:59.751635,2026-02-23 04:10:59.751636
+user_892,Inactive,Lot Disposition,John Smith,2026-02-14 04:10:59.751639,On Leave,,Workday HR,QC,Analyst,Shared,2026-01-12 04:10:59.751642,2026-01-29 04:10:59.751643
+user_893,Locked,DBA,María García,2026-03-06 04:10:59.751646,Resigned,,IT Helpdesk,Manufacturing,Manager,Shared,2026-03-09 04:10:59.751648,2025-11-30 04:10:59.751650
+user_894,TRUE,DBA|DBA,Alice Brown,2026-04-04 04:10:59.751654,Terminated,Analyst role per onboarding form HR-2024-0112,Medidata Rave,QC,Manager,Shared,2026-01-02 04:10:59.751657,2025-12-18 04:10:59.751658
+user_895,Inactive,Analyst|Administrator,Søren Jørgensen,2026-03-12 04:10:59.751662,Inactive,Analyst role per onboarding form HR-2024-0112,SAP QM,QA,Admin,User,2026-03-30 04:10:59.751665,2026-01-24 04:10:59.751666
+user_896,ENABLED,Batch Approver,María García,2025-04-01 04:10:59.751669,Active,yes,QAD ERP,QC,Admin,Service,2026-01-26 04:10:59.751672,2025-12-13 04:10:59.751673
+user_897,TRUE,Purge|Master Data Configurator,John Smith,,Resigned,yes,Medidata Rave,QC,Manager,Shared,2025-08-25 04:10:59.751680,2026-01-12 04:10:59.751682
+user_898,Active,Batch Approver,María García,2026-03-31 04:10:59.751685,Resigned,N/A,IT Helpdesk,Manufacturing,Admin,Shared,2026-04-01 04:10:59.751688,2025-12-10 04:10:59.751689
+user_899,TRUE,Batch Approver|Delete Records,Alice Brown,,On Leave,Analyst role per onboarding form HR-2024-0112,LabVantage LIMS,IT,Analyst,User,2026-02-09 04:10:59.751695,2025-12-26 04:10:59.751696
+shared_analyst,Inactive,DBA|Authorised Signatory,Søren Jørgensen,2026-03-18 04:10:59.751701,Terminated,Analyst role per onboarding form HR-2024-0112,QAD ERP,QC,Engineer,User,2026-02-24 04:10:59.751704,2025-11-05 04:10:59.751706
+user_901,Inactive,Specification Editor|Void,Alice Brown,2026-03-18 04:10:59.751709,Terminated,Analyst role per onboarding form HR-2024-0112,SAP QM,Manufacturing,Manager,User,2026-03-21 04:10:59.751712,2026-02-15 04:10:59.751713
+user_902,Active,Counter Sign,María García,2026-03-26 04:10:59.751717,On Leave,yes,IT Helpdesk,IT,Engineer,Service,2026-03-23 04:10:59.751720,2026-01-16 04:10:59.751721
+user_903,ENABLED,DBA,John Smith,2026-03-30 04:10:59.751724,Inactive,,Workday HR,Manufacturing,Engineer,User,2026-03-06 04:10:59.751726,2025-11-12 04:10:59.751728
+user_904,TRUE,DBA,María García,2026-04-03 04:10:59.751730,Resigned,Analyst role per onboarding form HR-2024-0112,Medidata Rave,QA,Analyst,Shared,2025-09-10 04:10:59.751733,2026-03-24 04:10:59.751734
+user_905,ENABLED,Master Data Configurator|DBA,John Smith,2026-03-10 04:10:59.751738,Terminated,yes,Veeva Vault,Manufacturing,Manager,Service,2025-09-05 04:10:59.751740,2025-12-05 04:10:59.751742
+user_906,Active,System Admin|Counter Sign,John Smith,2025-07-08 04:10:59.751748,Resigned,,IT Helpdesk,IT,Admin,User,2025-04-16 04:10:59.751751,2026-03-02 04:10:59.751752
+user_907,TRUE,Master Data Configurator,Søren Jørgensen,2026-02-09 04:10:59.751755,On Leave,,SAP QM,QC,Manager,Shared,2026-02-05 04:10:59.751758,2026-01-16 04:10:59.751759
+user_908,Active,QC Reviewer,John Smith,2026-02-23 04:10:59.751762,Active,yes,Workday HR,Manufacturing,Analyst,Shared,2026-01-02 04:10:59.751765,2025-10-28 04:10:59.751766
+user_909,TRUE,DBA|Specification Editor,Søren Jørgensen,2026-03-18 04:10:59.751770,Active,yes,Workday HR,Manufacturing,Analyst,Service,2025-04-23 04:10:59.751772,2025-10-16 04:10:59.751774
+user_910,Active,Method Admin,Søren Jørgensen,2026-01-21 04:10:59.751777,Resigned,N/A,QAD ERP,IT,Analyst,User,2026-01-03 04:10:59.751780,2026-01-20 04:10:59.751781
+user_911,Active,Method Admin,Søren Jørgensen,2026-03-16 04:10:59.751784,Inactive,Analyst role per onboarding form HR-2024-0112,Medidata Rave,QA,Engineer,User,2025-07-25 04:10:59.751787,2025-10-22 04:10:59.751788
+user_912,ENABLED,QC Reviewer|Specification Editor,Alice Brown,2026-03-03 04:10:59.751791,On Leave,,QAD ERP,Manufacturing,Manager,Shared,2025-08-06 04:10:59.751794,2025-12-14 04:10:59.751796
+user_913,ENABLED,Lot Disposition,Søren Jørgensen,2026-03-15 04:10:59.751798,On Leave,,SAP QM,IT,Analyst,Shared,2026-01-01 04:10:59.751801,2025-12-20 04:10:59.751802
+user_914,Locked,Authorised Signatory,John Smith,2026-02-20 04:10:59.751806,Active,,LabVantage LIMS,IT,Analyst,User,2026-01-13 04:10:59.751808,2026-02-10 04:10:59.751810
+user_915,TRUE,Batch Approver,Søren Jørgensen,2026-02-28 04:10:59.751815,Active,N/A,IT Helpdesk,QC,Admin,Shared,2025-11-02 04:10:59.751818,2026-03-12 04:10:59.751819
+user_916,Inactive,Analyst,John Smith,2026-03-01 04:10:59.751822,Resigned,N/A,SharePoint,QA,Admin,Service,2026-03-18 04:10:59.751825,2025-12-21 04:10:59.751826
+user_917,ENABLED,Calibration Manager,Søren Jørgensen,2026-03-03 04:10:59.751829,Active,yes,IT Helpdesk,IT,Analyst,User,2026-03-21 04:10:59.751832,2026-02-06 04:10:59.751834
+user_918,ENABLED,System Admin,María García,2026-03-18 04:10:59.751836,Terminated,yes,SAP QM,IT,Admin,Service,2025-10-03 04:10:59.751839,2026-03-20 04:10:59.751841
+user_919,Inactive,Purge|Purge,María García,2026-02-27 04:10:59.751844,Terminated,Analyst role per onboarding form HR-2024-0112,QAD ERP,QC,Engineer,Shared,2025-11-30 04:10:59.751846,2026-01-15 04:10:59.751848
+user_920,ENABLED,DBA,John Smith,2026-02-16 04:10:59.751851,Resigned,N/A,Medidata Rave,QA,Engineer,Service,2025-08-15 04:10:59.751853,2025-10-25 04:10:59.751854
+user_921,Inactive,Method Admin,Søren Jørgensen,2026-03-03 04:10:59.751858,Terminated,N/A,SharePoint,QA,Analyst,Service,2025-12-31 04:10:59.751861,2025-11-08 04:10:59.751863
+user_922,Inactive,Analyst|Void,Søren Jørgensen,2025-03-29 04:10:59.751866,Active,,Workday HR,Manufacturing,Engineer,Service,2025-08-16 04:10:59.751868,2026-01-09 04:10:59.751870
+user_923,Active,Specification Editor,Søren Jørgensen,2026-04-10 04:10:59.751873,Resigned,Analyst role per onboarding form HR-2024-0112,QAD ERP,QC,Admin,Shared,2025-08-30 04:10:59.751876,2025-10-24 04:10:59.751877
+user_924,Locked,Lot Disposition,Søren Jørgensen,2026-03-10 04:10:59.751884,Resigned,N/A,QAD ERP,QC,Admin,User,2026-02-14 04:10:59.751887,2026-02-04 04:10:59.751889
+user_925,Inactive,Analyst,Alice Brown,2026-02-21 04:10:59.751892,Resigned,yes,LabVantage LIMS,QA,Analyst,Service,2025-05-28 04:10:59.751894,2026-01-21 04:10:59.751896
+user_926,Inactive,Method Admin|QC Reviewer,Alice Brown,2025-12-10 04:10:59.751899,On Leave,yes,QAD ERP,QA,Manager,User,2026-03-18 04:10:59.751902,2025-10-15 04:10:59.751904
+user_927,ENABLED,Counter Sign,John Smith,2026-02-20 04:10:59.751907,Resigned,,IT Helpdesk,Manufacturing,Analyst,Shared,2026-02-24 04:10:59.751909,2026-01-24 04:10:59.751910
+user_928,Locked,Lot Disposition|Batch Release,Alice Brown,2026-03-03 04:10:59.751914,Active,N/A,Medidata Rave,QC,Analyst,Service,2026-02-14 04:10:59.751917,2025-12-30 04:10:59.751921
+user_929,Active,Batch Approver,Alice Brown,2026-04-03 04:10:59.751925,Terminated,,Veeva Vault,Manufacturing,Admin,User,2025-07-18 04:10:59.751927,2026-02-14 04:10:59.751929
+user_930,Inactive,QC Reviewer,John Smith,2026-03-19 04:10:59.751932,On Leave,Analyst role per onboarding form HR-2024-0112,Medidata Rave,Manufacturing,Engineer,Service,2026-03-15 04:10:59.751935,2026-02-13 04:10:59.751936
+user_931,TRUE,Delete Records,Søren Jørgensen,2026-01-12 04:10:59.751939,Terminated,yes,LabVantage LIMS,Manufacturing,Manager,Service,2025-06-04 04:10:59.751942,2026-01-29 04:10:59.751943
+user_932,Active,Specification Editor|Batch Approver,John Smith,2025-08-27 04:10:59.751947,Inactive,,QAD ERP,QA,Manager,Service,2025-07-22 04:10:59.751950,2025-10-23 04:10:59.751952
+user_933,Inactive,Purge,John Smith,2026-03-05 04:10:59.751955,Active,,IT Helpdesk,IT,Analyst,User,2025-11-16 04:10:59.751957,2026-01-28 04:10:59.751959
+user_934,TRUE,Delete Records,Søren Jørgensen,2026-02-20 04:10:59.751964,Resigned,Analyst role per onboarding form HR-2024-0112,Medidata Rave,Manufacturing,Admin,Shared,2025-05-04 04:10:59.751967,2026-03-12 04:10:59.751969
+user_935,ENABLED,Counter Sign|Void,Alice Brown,2026-03-29 04:10:59.751971,Inactive,,SAP QM,QA,Engineer,Service,2025-07-22 04:10:59.751974,2026-01-20 04:10:59.751976
+user_936,ENABLED,System Admin,María García,,On Leave,N/A,Veeva Vault,QC,Analyst,Service,2025-12-16 04:10:59.751981,2026-03-21 04:10:59.751982
+user_937,TRUE,Lot Disposition|DBA,Alice Brown,2026-03-25 04:10:59.751986,Terminated,yes,LabVantage LIMS,IT,Engineer,Shared,2025-12-28 04:10:59.751988,2026-02-02 04:10:59.751990
+user_938,Locked,Void|Authorised Signatory,Søren Jørgensen,2026-02-09 04:10:59.751994,Inactive,Analyst role per onboarding form HR-2024-0112,QAD ERP,QA,Engineer,Shared,2025-11-24 04:10:59.751997,2026-04-09 04:10:59.751998
+user_939,TRUE,Authorised Signatory,María García,2026-03-04 04:10:59.752001,Terminated,,SharePoint,QA,Engineer,Shared,2025-11-30 04:10:59.752004,2026-01-30 04:10:59.752005
+user_940,ENABLED,Purge,Søren Jørgensen,2026-03-17 04:10:59.752008,Inactive,,Veeva Vault,Manufacturing,Engineer,Service,2026-03-26 04:10:59.752010,2025-10-19 04:10:59.752012
+user_941,Locked,Master Data Configurator|Lot Disposition,John Smith,,Active,N/A,SharePoint,Manufacturing,Engineer,Service,2025-05-15 04:10:59.752016,2025-11-13 04:10:59.752018
+user_942,ENABLED,Method Admin,Søren Jørgensen,2026-03-06 04:10:59.752021,Terminated,yes,LabVantage LIMS,QA,Manager,User,2025-12-17 04:10:59.752023,2026-03-06 04:10:59.752025
+user_943,TRUE,QC Reviewer,María García,2025-05-25 04:10:59.752030,Terminated,N/A,Workday HR,QA,Engineer,User,2025-11-08 04:10:59.752033,2026-01-04 04:10:59.752034
+user_944,Active,Batch Approver,John Smith,2026-04-01 04:10:59.752037,Active,yes,Medidata Rave,Manufacturing,Engineer,User,2025-11-01 04:10:59.752040,2025-12-09 04:10:59.752042
+user_945,Locked,Master Data Configurator,Søren Jørgensen,2026-03-08 04:10:59.752045,Active,Analyst role per onboarding form HR-2024-0112,Workday HR,IT,Analyst,User,2025-12-27 04:10:59.752047,2026-03-17 04:10:59.752049
+user_946,Locked,Lot Disposition,Søren Jørgensen,2026-03-14 04:10:59.752052,Inactive,,SharePoint,IT,Engineer,Shared,2025-05-14 04:10:59.752055,2025-12-13 04:10:59.752056
+user_947,Locked,Void,Søren Jørgensen,2026-03-28 04:10:59.752059,Resigned,N/A,Workday HR,IT,Manager,Service,2025-05-09 04:10:59.752061,2026-02-01 04:10:59.752063
+user_948,TRUE,DBA,John Smith,2026-03-30 04:10:59.752066,On Leave,N/A,LabVantage LIMS,Manufacturing,Manager,User,2025-04-11 04:10:59.752068,2025-10-23 04:10:59.752070
+user_949,Inactive,Method Admin,Alice Brown,2026-02-28 04:10:59.752073,Terminated,yes,Workday HR,Manufacturing,Manager,Service,2026-03-25 04:10:59.752075,2026-01-16 04:10:59.752077
+user_950,Locked,Batch Approver,John Smith,2025-06-24 04:10:59.752080,Terminated,Analyst role per onboarding form HR-2024-0112,SAP QM,Manufacturing,Admin,User,2026-03-01 04:10:59.752083,2025-10-30 04:10:59.752084
+user_951,TRUE,Batch Release,John Smith,2025-03-15 04:10:59.752088,Active,Analyst role per onboarding form HR-2024-0112,Workday HR,IT,Analyst,Service,2025-06-25 04:10:59.752090,2025-10-19 04:10:59.752092
+user_952,Active,Void,María García,2026-02-26 04:10:59.752097,Inactive,yes,Veeva Vault,QC,Engineer,Service,2025-07-07 04:10:59.752100,2025-10-25 04:10:59.752101
+user_953,Active,Master Data Configurator|Master Data Configurator,Søren Jørgensen,2026-03-05 04:10:59.752105,Inactive,,Medidata Rave,Manufacturing,Analyst,Shared,2025-10-17 04:10:59.752108,2026-03-05 04:10:59.752109
+user_954,Locked,Specification Editor,Alice Brown,2026-04-08 04:10:59.752112,Active,Analyst role per onboarding form HR-2024-0112,IT Helpdesk,IT,Engineer,User,2025-09-14 04:10:59.752115,2025-12-22 04:10:59.752116
+user_955,Inactive,QC Reviewer|DBA,Alice Brown,2026-04-05 04:10:59.752122,Active,N/A,LabVantage LIMS,Manufacturing,Analyst,Shared,2025-05-11 04:10:59.752125,2026-04-02 04:10:59.752126
+user_956,TRUE,Authorised Signatory,Søren Jørgensen,2026-02-10 04:10:59.752129,On Leave,N/A,SharePoint,QC,Manager,Service,2026-01-30 04:10:59.752132,2026-03-12 04:10:59.752133
+user_957,ENABLED,Master Data Configurator,Søren Jørgensen,2026-01-12 04:10:59.752136,On Leave,N/A,Veeva Vault,QC,Analyst,Shared,2025-06-09 04:10:59.752139,2025-10-29 04:10:59.752142
+user_958,Locked,DBA|Purge,María García,2026-03-26 04:10:59.752146,Resigned,,Workday HR,IT,Analyst,User,2025-08-07 04:10:59.752148,2026-02-22 04:10:59.752150
+user_959,Active,QC Reviewer,Søren Jørgensen,,Resigned,yes,LabVantage LIMS,IT,Manager,User,2026-01-03 04:10:59.752154,2026-01-04 04:10:59.752155
+user_960,Active,Calibration Manager,John Smith,2025-12-16 04:10:59.752158,Inactive,Analyst role per onboarding form HR-2024-0112,QAD ERP,Manufacturing,Admin,User,2025-05-12 04:10:59.752161,2025-11-06 04:10:59.752163
+user_961,TRUE,Analyst,María García,2026-02-18 04:10:59.752168,Resigned,,Veeva Vault,QC,Analyst,User,2025-05-07 04:10:59.752171,2025-12-09 04:10:59.752172
+user_962,ENABLED,Purge|Batch Release|System Admin,Alice Brown,2026-04-03 04:10:59.752177,Resigned,N/A,SAP QM,QC,Manager,Shared,2025-06-05 04:10:59.752179,2026-02-06 04:10:59.752181
+user_963,ENABLED,Batch Release,Alice Brown,2026-02-15 04:10:59.752184,Active,,SAP QM,QA,Engineer,Shared,2026-01-15 04:10:59.752187,2026-01-20 04:10:59.752188
+user_964,Locked,DBA,Alice Brown,2025-03-08 04:10:59.752192,Resigned,,IT Helpdesk,Manufacturing,Manager,Service,2026-02-27 04:10:59.752195,2025-11-25 04:10:59.752196
+user_965,Inactive,Master Data Configurator,Alice Brown,2026-03-19 04:10:59.752200,Resigned,,SharePoint,Manufacturing,Analyst,Service,2025-12-18 04:10:59.752203,2025-12-24 04:10:59.752204
+user_966,TRUE,Batch Approver,John Smith,2026-03-21 04:10:59.752207,Inactive,,SharePoint,Manufacturing,Admin,Shared,2026-01-18 04:10:59.752209,2026-03-16 04:10:59.752211
+user_967,Locked,Calibration Manager,Alice Brown,2026-03-23 04:10:59.752214,Terminated,yes,Veeva Vault,QA,Admin,Shared,2025-07-13 04:10:59.752217,2026-01-05 04:10:59.752218
+user_968,ENABLED,Purge,John Smith,2026-03-06 04:10:59.752221,Terminated,yes,LabVantage LIMS,QC,Analyst,User,2026-01-22 04:10:59.752224,2026-01-15 04:10:59.752225
+user_969,Locked,DBA|DBA,Alice Brown,2026-02-15 04:10:59.752228,Active,,IT Helpdesk,Manufacturing,Admin,User,2025-04-10 04:10:59.752231,2026-01-12 04:10:59.752233
+user_970,Active,Method Admin|Purge,Søren Jørgensen,2026-03-08 04:10:59.752238,Terminated,N/A,Medidata Rave,Manufacturing,Manager,Service,2025-05-12 04:10:59.752241,2025-11-07 04:10:59.752242
+user_971,ENABLED,Analyst,Alice Brown,2026-03-16 04:10:59.752245,Resigned,N/A,LabVantage LIMS,QC,Admin,Service,2025-05-06 04:10:59.752248,2025-10-22 04:10:59.752249
+user_972,Inactive,Delete Records|Void,Søren Jørgensen,2026-02-24 04:10:59.752253,Active,Analyst role per onboarding form HR-2024-0112,LabVantage LIMS,QC,Engineer,User,2025-10-20 04:10:59.752255,2025-12-11 04:10:59.752256
+user_973,ENABLED,Method Admin,John Smith,2026-02-16 04:10:59.752261,Terminated,N/A,SharePoint,QA,Engineer,Shared,2025-09-07 04:10:59.752264,2026-04-05 04:10:59.752265
+user_974,TRUE,Delete Records,Alice Brown,,Inactive,,SAP QM,QA,Manager,Shared,2026-03-06 04:10:59.752269,2026-03-03 04:10:59.752270
+user_975,ENABLED,Calibration Manager,María García,2026-02-13 04:10:59.752274,Inactive,Analyst role per onboarding form HR-2024-0112,Veeva Vault,IT,Manager,User,2026-02-03 04:10:59.752277,2026-03-03 04:10:59.752278
+user_976,Locked,Specification Editor,María García,2025-03-11 04:10:59.752281,Inactive,N/A,LabVantage LIMS,QC,Engineer,Shared,2025-07-21 04:10:59.752284,2026-03-08 04:10:59.752285
+user_977,Locked,Authorised Signatory|Specification Editor,Alice Brown,2026-03-26 04:10:59.752289,On Leave,yes,SAP QM,QA,Admin,Service,2025-11-10 04:10:59.752291,2026-02-28 04:10:59.752293
+user_978,ENABLED,Purge,María García,,Terminated,Analyst role per onboarding form HR-2024-0112,Workday HR,QA,Admin,User,2026-01-19 04:10:59.752297,2026-03-11 04:10:59.752299
+user_979,TRUE,Authorised Signatory|Lot Disposition,John Smith,2025-07-12 04:10:59.752304,Active,yes,Medidata Rave,QA,Engineer,User,2026-03-30 04:10:59.752307,2026-01-05 04:10:59.752309
+user_980,TRUE,Analyst,Søren Jørgensen,2026-04-07 04:10:59.752312,Inactive,,Veeva Vault,QA,Admin,Shared,2026-01-08 04:10:59.752315,2026-01-21 04:10:59.752316
+user_981,TRUE,Lot Disposition,Alice Brown,2026-02-22 04:10:59.752319,Resigned,N/A,SAP QM,QA,Engineer,User,2025-08-13 04:10:59.752322,2025-10-28 04:10:59.752323
+user_982,Inactive,Counter Sign,María García,2026-03-12 04:10:59.752326,Terminated,N/A,Workday HR,QA,Analyst,User,2026-03-24 04:10:59.752329,2026-02-12 04:10:59.752331
+user_983,Active,Master Data Configurator|Analyst,María García,2025-05-01 04:10:59.752335,Resigned,Analyst role per onboarding form HR-2024-0112,SharePoint,Manufacturing,Manager,User,2026-01-07 04:10:59.752337,2026-01-25 04:10:59.752339
+user_984,Active,Analyst,Søren Jørgensen,,Resigned,yes,Veeva Vault,QA,Manager,Shared,2025-05-02 04:10:59.752344,2025-11-04 04:10:59.752346
+user_985,Active,Batch Approver,María García,2026-03-12 04:10:59.752351,Active,N/A,LabVantage LIMS,QC,Admin,User,2025-09-17 04:10:59.752353,2025-12-23 04:10:59.752355
+user_986,Inactive,System Admin,Alice Brown,,On Leave,Analyst role per onboarding form HR-2024-0112,SAP QM,QA,Admin,Service,2025-08-02 04:10:59.752359,2025-10-25 04:10:59.752360
+user_987,TRUE,QC Reviewer,John Smith,2026-03-20 04:10:59.752364,On Leave,,SharePoint,IT,Admin,Service,2025-12-06 04:10:59.752367,2026-01-14 04:10:59.752370
+user_988,Inactive,Void,Søren Jørgensen,2026-03-12 04:10:59.752375,Terminated,yes,Veeva Vault,QA,Admin,User,2025-11-01 04:10:59.752377,2026-01-24 04:10:59.752379
+user_989,Locked,DBA,John Smith,2026-04-06 04:10:59.752382,On Leave,Analyst role per onboarding form HR-2024-0112,QAD ERP,IT,Analyst,Shared,2026-01-17 04:10:59.752384,2025-12-10 04:10:59.752386
+user_990,Inactive,Authorised Signatory,Søren Jørgensen,2026-04-08 04:10:59.752390,On Leave,,QAD ERP,QA,Manager,Shared,2025-05-26 04:10:59.752392,2026-04-02 04:10:59.752393
+user_991,Inactive,Administrator|Master Data Configurator,John Smith,2025-04-18 04:10:59.752397,Active,,SharePoint,QA,Analyst,Shared,2025-08-28 04:10:59.752400,2026-03-13 04:10:59.752401
+user_992,Inactive,Delete Records,María García,,Terminated,Analyst role per onboarding form HR-2024-0112,QAD ERP,QC,Manager,Service,2025-12-01 04:10:59.752405,2025-11-29 04:10:59.752407
+user_993,TRUE,Calibration Manager,Alice Brown,2025-04-01 04:10:59.752410,On Leave,yes,IT Helpdesk,QA,Manager,Service,2025-04-12 04:10:59.752413,2025-10-20 04:10:59.752414
+user_994,Locked,Specification Editor|QC Reviewer,Alice Brown,2025-04-30 04:10:59.752417,Active,,Medidata Rave,QC,Analyst,Shared,2026-02-17 04:10:59.752420,2025-12-25 04:10:59.752421
+user_995,Inactive,Batch Approver,Søren Jørgensen,2026-02-20 04:10:59.752424,Terminated,,Veeva Vault,QA,Analyst,Shared,2026-01-15 04:10:59.752426,2025-12-19 04:10:59.752428
+user_996,TRUE,Master Data Configurator,John Smith,,Active,,Veeva Vault,IT,Admin,Service,2026-01-21 04:10:59.752432,2026-03-18 04:10:59.752433
+user_997,Inactive,QC Reviewer|Calibration Manager,John Smith,2026-04-01 04:10:59.752437,Terminated,Analyst role per onboarding form HR-2024-0112,Medidata Rave,QA,Manager,Shared,2026-02-12 04:10:59.752439,2025-10-30 04:10:59.752441
+user_998,TRUE,Batch Release,John Smith,2026-03-17 04:10:59.752596,Active,,LabVantage LIMS,QA,Analyst,Service,2025-05-07 04:10:59.752615,2026-02-20 04:10:59.752619
+user_999,Active,Counter Sign,John Smith,,On Leave,,QAD ERP,Manufacturing,Engineer,Service,2025-12-15 04:10:59.752626,2026-01-07 04:10:59.752628
+test_account,Locked,Batch Release,María García,2026-03-28 04:10:59.752633,Inactive,yes,QAD ERP,QA,Manager,Service,2025-07-30 04:10:59.752638,2025-12-19 04:10:59.752640
+user_1001,Active,Authorised Signatory,Alice Brown,2026-02-24 04:10:59.752643,Resigned,,IT Helpdesk,IT,Admin,User,2025-09-27 04:10:59.752646,2025-12-07 04:10:59.752648
+user_1002,TRUE,QC Reviewer|Delete Records,Alice Brown,2026-02-24 04:10:59.752651,Active,Analyst role per onboarding form HR-2024-0112,IT Helpdesk,QA,Analyst,Service,2026-01-29 04:10:59.752654,2026-03-29 04:10:59.752656
+user_1003,ENABLED,QC Reviewer,Søren Jørgensen,2025-07-01 04:10:59.752660,Active,,Medidata Rave,IT,Analyst,User,2025-07-11 04:10:59.752663,2025-11-07 04:10:59.752664
+user_1004,Active,Authorised Signatory,María García,2026-02-13 04:10:59.752668,Inactive,N/A,SharePoint,QA,Manager,Shared,2025-05-26 04:10:59.752671,2026-02-20 04:10:59.752673
+user_1005,Inactive,System Admin|Authorised Signatory,John Smith,2026-03-01 04:10:59.752677,Terminated,N/A,QAD ERP,QC,Admin,User,2025-07-09 04:10:59.752680,2026-03-11 04:10:59.752682
+user_1006,Locked,Lot Disposition,John Smith,2026-03-25 04:10:59.752685,On Leave,yes,SAP QM,IT,Manager,Shared,2026-03-30 04:10:59.752687,2025-11-18 04:10:59.752689
+user_1007,TRUE,Calibration Manager,Alice Brown,2026-02-27 04:10:59.752694,Active,yes,Medidata Rave,QA,Engineer,User,2025-08-21 04:10:59.752697,2026-01-02 04:10:59.752699
+user_1008,Locked,Delete Records,Alice Brown,2026-02-09 04:10:59.752702,Active,,Medidata Rave,Manufacturing,Analyst,User,2025-12-12 04:10:59.752705,2026-01-23 04:10:59.752706
+user_1009,ENABLED,Lot Disposition,John Smith,2026-02-27 04:10:59.752709,Active,yes,Medidata Rave,IT,Analyst,Shared,2025-11-25 04:10:59.752712,2025-12-20 04:10:59.752713
+user_1010,ENABLED,Analyst,María García,2026-04-09 04:10:59.752716,Terminated,,Workday HR,Manufacturing,Analyst,Shared,2025-09-24 04:10:59.752719,2025-11-04 04:10:59.752720
+user_1011,ENABLED,Authorised Signatory,Søren Jørgensen,2025-10-08 04:10:59.752723,Active,,Workday HR,Manufacturing,Manager,Shared,2025-11-12 04:10:59.752726,2025-12-25 04:10:59.752727
+user_1012,ENABLED,Lot Disposition|Master Data Configurator,Alice Brown,2026-02-14 04:10:59.752731,Resigned,N/A,Medidata Rave,Manufacturing,Engineer,User,2026-01-30 04:10:59.752734,2026-01-28 04:10:59.752735
+user_1013,Locked,Administrator,Søren Jørgensen,2026-03-30 04:10:59.752739,Terminated,Analyst role per onboarding form HR-2024-0112,QAD ERP,QC,Engineer,User,2025-08-11 04:10:59.752742,2026-04-02 04:10:59.752743
+user_1014,TRUE,Master Data Configurator,John Smith,2026-02-11 04:10:59.752747,Terminated,,QAD ERP,QA,Manager,Shared,2025-11-29 04:10:59.752750,2025-12-24 04:10:59.752752
+user_1015,ENABLED,DBA,María García,2025-09-16 04:10:59.752755,Inactive,Analyst role per onboarding form HR-2024-0112,LabVantage LIMS,QC,Analyst,User,2026-01-01 04:10:59.752758,2025-11-13 04:10:59.752759
+user_1016,Active,Purge,Søren Jørgensen,2026-03-07 04:10:59.752765,Resigned,N/A,Workday HR,IT,Engineer,User,2026-03-12 04:10:59.752768,2025-11-01 04:10:59.752769
+user_1017,Locked,System Admin,Søren Jørgensen,2026-02-16 04:10:59.752774,Inactive,N/A,QAD ERP,IT,Admin,User,2025-04-20 04:10:59.752777,2026-02-18 04:10:59.752779
+user_1018,Inactive,Batch Release|Void,John Smith,2026-04-01 04:10:59.752783,Inactive,,SharePoint,QA,Manager,Service,2026-02-14 04:10:59.752786,2025-11-22 04:10:59.752787
+user_1019,TRUE,Master Data Configurator|Purge,María García,2025-10-11 04:10:59.752790,Terminated,Analyst role per onboarding form HR-2024-0112,LabVantage LIMS,Manufacturing,Admin,Service,2026-02-02 04:10:59.752793,2026-03-30 04:10:59.752795
+user_1020,Active,Specification Editor|Authorised Signatory,Søren Jørgensen,2025-09-25 04:10:59.752799,On Leave,N/A,IT Helpdesk,Manufacturing,Admin,Service,2025-11-27 04:10:59.752801,2025-12-06 04:10:59.752803
+user_1021,Inactive,Calibration Manager,John Smith,2025-08-18 04:10:59.752806,Resigned,N/A,Veeva Vault,IT,Manager,Service,2025-11-29 04:10:59.752808,2025-11-17 04:10:59.752810
+user_1022,Inactive,Analyst,Alice Brown,2026-02-16 04:10:59.752813,Terminated,Analyst role per onboarding form HR-2024-0112,IT Helpdesk,QA,Admin,Service,2025-09-20 04:10:59.752816,2025-12-01 04:10:59.752817
+user_1023,Active,Delete Records,Søren Jørgensen,2026-02-16 04:10:59.752820,Resigned,,IT Helpdesk,QC,Engineer,Service,2025-08-07 04:10:59.752823,2026-02-08 04:10:59.752824
+user_1024,Active,Method Admin,Søren Jørgensen,2026-02-09 04:10:59.752827,Active,yes,Workday HR,Manufacturing,Engineer,User,2025-08-05 04:10:59.752830,2026-03-27 04:10:59.752831
+user_1025,Locked,Batch Release,María García,2026-03-10 04:10:59.752839,Resigned,,SharePoint,IT,Engineer,Service,2025-10-04 04:10:59.752842,2026-04-05 04:10:59.752843
+user_1026,ENABLED,DBA|Analyst,Alice Brown,2025-07-03 04:10:59.752847,Terminated,Analyst role per onboarding form HR-2024-0112,Workday HR,Manufacturing,Manager,Service,2025-07-13 04:10:59.752850,2026-04-05 04:10:59.752860
+user_1027,Locked,Counter Sign,John Smith,2025-08-18 04:10:59.752864,Inactive,Analyst role per onboarding form HR-2024-0112,IT Helpdesk,QC,Engineer,Service,2025-09-03 04:10:59.752867,2026-03-29 04:10:59.752868
+user_1028,TRUE,DBA|Authorised Signatory,John Smith,2026-03-14 04:10:59.752872,Terminated,Analyst role per onboarding form HR-2024-0112,LabVantage LIMS,QA,Manager,Shared,2025-04-16 04:10:59.752875,2025-12-06 04:10:59.752876
+user_1029,Locked,Void|Authorised Signatory|QC Reviewer,Søren Jørgensen,2026-04-04 04:10:59.752880,Inactive,,Veeva Vault,Manufacturing,Engineer,User,2025-08-22 04:10:59.752883,2026-03-04 04:10:59.752884
+user_1030,Locked,Calibration Manager,Søren Jørgensen,2025-07-18 04:10:59.752887,On Leave,Analyst role per onboarding form HR-2024-0112,Medidata Rave,QC,Analyst,User,2025-09-09 04:10:59.752890,2025-11-23 04:10:59.752892
+user_1031,Active,Batch Approver,María García,2026-03-30 04:10:59.752895,Resigned,,IT Helpdesk,QA,Manager,User,2025-05-04 04:10:59.752898,2025-12-12 04:10:59.752899
+user_1032,Active,QC Reviewer,Søren Jørgensen,2026-02-24 04:10:59.752903,Active,Analyst role per onboarding form HR-2024-0112,LabVantage LIMS,QA,Analyst,User,2026-02-17 04:10:59.752905,2025-10-24 04:10:59.752907
+user_1033,Active,Counter Sign,María García,2025-04-12 04:10:59.752910,On Leave,Analyst role per onboarding form HR-2024-0112,QAD ERP,Manufacturing,Admin,User,2025-04-26 04:10:59.752913,2025-11-05 04:10:59.752914
+user_1034,ENABLED,Batch Approver|Void,Alice Brown,2026-04-05 04:10:59.752920,Resigned,yes,SharePoint,QC,Manager,Shared,2025-08-17 04:10:59.752923,2026-02-06 04:10:59.752924
+user_1035,Locked,Administrator,Søren Jørgensen,2025-04-14 04:10:59.752928,Active,Analyst role per onboarding form HR-2024-0112,IT Helpdesk,QA,Engineer,Shared,2025-05-29 04:10:59.752931,2025-11-08 04:10:59.752932
+user_1036,Locked,System Admin|System Admin,Alice Brown,2026-03-24 04:10:59.752936,Terminated,Analyst role per onboarding form HR-2024-0112,SAP QM,QC,Engineer,Shared,2025-11-11 04:10:59.752939,2025-12-27 04:10:59.752941
+user_1037,Inactive,Analyst,John Smith,2026-03-19 04:10:59.752944,Resigned,yes,Veeva Vault,Manufacturing,Manager,Shared,2025-10-12 04:10:59.752947,2026-01-05 04:10:59.752948
+user_1038,Active,Administrator|Specification Editor,Søren Jørgensen,2026-03-03 04:10:59.752952,Resigned,,IT Helpdesk,Manufacturing,Manager,Shared,2026-01-14 04:10:59.752955,2025-10-16 04:10:59.752956
+user_1039,Locked,QC Reviewer,María García,2026-02-24 04:10:59.752959,On Leave,Analyst role per onboarding form HR-2024-0112,Veeva Vault,QA,Engineer,Service,2026-01-31 04:10:59.752962,2025-11-26 04:10:59.752964
+user_1040,Active,System Admin,Søren Jørgensen,2026-02-26 04:10:59.752967,Resigned,,Veeva Vault,QA,Engineer,Shared,2025-10-19 04:10:59.752969,2026-01-17 04:10:59.752971
+user_1041,TRUE,Specification Editor|Purge,Søren Jørgensen,2026-02-15 04:10:59.752974,Terminated,Analyst role per onboarding form HR-2024-0112,Workday HR,QC,Admin,Shared,2025-04-28 04:10:59.752977,2026-03-19 04:10:59.752979
+user_1042,Active,Administrator,John Smith,2026-03-30 04:10:59.752982,Active,,Medidata Rave,QA,Manager,Shared,2025-04-30 04:10:59.752985,2025-12-17 04:10:59.752986
+user_1043,Locked,DBA|System Admin,María García,,Inactive,,LabVantage LIMS,QC,Analyst,User,2025-11-25 04:10:59.752993,2026-01-01 04:10:59.752995
+user_1044,ENABLED,Analyst,Søren Jørgensen,2026-04-08 04:10:59.752998,Active,yes,Veeva Vault,QA,Engineer,Shared,2025-05-06 04:10:59.753001,2025-10-25 04:10:59.753002
+user_1045,Active,Batch Approver,Søren Jørgensen,2026-03-06 04:10:59.753006,Inactive,yes,LabVantage LIMS,IT,Manager,Service,2025-11-06 04:10:59.753008,2025-11-06 04:10:59.753011
+user_1046,ENABLED,Method Admin,María García,2025-04-11 04:10:59.753014,Terminated,Analyst role per onboarding form HR-2024-0112,Workday HR,Manufacturing,Admin,Shared,2025-10-23 04:10:59.753017,2025-11-23 04:10:59.753019
+user_1047,Locked,Calibration Manager,John Smith,2026-02-02 04:10:59.753021,Resigned,,IT Helpdesk,QA,Admin,User,2025-09-23 04:10:59.753025,2026-02-03 04:10:59.753026
+user_1048,Active,Batch Release|Administrator,John Smith,2026-04-01 04:10:59.753030,Resigned,N/A,LabVantage LIMS,Manufacturing,Admin,User,2026-02-20 04:10:59.753032,2026-02-11 04:10:59.753034
+user_1049,TRUE,System Admin|Analyst,John Smith,2026-02-08 04:10:59.753037,Active,N/A,QAD ERP,QA,Analyst,Shared,2025-08-20 04:10:59.753040,2026-01-25 04:10:59.753042
+user_1050,ENABLED,DBA,John Smith,2026-04-08 04:10:59.753045,Inactive,,IT Helpdesk,QC,Analyst,User,2025-06-27 04:10:59.753047,2025-10-30 04:10:59.753049
+user_1051,Active,Void|Batch Release|Void,Søren Jørgensen,2026-03-04 04:10:59.753052,Inactive,,SAP QM,QA,Analyst,Service,2025-10-25 04:10:59.753055,2025-10-17 04:10:59.753056
+user_1052,TRUE,Authorised Signatory,Alice Brown,2026-03-16 04:10:59.753062,Active,N/A,Medidata Rave,IT,Analyst,Shared,2025-07-30 04:10:59.753064,2025-11-01 04:10:59.753066
+user_1053,Active,Authorised Signatory|Delete Records,María García,2026-02-27 04:10:59.753069,Active,Analyst role per onboarding form HR-2024-0112,SAP QM,QA,Engineer,User,2025-08-26 04:10:59.753072,2025-12-08 04:10:59.753074
+user_1054,TRUE,Lot Disposition,John Smith,2026-03-29 04:10:59.753079,On Leave,N/A,QAD ERP,QA,Admin,Service,2025-05-10 04:10:59.753082,2026-02-01 04:10:59.753084
+user_1055,ENABLED,Counter Sign,John Smith,2026-04-10 04:10:59.753087,Inactive,,Medidata Rave,QC,Manager,User,2025-08-16 04:10:59.753090,2025-12-16 04:10:59.753091
+user_1056,Active,Analyst,Søren Jørgensen,2025-07-09 04:10:59.753094,On Leave,yes,LabVantage LIMS,IT,Admin,Shared,2025-05-07 04:10:59.753097,2026-02-26 04:10:59.753098
+user_1057,Locked,Batch Release,Alice Brown,,Terminated,,SharePoint,Manufacturing,Engineer,Shared,2026-02-11 04:10:59.753102,2026-01-18 04:10:59.753104
+user_1058,ENABLED,System Admin,John Smith,,Resigned,,LabVantage LIMS,IT,Manager,Shared,2025-10-11 04:10:59.753108,2026-03-11 04:10:59.753110
+user_1059,ENABLED,Lot Disposition,María García,2026-02-25 04:10:59.753113,Active,,IT Helpdesk,QA,Engineer,User,2025-10-15 04:10:59.753116,2026-01-17 04:10:59.753117
+user_1060,Active,Batch Approver,Alice Brown,2026-03-02 04:10:59.753120,On Leave,N/A,Veeva Vault,IT,Admin,Service,2025-05-02 04:10:59.753123,2026-02-16 04:10:59.753124
+user_1061,ENABLED,Master Data Configurator|System Admin,John Smith,2026-03-20 04:10:59.753127,Active,N/A,LabVantage LIMS,IT,Manager,Shared,2025-05-10 04:10:59.753130,2026-01-14 04:10:59.753132
+user_1062,ENABLED,Master Data Configurator|Specification Editor,María García,2026-03-24 04:10:59.753138,On Leave,,Medidata Rave,IT,Engineer,User,2025-06-19 04:10:59.753141,2026-01-27 04:10:59.753142
+user_1063,Inactive,Specification Editor|Batch Approver,John Smith,2026-02-16 04:10:59.753146,On Leave,Analyst role per onboarding form HR-2024-0112,IT Helpdesk,QA,Manager,Shared,2025-12-09 04:10:59.753149,2026-01-22 04:10:59.753150
+user_1064,TRUE,Specification Editor,Søren Jørgensen,2025-06-24 04:10:59.753153,Terminated,,SharePoint,IT,Admin,Service,2025-11-27 04:10:59.753156,2026-01-04 04:10:59.753158
+user_1065,TRUE,QC Reviewer,John Smith,2026-03-08 04:10:59.753161,Resigned,yes,SharePoint,Manufacturing,Manager,Shared,2025-04-29 04:10:59.753163,2025-10-24 04:10:59.753165
+user_1066,Inactive,Batch Approver,Alice Brown,2026-02-09 04:10:59.753168,Resigned,N/A,Workday HR,QC,Analyst,Shared,2026-04-01 04:10:59.753171,2025-10-30 04:10:59.753172
+user_1067,Locked,Master Data Configurator,María García,2026-03-24 04:10:59.753175,Inactive,N/A,SharePoint,QA,Admin,Service,2026-04-04 04:10:59.753178,2025-12-13 04:10:59.753179
+user_1068,Active,Delete Records,María García,2026-04-09 04:10:59.753184,Resigned,Analyst role per onboarding form HR-2024-0112,SharePoint,QA,Manager,Service,2026-02-16 04:10:59.753186,2026-04-02 04:10:59.753188
+user_1069,TRUE,Batch Release,María García,2026-03-20 04:10:59.753191,Terminated,yes,Workday HR,QC,Analyst,Shared,2025-08-06 04:10:59.753194,2025-10-30 04:10:59.753195
+user_1070,Active,Master Data Configurator,Søren Jørgensen,2026-02-13 04:10:59.753198,Terminated,N/A,SharePoint,Manufacturing,Engineer,User,2025-05-04 04:10:59.753201,2026-02-13 04:10:59.753203
+user_1071,Active,Purge|Batch Release,Alice Brown,2025-12-12 04:10:59.753209,Terminated,,SAP QM,QA,Manager,Shared,2025-09-23 04:10:59.753212,2025-11-08 04:10:59.753213
+user_1072,Inactive,Lot Disposition,John Smith,,Resigned,yes,SharePoint,QC,Analyst,User,2025-10-11 04:10:59.753217,2026-01-17 04:10:59.753219
+user_1073,Inactive,Method Admin,María García,2026-03-30 04:10:59.753226,Terminated,Analyst role per onboarding form HR-2024-0112,Veeva Vault,QC,Admin,Shared,2025-09-20 04:10:59.753231,2026-03-19 04:10:59.753233
+user_1074,TRUE,Analyst,John Smith,2026-02-14 04:10:59.753238,Terminated,,Veeva Vault,IT,Admin,Shared,2025-12-10 04:10:59.753249,2025-11-30 04:10:59.753252
+user_1075,Inactive,Counter Sign|Lot Disposition,Søren Jørgensen,2026-01-22 04:10:59.753256,Terminated,,SAP QM,QA,Admin,Shared,2025-04-11 04:10:59.753261,2025-12-19 04:10:59.753262
+user_1076,TRUE,DBA,Alice Brown,,Resigned,,SharePoint,Manufacturing,Engineer,Shared,2025-10-22 04:10:59.753267,2025-11-10 04:10:59.753268
+user_1077,ENABLED,Batch Approver,María García,2025-04-15 04:10:59.753271,Active,yes,IT Helpdesk,Manufacturing,Engineer,Service,2025-09-11 04:10:59.753274,2025-12-16 04:10:59.753275
+user_1078,ENABLED,Calibration Manager,John Smith,,On Leave,,LabVantage LIMS,QC,Admin,Service,2025-07-15 04:10:59.753281,2026-04-01 04:10:59.753283
+user_1079,Locked,QC Reviewer|Master Data Configurator,María García,,Resigned,N/A,Veeva Vault,IT,Engineer,Shared,2025-08-25 04:10:59.753287,2026-02-10 04:10:59.753289
+user_1080,TRUE,Delete Records,Alice Brown,2026-02-16 04:10:59.753296,On Leave,N/A,LabVantage LIMS,Manufacturing,Analyst,Shared,2025-05-02 04:10:59.753298,2026-04-04 04:10:59.753300
+user_1081,Locked,Batch Release|Specification Editor,John Smith,2026-03-14 04:10:59.753303,Active,N/A,IT Helpdesk,QC,Analyst,Service,2025-09-20 04:10:59.753307,2025-12-06 04:10:59.753308
+user_1082,Locked,Delete Records|Batch Approver,John Smith,2026-02-23 04:10:59.753312,Terminated,,LabVantage LIMS,QA,Manager,Shared,2025-09-06 04:10:59.753315,2026-02-06 04:10:59.753316
+user_1083,Locked,DBA|Purge,María García,2026-02-25 04:10:59.753320,Resigned,,Workday HR,QC,Engineer,Shared,2025-04-28 04:10:59.753322,2026-02-05 04:10:59.753324
+user_1084,Locked,Purge,Alice Brown,,Inactive,Analyst role per onboarding form HR-2024-0112,LabVantage LIMS,QA,Manager,User,2025-07-24 04:10:59.753328,2026-03-22 04:10:59.753330
+user_1085,Inactive,Master Data Configurator,John Smith,2026-04-07 04:10:59.753334,Inactive,,IT Helpdesk,QC,Manager,Shared,2025-12-25 04:10:59.753337,2025-11-16 04:10:59.753338
+user_1086,ENABLED,Analyst|Counter Sign|Authorised Signatory,Søren Jørgensen,2026-03-09 04:10:59.753341,Inactive,,Medidata Rave,IT,Engineer,Service,2026-02-05 04:10:59.753344,2026-04-03 04:10:59.753345
+user_1087,Locked,Batch Release,María García,2026-03-31 04:10:59.753348,On Leave,N/A,IT Helpdesk,QC,Analyst,Shared,2025-12-26 04:10:59.753351,2025-12-13 04:10:59.753352
+user_1088,TRUE,Batch Approver,Søren Jørgensen,2026-03-15 04:10:59.753357,Resigned,yes,Veeva Vault,Manufacturing,Manager,Service,2025-05-26 04:10:59.753360,2026-03-13 04:10:59.753361
+user_1089,Inactive,Administrator,Alice Brown,2026-02-16 04:10:59.753366,Inactive,yes,Medidata Rave,Manufacturing,Manager,Service,2025-05-29 04:10:59.753369,2026-01-19 04:10:59.753371
+user_1090,TRUE,Method Admin,Alice Brown,2026-02-28 04:10:59.753374,Active,yes,QAD ERP,QC,Admin,User,2025-12-21 04:10:59.753376,2026-02-05 04:10:59.753378
+user_1091,TRUE,System Admin,Søren Jørgensen,2026-03-10 04:10:59.753381,On Leave,yes,QAD ERP,QC,Manager,Shared,2026-01-03 04:10:59.753383,2025-10-16 04:10:59.753385
+user_1092,Inactive,Void,Søren Jørgensen,2026-03-29 04:10:59.753388,Terminated,N/A,IT Helpdesk,IT,Admin,User,2025-11-19 04:10:59.753390,2026-01-30 04:10:59.753392
+user_1093,ENABLED,Purge,María García,2026-03-18 04:10:59.753395,Active,yes,Workday HR,IT,Engineer,User,2025-10-29 04:10:59.753397,2026-03-19 04:10:59.753398
+user_1094,ENABLED,Purge,John Smith,2025-11-08 04:10:59.753401,On Leave,,SharePoint,QC,Manager,Shared,2025-06-28 04:10:59.753404,2025-11-11 04:10:59.753406
+user_1095,TRUE,QC Reviewer|Delete Records,María García,2026-02-16 04:10:59.753409,Resigned,N/A,IT Helpdesk,QA,Admin,User,2026-02-10 04:10:59.753412,2026-04-08 04:10:59.753413
+user_1096,Locked,Calibration Manager,Alice Brown,2026-03-03 04:10:59.753416,Inactive,Analyst role per onboarding form HR-2024-0112,QAD ERP,QC,Engineer,Shared,2025-07-06 04:10:59.753419,2025-12-11 04:10:59.753420
+user_1097,Active,Analyst,Alice Brown,2026-03-11 04:10:59.753422,Active,,LabVantage LIMS,QC,Manager,Shared,2025-07-27 04:10:59.753425,2025-12-06 04:10:59.753426
+user_1098,TRUE,DBA|Analyst,Søren Jørgensen,2026-03-27 04:10:59.753432,Inactive,N/A,SAP QM,QA,Analyst,Service,2025-07-20 04:10:59.753435,2026-03-25 04:10:59.753436
+user_1099,ENABLED,Administrator|System Admin,Søren Jørgensen,2026-02-19 04:10:59.753440,Resigned,N/A,QAD ERP,QC,Admin,User,2025-09-18 04:10:59.753443,2026-01-09 04:10:59.753444
