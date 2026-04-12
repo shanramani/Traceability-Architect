@@ -14438,7 +14438,8 @@ match your system's export column names to the fields above — rename nothing i
             if st.button("🔄 Start New Analysis", key="at_reset_btn_pre",
                          use_container_width=True):
                 for k in ["at_raw_df","at_mapped_df","at_scored_df","at_top20_df",
-                          "at_file_name","at_mapping_done","at_analysis_done","at_total_events"]:
+                          "at_file_name","at_mapping_done","at_analysis_done","at_total_events",
+                          "at_review_start","at_review_end"]:
                     st.session_state[k] = _defaults.get(k)
                 st.session_state["at_key_n"] = st.session_state.get("at_key_n",0) + 1
                 st.rerun()
@@ -14734,8 +14735,9 @@ match your system's export column names to the fields above — rename nothing i
                 r_end    or "(review period dates not specified)",
                 st.session_state.get("at_file_name",""),
             )
-            dl_c, inf_c = st.columns([4,5])
-            with dl_c:
+            # ── Download left, Start New Analysis right ────────────────────────
+            dl_col, na_col = st.columns(2)
+            with dl_col:
                 _trial_gate(
                     label="📥 Download Evidence Package (.xlsx)",
                     data=xlsx,
@@ -14745,104 +14747,94 @@ match your system's export column names to the fields above — rename nothing i
                     key="at_download_btn",
                     use_container_width=True,
                 )
-            with inf_c:
                 st.markdown(
-                    "<p style='color:#475569;font-size:0.8rem;padding-top:8px;'>"
-                    "4 sheets: <b style='color:#e2e8f0;'>Summary</b> · "
-                    "<b style='color:#e2e8f0;'>Events for Review</b> · "
-                    "<b style='color:#e2e8f0;'>Full Audit Log</b> · "
-                    "<b style='color:#e2e8f0;'>Detection Logic</b>"
-                    "<br>Attach to your Periodic Review Report as the audit trail evidence package.</p>",
+                    "<p style='color:#64748b;font-size:0.76rem;margin-top:4px;line-height:1.5;'>"
+                    "4 sheets: <b style='color:#94a3b8;'>Summary</b> · "
+                    "<b style='color:#94a3b8;'>Events for Review</b> · "
+                    "<b style='color:#94a3b8;'>Full Audit Log</b> · "
+                    "<b style='color:#94a3b8;'>Detection Logic</b></p>",
                     unsafe_allow_html=True
                 )
+            with na_col:
+                st.markdown("<div style='margin-top:2px;'></div>", unsafe_allow_html=True)
+                _reset_clicked = st.button("🔄 Start New Analysis", key="at_reset_btn",
+                                           use_container_width=True)
+                if _reset_clicked:
+                    for k in ["at_raw_df","at_mapped_df","at_scored_df","at_top20_df",
+                              "at_file_name","at_mapping_done","at_analysis_done","at_total_events",
+                              "at_review_start","at_review_end"]:
+                        st.session_state[k] = _defaults.get(k)
+                    st.session_state["at_key_n"] = st.session_state.get("at_key_n",0) + 1
+                    st.rerun()
 
-        # ── DIM Counter + Start New Analysis — same row, right below download ──
+        # ── DIM Counter — full width, light background ─────────────────────────
         _banked = st.session_state.get("dim_periods_banked", 0)
-        st.markdown("<div style='margin-top:10px;'></div>", unsafe_allow_html=True)
+        st.markdown("<div style='margin-top:14px;'></div>", unsafe_allow_html=True)
 
         if _banked >= 2:
-            # ── Ready state — green, prominent, with CTA button ────────────────
-            dim_badge_col, na_col = st.columns([5, 3])
-            with dim_badge_col:
-                st.markdown(
-                    f"<div style='background:#052e16;border:1.5px solid #22c55e;"
-                    f"border-radius:10px;padding:12px 18px;display:flex;"
-                    f"align-items:center;gap:12px;'>"
-                    f"<span style='font-size:1.5rem;'>📊</span>"
-                    f"<div><b style='color:#4ade80;font-size:1.05rem;'>"
-                    f"{_banked} periods banked — DI Monitor ready</b><br>"
-                    f"<span style='color:#86efac;font-size:0.82rem;'>"
-                    f"Click to run trend analysis across all {_banked} periods.</span></div>"
-                    f"</div>",
-                    unsafe_allow_html=True,
-                )
-            with na_col:
-                st.markdown("<div style='margin-top:4px;'></div>", unsafe_allow_html=True)
-                if st.button("📊 Open DI Monitor →",
+            # Ready — light green card, full width
+            st.markdown(
+                f"<div style='background:#f0fdf4;border:1.5px solid #16a34a;"
+                f"border-radius:10px;padding:14px 22px;display:flex;"
+                f"align-items:center;gap:14px;'>"
+                f"<span style='font-size:1.6rem;'>📊</span>"
+                f"<div style='flex:1;'>"
+                f"<b style='color:#15803d;font-size:1.05rem;'>"
+                f"{_banked} periods banked — Data Integrity Monitor ready</b><br>"
+                f"<span style='color:#166534;font-size:0.83rem;'>"
+                f"Both periods have been auto-fed. Open the DI Monitor to run "
+                f"multi-period trend analysis.</span>"
+                f"</div></div>",
+                unsafe_allow_html=True,
+            )
+            st.markdown("<div style='margin-top:8px;'></div>", unsafe_allow_html=True)
+            _dim_btn_col, _ = st.columns([3, 5])
+            with _dim_btn_col:
+                if st.button("📊 Open Data Integrity Monitor →",
                              key="at_open_dim_btn",
                              use_container_width=True, type="primary"):
                     st.session_state["pr_active_module"] = "di_dashboard"
                     st.session_state["dim_analysis_done"] = False
                     st.rerun()
-                if st.button("🔄 Start New Analysis", key="at_reset_btn",
-                             use_container_width=True):
-                    for k in ["at_raw_df","at_mapped_df","at_scored_df","at_top20_df",
-                              "at_file_name","at_mapping_done","at_analysis_done","at_total_events"]:
-                        st.session_state[k] = _defaults.get(k)
-                    st.session_state["at_key_n"] = st.session_state.get("at_key_n",0) + 1
-                    st.rerun()
         else:
-            # ── Waiting state — light blue, clear progress indicator ───────────
+            # Waiting — light blue card, full width, pip progress
             _needed = max(0, 2 - _banked)
-            dim_badge_col, na_col = st.columns([5, 3])
-            with dim_badge_col:
-                _pip_filled   = "●" * _banked
-                _pip_empty    = "○" * _needed
-                st.markdown(
-                    f"<div style='background:#0c1e35;border:1.5px solid #38bdf8;"
-                    f"border-radius:10px;padding:12px 18px;display:flex;"
-                    f"align-items:center;gap:12px;'>"
-                    f"<span style='font-size:1.5rem;'>📊</span>"
-                    f"<div>"
-                    f"<b style='color:#38bdf8;font-size:1.05rem;'>"
-                    f"DI Monitor &nbsp;{_pip_filled}<span style='color:#334155;'>{_pip_empty}</span>"
-                    f"&nbsp; {_banked}/2 periods banked</b><br>"
-                    f"<span style='color:#7dd3fc;font-size:0.82rem;'>"
-                    f"Run {_needed} more AT analysis period{'s' if _needed!=1 else ''} "
-                    f"to unlock trend analysis.</span>"
-                    f"</div></div>",
-                    unsafe_allow_html=True,
-                )
-            with na_col:
-                st.markdown("<div style='margin-top:4px;'></div>", unsafe_allow_html=True)
-                if st.button("🔄 Start New Analysis", key="at_reset_btn",
-                             use_container_width=True):
-                    for k in ["at_raw_df","at_mapped_df","at_scored_df","at_top20_df",
-                              "at_file_name","at_mapping_done","at_analysis_done","at_total_events"]:
-                        st.session_state[k] = _defaults.get(k)
-                    st.session_state["at_key_n"] = st.session_state.get("at_key_n",0) + 1
-                    st.rerun()
+            _pip_html = (
+                "".join(f"<span style='color:#0284c7;font-size:1rem;'>●</span>" for _ in range(_banked)) +
+                "".join(f"<span style='color:#bae6fd;font-size:1rem;'>○</span>" for _ in range(_needed))
+            )
+            _no_esc_note = (
+                " No anomaly rules fired this period — a clean result is still banked."
+                if n_esc == 0 else ""
+            )
+            st.markdown(
+                f"<div style='background:#f0f9ff;border:1.5px solid #0284c7;"
+                f"border-radius:10px;padding:14px 22px;display:flex;"
+                f"align-items:center;gap:14px;'>"
+                f"<span style='font-size:1.6rem;'>📊</span>"
+                f"<div style='flex:1;'>"
+                f"<b style='color:#0369a1;font-size:1.05rem;'>"
+                f"DI Monitor &nbsp;{_pip_html}&nbsp; {_banked}/2 periods banked</b><br>"
+                f"<span style='color:#0369a1;font-size:0.83rem;'>"
+                f"Run {_needed} more AT analysis period{'s' if _needed!=1 else ''} "
+                f"to unlock multi-period trend analysis.{_no_esc_note}</span>"
+                f"</div></div>",
+                unsafe_allow_html=True,
+            )
 
-        # ── Content for Periodic Review — pushed below DIM CTA ────────────────
-        st.markdown("<div style='margin-top:18px;'></div>", unsafe_allow_html=True)
-        st.markdown(f"""
-<div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;
-            padding:14px 20px;font-size:0.8rem;">
-  <b style="color:#94a3b8;">Content for your Periodic Review Report:</b><br>
-  <i style="color:#cbd5e1;">
-  "System-assisted audit trail review identified the {n_esc} highest-risk events from
-  {n_total:,} total entries using a 14-rule anomaly detection engine. {pct_clr}% of
-  events were auto-cleared as low risk. All {n_esc} escalated events are available
-  for human review and have been dispositioned by the undersigned as documented in
-  the attached Appendix. Complies with 21 CFR Part 11 §11.10(e) and EU Annex 11 Clause 9."
-  </i>
-</div>""", unsafe_allow_html=True)
-
-        # ── Top 20 Events — collapsed by default ──────────────────────────────
+        # ── Top 20 / Clean-period Events section ──────────────────────────────
         st.markdown("---")
-        st.markdown(f"### Top {_AT_TOP_N} Highest-Risk Events")
-        st.caption("Click any event to expand the full detail. "
-                   "All events are collapsed by default to keep the page clean.")
+        if n_esc == 0:
+            st.markdown("### ✅ No Escalated Events — Clean Period")
+            st.caption(
+                "All events were below the anomaly detection threshold. "
+                "No named detection rules fired above threshold for this review period. "
+                "This result has been auto-fed to the DI Monitor as a clean period."
+            )
+        else:
+            st.markdown(f"### Top {_AT_TOP_N} Highest-Risk Events")
+            st.caption("Click any event to expand the full detail. "
+                       "All events are collapsed by default to keep the page clean.")
 
         tier_colors = {
             "Critical":"#dc2626","High":"#ea580c",
@@ -15061,6 +15053,32 @@ match your system's export column names to the fields above — rename nothing i
     <p style="color:#cbd5e1;font-size:0.79rem;line-height:1.5;margin:0;">
       {str(row.get('AI_Justification',''))}</p>
   </div>
+</div>""", unsafe_allow_html=True)
+
+        # ── Content for Periodic Review — very bottom of page ─────────────────
+        st.markdown("---")
+        if n_esc == 0:
+            _content_body = (
+                f"System-assisted audit trail review of {n_total:,} events using a "
+                f"14-rule anomaly detection engine found no events meeting escalation "
+                f"threshold. {pct_clr}% of events were auto-cleared. No findings "
+                f"require human disposition for this review period. "
+                f"Complies with 21 CFR Part 11 §11.10(e) and EU Annex 11 Clause 9."
+            )
+        else:
+            _content_body = (
+                f"System-assisted audit trail review identified the {n_esc} highest-risk "
+                f"events from {n_total:,} total entries using a 14-rule anomaly detection "
+                f"engine. {pct_clr}% of events were auto-cleared as low risk. "
+                f"All {n_esc} escalated events are available for human review and have "
+                f"been dispositioned by the undersigned as documented in the attached "
+                f"Appendix. Complies with 21 CFR Part 11 §11.10(e) and EU Annex 11 Clause 9."
+            )
+        st.markdown(f"""
+<div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;
+            padding:14px 20px;font-size:0.8rem;margin-bottom:24px;">
+  <b style="color:#94a3b8;">Content for your Periodic Review Report:</b><br>
+  <i style="color:#cbd5e1;">"{_content_body}"</i>
 </div>""", unsafe_allow_html=True)
 
 
