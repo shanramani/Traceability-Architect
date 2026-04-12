@@ -12510,11 +12510,11 @@ def show_periodic_review(user: str, role: str, model_id: str):
         return
 
     # ── Landing page ──────────────────────────────────────────────────────────
-    st.title("📋 Periodic Review")
+    st.title("🧠 Assurance Intelligence")
     st.markdown(
         "<p style='color:#94a3b8;margin-top:-12px;'>Select a module below. "
-        "Each module covers a mandatory section of your Periodic Review Report "
-        "per 21 CFR Part 11, EU Annex 11, and your internal SOP(s).</p>",
+        "Each module applies a deterministic scoring engine to produce "
+        "GxP-grade evidence output per 21 CFR Part 11, EU Annex 11, and GAMP 5.</p>",
         unsafe_allow_html=True
     )
     st.markdown("<br>", unsafe_allow_html=True)
@@ -12552,22 +12552,6 @@ def show_periodic_review(user: str, role: str, model_id: str):
             "bg":      "#0c1f36",
             "border":  "#1e3a5f",
         },
-        {
-            "key":     "di_dashboard",
-            "title":   "Data Integrity Monitor",
-            "section": "ALCOA+ · 21 CFR Part 11 · EU Annex 11",
-            "desc":    (
-                "Upload a consolidated findings file covering multiple review periods "
-                "to identify DI trends, repeat high-risk users, and recurring rule "
-                "patterns. Produces a GxP evidence package with period-over-period "
-                "trend analysis and AI-generated executive narrative."
-            ),
-            "status":  "live",
-            "btn_label": "Open Data Integrity Monitor",
-            "color":   "#0284c7",
-            "bg":      "#0c1f36",
-            "border":  "#1e3a5f",
-        },
     ]
 
     # ── All 3 cards in one HTML grid — guarantees equal height ───────────────
@@ -12592,7 +12576,7 @@ def show_periodic_review(user: str, role: str, model_id: str):
 <style>
 .pr-grid {{
     display: grid;
-    grid-template-columns: 1fr 1fr 1fr;
+    grid-template-columns: 1fr 1fr;
     gap: 16px;
     margin-bottom: 12px;
 }}
@@ -12626,8 +12610,8 @@ def show_periodic_review(user: str, role: str, model_id: str):
 """, unsafe_allow_html=True)
 
     # ── Button row — separate st.columns so Streamlit click handling works ───
-    btn_col1, btn_col2, btn_col3 = st.columns(3)
-    for btn_col, mod in zip([btn_col1, btn_col2, btn_col3], modules):
+    btn_col1, btn_col2 = st.columns(2)
+    for btn_col, mod in zip([btn_col1, btn_col2], modules):
         live = mod["status"] == "live"
         with btn_col:
             if live:
@@ -15177,14 +15161,14 @@ def show_app():
         st.markdown(
             '<p style="color:#94a3b8;font-size:0.68rem;margin:-6px 0 4px;'
             'letter-spacing:0.5px;font-family:\'IBM Plex Mono\',monospace;">'
-            'Build v71 · Change Control Package coming Monday</p>',
+            'Build v83 · CSA Change Impact coming next</p>',
             unsafe_allow_html=True)
         st.divider()
         st.markdown('<p class="sb-sub">🔧 Analysis Mode</p>', unsafe_allow_html=True)
         _modes = [
             "New Validation",
             "Change Impact Analysis",
-            "Periodic Review",
+            "Assurance Intelligence",
         ]
         app_mode = st.radio(
             "Mode", _modes,
@@ -15245,7 +15229,7 @@ def show_app():
     # The back button only appears when inside a Periodic Review sub-module.
     # Both buttons sit in the same row so they align at the same visual level.
     _in_pr_submodule = (
-        st.session_state.get("app_mode") == "Periodic Review"
+        st.session_state.get("app_mode") == "Assurance Intelligence"
         and st.session_state.get("pr_active_module") is not None
     )
     if _in_pr_submodule:
@@ -15339,7 +15323,7 @@ def show_app():
         show_change_impact(user, role, MODELS[st.session_state.selected_model])
         return
 
-    if _mode == "Periodic Review":
+    if _mode == "Assurance Intelligence":
         show_periodic_review(user, role, MODELS[st.session_state.selected_model])
         return
 
