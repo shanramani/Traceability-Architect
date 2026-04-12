@@ -14394,7 +14394,6 @@ match your system's export column names to the fields above — rename nothing i
                           "at_file_name","at_mapping_done","at_analysis_done","at_total_events",
                           "at_review_start","at_review_end"]:
                     st.session_state[k] = _defaults.get(k)
-                    st.session_state.pop(_wk, None)
                 st.session_state["at_key_n"] = st.session_state.get("at_key_n",0) + 1
                 st.rerun()
 
@@ -14730,7 +14729,6 @@ match your system's export column names to the fields above — rename nothing i
                               "at_review_start","at_review_end"]:
                         st.session_state[k] = _defaults.get(k)
                     # doesn't re-write the old dates back on next render
-                        st.session_state.pop(_wk, None)
                     st.session_state["at_key_n"] = st.session_state.get("at_key_n",0) + 1
                     st.rerun()
 
