@@ -11454,19 +11454,29 @@ def dim_score_periods(df: pd.DataFrame) -> dict:
         return {"error": "Minimum 2 review periods required. "
                          "Check the Review_Period column contains distinct period values."}
 
+    # Mark sentinel rows (auto-banked clean periods with no real findings)
+    # so they don't inflate counts when compared against periods with real data
+    _SENTINEL_RULE = "no named rules triggered"
+    _SENTINEL_USER = "(no escalations)"
+    df["_is_sentinel"] = (
+        df["Rule_Triggered"].str.strip().str.lower().str.startswith(_SENTINEL_RULE) &
+        (df["Username"].str.strip() == _SENTINEL_USER)
+    )
+
     # ── Feature 1: Period trend metrics ──────────────────────────────────────
     period_rows = []
     for p in periods:
         pf = df[df["Review_Period"] == p]
+        pf_real = pf[~pf["_is_sentinel"]]   # exclude sentinel rows from counts
         period_rows.append({
             "Review_Period":        p,
-            "Total_Findings":       len(pf),
-            "High_Critical":        int(pf["is_high_crit"].sum()),
-            "Deletion_Findings":    int(pf["is_deletion"].sum()),
-            "Failed_Login":         int(pf["is_failed_login"].sum()),
-            "Off_Hours":            int(pf["is_off_hours"].sum()),
-            "Dormant_Findings":     int(pf["is_dormant"].sum()),
-            "Avg_Risk_Weight":      round(float(pf["Risk_Weight"].mean()), 2),
+            "Total_Findings":       len(pf_real),
+            "High_Critical":        int(pf_real["is_high_crit"].sum()),
+            "Deletion_Findings":    int(pf_real["is_deletion"].sum()),
+            "Failed_Login":         int(pf_real["is_failed_login"].sum()),
+            "Off_Hours":            int(pf_real["is_off_hours"].sum()),
+            "Dormant_Findings":     int(pf_real["is_dormant"].sum()),
+            "Avg_Risk_Weight":      round(float(pf_real["Risk_Weight"].mean()), 2) if not pf_real.empty else 0.0,
         })
     period_df = pd.DataFrame(period_rows)
 
@@ -12172,6 +12182,7 @@ def show_dim(user: str, role: str, model_id: str):
     _sys_name = (st.session_state.get("dim_system_name") or
                  st.session_state.get("at_system_name", ""))
     _done     = st.session_state.get("dim_analysis_done", False)
+    _autorun  = st.session_state.get("dim_autorun_pending", False)
 
     if _banked < 2 and not _done:
         _needed = 2 - _banked
@@ -12189,29 +12200,9 @@ def show_dim(user: str, role: str, model_id: str):
             unsafe_allow_html=True)
         return
 
-    # ── Ready to run or already done ──────────────────────────────────────────
-    if not _done:
-        st.markdown(
-            f"<div style='background:#0c2d1e;border:1px solid #22c55e;"
-            f"border-radius:10px;padding:16px 22px;margin-bottom:16px;'>"
-            f"<b style='color:#4ade80;font-size:1rem;'>✅ {_banked} periods "
-            f"ready — {_sys_name or 'AT findings'}</b><br>"
-            f"<span style='color:#86efac;font-size:0.85rem;'>"
-            f"Click Run to generate trend analysis.</span></div>",
-            unsafe_allow_html=True)
-
-    rb_col, rs_col, _ = st.columns([3, 2, 3])
-    with rb_col:
-        run_btn = st.button(
-            "✅ Analysis Complete" if _done else "▶ Run DI Monitor",
-            type="primary", use_container_width=True,
-            key="dim_run_btn", disabled=_done)
-    with rs_col:
-        if _done and st.button("🔄 New Analysis", use_container_width=True, key="dim_reset_btn"):
-            st.session_state.update({"dim_result": None, "dim_analysis_done": False})
-            st.rerun()
-
-    if run_btn:
+    # ── Auto-run when arriving from the AT CTA button ─────────────────────────
+    if _autorun and not _done:
+        st.session_state.pop("dim_autorun_pending", None)
         input_df = _dim_normalise_columns(pd.DataFrame(_acc_rows))
         with st.status("Running Data Integrity Monitor…", expanded=True) as status:
             st.write("Classifying events and calculating trends…")
@@ -12225,8 +12216,38 @@ def show_dim(user: str, role: str, model_id: str):
                                      "dim_analysis_done": True,
                                      "dim_system_name": _sys_name})
             status.update(label="✅ Complete", state="complete")
+        _done = True
 
+    # ── Ready to run manually (no autorun) ────────────────────────────────────
     if not _done:
+        st.markdown(
+            f"<div style='background:#0c2d1e;border:1px solid #22c55e;"
+            f"border-radius:10px;padding:16px 22px;margin-bottom:16px;'>"
+            f"<b style='color:#4ade80;font-size:1rem;'>✅ {_banked} periods "
+            f"ready — {_sys_name or 'AT findings'}</b><br>"
+            f"<span style='color:#86efac;font-size:0.85rem;'>"
+            f"Click Run to generate trend analysis.</span></div>",
+            unsafe_allow_html=True)
+
+        rb_col, rs_col, _ = st.columns([3, 2, 3])
+        with rb_col:
+            run_btn = st.button("▶ Run DI Monitor", type="primary",
+                                use_container_width=True, key="dim_run_btn")
+        if run_btn:
+            input_df = _dim_normalise_columns(pd.DataFrame(_acc_rows))
+            with st.status("Running Data Integrity Monitor…", expanded=True) as status:
+                st.write("Classifying events and calculating trends…")
+                result = dim_score_periods(input_df)
+                if "error" in result:
+                    status.update(label="Error", state="error")
+                    st.error(result["error"]); return
+                st.write("Identifying repeat users and rule recurrence…")
+                st.write("Generating narrative…")
+                st.session_state.update({"dim_result": result,
+                                         "dim_analysis_done": True,
+                                         "dim_system_name": _sys_name})
+                status.update(label="✅ Complete", state="complete")
+            st.rerun()
         return
 
     result   = st.session_state["dim_result"]
@@ -12234,6 +12255,21 @@ def show_dim(user: str, role: str, model_id: str):
     pdf      = result["period_df"]
     last_row = pdf.iloc[-1]
     posture  = smry["posture_last"]
+
+    # ── New Analysis button ────────────────────────────────────────────────────
+    _, _na_col = st.columns([6, 2])
+    with _na_col:
+        if st.button("🔄 New Analysis", use_container_width=True, key="dim_reset_btn"):
+            # Clear DIM result (keep banked periods — user may want to add another)
+            st.session_state.update({"dim_result": None, "dim_analysis_done": False})
+            # Reset AT so user lands on a clean upload form
+            for _k in ["at_raw_df","at_mapped_df","at_scored_df","at_top20_df",
+                       "at_file_name","at_mapping_done","at_analysis_done",
+                       "at_total_events","at_review_start","at_review_end"]:
+                st.session_state[_k] = _defaults.get(_k)
+            st.session_state["at_key_n"] = st.session_state.get("at_key_n", 0) + 1
+            st.session_state["pr_active_module"] = "audit_trail"
+            st.rerun()
 
     # ── Posture banner ─────────────────────────────────────────────────────────
     _POS = {
@@ -12244,18 +12280,25 @@ def show_dim(user: str, role: str, model_id: str):
         "Baseline":     ("#1e293b","#cbd5e1","#94a3b8","◎"),
     }
     _bg,_fg_l,_fg_m,_arrow = _POS.get(posture,("#1e293b","#cbd5e1","#94a3b8","◎"))
+
+    # Build per-period lines for the banner
+    _period_lines = "".join(
+        f"<div style='color:{_fg_l};font-size:0.82rem;margin-top:3px;'>"
+        f"<b style='color:{_fg_m};'>Period {i+1}:</b> {p}</div>"
+        for i, p in enumerate(smry["periods"])
+    )
     st.markdown(
         f"<div style='background:{_bg};border:2px solid {_fg_m};"
         f"border-radius:12px;padding:18px 26px;margin:16px 0;'>"
         f"<div style='display:flex;align-items:baseline;gap:16px;'>"
-        f"<span style='font-size:2rem;'>{_arrow}</span><div>"
+        f"<span style='font-size:2rem;'>{_arrow}</span><div style='flex:1;'>"
         f"<div style='color:{_fg_m};font-size:1.3rem;font-weight:800;'>"
         f"DI Posture: {posture.upper()}</div>"
-        f"<div style='color:{_fg_l};font-size:0.85rem;margin-top:4px;'>"
-        f"Overall {smry['first_period']} → {smry['last_period']}: "
-        f"<b>{smry['overall_pct_chg']:+.1f}%</b> · "
-        f"{smry['n_periods']} periods · {smry['repeat_users']} repeat user(s)"
-        f"</div></div></div></div>", unsafe_allow_html=True)
+        f"<div style='color:{_fg_l};font-size:0.85rem;margin-top:6px;'>"
+        f"<b>{smry['overall_pct_chg']:+.1f}%</b> overall change · "
+        f"{smry['n_periods']} periods · {smry['repeat_users']} repeat user(s)</div>"
+        f"{_period_lines}"
+        f"</div></div></div>", unsafe_allow_html=True)
 
     # ── KPI Tiles ──────────────────────────────────────────────────────────────
     _TILES = [
@@ -12268,11 +12311,18 @@ def show_dim(user: str, role: str, model_id: str):
         with col:
             val = int(last_row[metric])
             pct = last_row.get(f"{metric}_pct_chg")
-            if pd.notna(pct) and pct is not None:
+            prev_val = None
+            if len(pdf) >= 2:
+                prev_val = int(pdf.iloc[-2][metric])
+            if pd.notna(pct) and pct is not None and prev_val is not None and prev_val > 0:
                 pf = float(pct)
                 _a = "▲" if pf>5 else "▼" if pf<-5 else "→"
                 _dc= "#f87171" if pf>5 else "#4ade80" if pf<-5 else "#94a3b8"
-                _dh= f"<div style='color:{_dc};font-size:0.8rem;font-weight:700;margin-top:4px;'>{_a} {pf:+.1f}%</div>"
+                _dh= (f"<div style='color:{_dc};font-size:0.8rem;font-weight:700;margin-top:4px;'>"
+                      f"{_a} {pf:+.1f}% vs prior</div>")
+            elif pd.notna(pct) and prev_val == 0 and val > 0:
+                _dc = "#f87171"
+                _dh = f"<div style='color:{_dc};font-size:0.8rem;font-weight:700;margin-top:4px;'>▲ New findings</div>"
             else:
                 _dh = "<div style='color:#475569;font-size:0.8rem;'>Baseline</div>"
             st.markdown(
@@ -12304,59 +12354,118 @@ def show_dim(user: str, role: str, model_id: str):
     else:
         st.markdown("<div style='color:#4ade80;background:#052e16;border-radius:8px;padding:10px 16px;'>✓ No significant worsening metrics.</div>", unsafe_allow_html=True)
 
-    # ── Period Trend Table ──────────────────────────────────────────────────────
+    # ── Period Trend Table — descending (most recent first) ────────────────────
     st.markdown("<div class='dim-section-hdr'>📈 Period Trend Analysis</div>", unsafe_allow_html=True)
+    _TREND_LEGEND = (
+        "<div style='color:#64748b;font-size:0.74rem;margin-bottom:8px;'>"
+        "<b style='color:#94a3b8;'>Trend legend:</b> "
+        "<span style='color:#f87171;'>Significant Increase</span> &gt;30% · "
+        "<span style='color:#fb923c;'>Moderate Increase</span> 16–30% · "
+        "<span style='color:#fbbf24;'>Slight Increase</span> 6–15% · "
+        "<span style='color:#60a5fa;'>Stable</span> ±5% · "
+        "<span style='color:#4ade80;'>Decreasing</span> &lt;-5%"
+        "</div>"
+    )
+    st.markdown(_TREND_LEGEND, unsafe_allow_html=True)
     with st.expander("Period-by-period breakdown", expanded=True):
         _sc = ["Review_Period","Total_Findings","High_Critical","Deletion_Findings",
                "Failed_Login","Dormant_Findings","Total_Findings_trend","DI_Posture"]
         _d  = pdf[[c for c in _sc if c in pdf.columns]].copy()
+        _d  = _d.iloc[::-1].reset_index(drop=True)   # descending: most recent first
         _d.columns = [c.replace("_"," ") for c in _d.columns]
         st.dataframe(_d, use_container_width=True, hide_index=True)
+        st.caption(
+            "Most recent period shown first. 'Stable' means total findings changed by ≤5% vs the prior period. "
+            "DI Posture: Improving = >15% decrease · Deteriorating = >15% increase · Critical = >30% increase with High/Critical findings."
+        )
 
     # ── Repeat Users ────────────────────────────────────────────────────────────
     rdf = result["repeat_df"]
     st.markdown(f"<div class='dim-section-hdr'>🔁 Repeat High-Risk Users ({smry['repeat_users']})</div>", unsafe_allow_html=True)
     with st.expander("Repeat user details", expanded=smry["repeat_users"]>0):
         if rdf.empty:
-            st.markdown("<span style='color:#4ade80;'>✓ No repeat high-risk users.</span>", unsafe_allow_html=True)
+            st.markdown("<span style='color:#4ade80;'>✓ No repeat high-risk users across periods.</span>", unsafe_allow_html=True)
         else:
+            st.caption(
+                "Users flagged as High or Critical risk in 2 or more periods. "
+                "Repeat flagging indicates a persistent pattern requiring targeted review or access remediation."
+            )
             for _,row in rdf.iterrows():
-                _np = int(row["Periods_Flagged"])
-                _bc = "#f87171" if _np>=3 else "#fb923c"
+                _np  = int(row["Periods_Flagged"])
+                _bc  = "#f87171" if _np>=3 else "#fb923c"
+                _rule = str(row.get("Most_Common_Rule","—"))[:70]
+                _rlvl = str(row.get("Risk_Levels","—"))
+                _tot  = int(row.get("Total_Findings", 0))
+                _narrative = (
+                    f"Flagged in <b>{_np} consecutive or non-consecutive periods</b>. "
+                    f"Most frequent rule: <b style='color:#fbbf24;'>{_rule}</b>. "
+                    f"Risk levels observed: {_rlvl}. "
+                    f"Total of <b>{_tot} findings</b> across all periods. "
+                    + (
+                        "Persistent pattern — recommend access review or targeted audit."
+                        if _np >= 2 else "Monitor in next period before escalating."
+                    )
+                )
                 st.markdown(
-                    f"<div style='background:#1e293b;border-radius:8px;padding:10px 16px;"
-                    f"margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;'>"
-                    f"<div><span style='color:#e2e8f0;font-weight:700;'>{row['Username']}</span>"
-                    f"<span style='color:#64748b;font-size:0.82rem;margin-left:10px;'>{row['Period_List']}</span></div>"
+                    f"<div style='background:#1e293b;border-radius:8px;padding:12px 16px;"
+                    f"margin-bottom:10px;border-left:3px solid {_bc};'>"
+                    f"<div style='display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;'>"
+                    f"<div><span style='color:#e2e8f0;font-weight:700;font-size:0.95rem;'>{row['Username']}</span>"
+                    f"<span style='color:#64748b;font-size:0.8rem;margin-left:10px;'>{row['Period_List']}</span></div>"
                     f"<div style='display:flex;gap:12px;align-items:center;'>"
-                    f"<span style='color:#94a3b8;font-size:0.82rem;'>Last: {row['Last_Seen']}</span>"
+                    f"<span style='color:#94a3b8;font-size:0.8rem;'>Last seen: {row['Last_Seen']}</span>"
                     f"<span style='background:{_bc}22;color:{_bc};border:1px solid {_bc}44;"
                     f"border-radius:6px;padding:2px 10px;font-size:0.78rem;font-weight:700;'>"
-                    f"{_np} periods</span></div></div>", unsafe_allow_html=True)
+                    f"{_np} periods</span></div></div>"
+                    f"<div style='color:#94a3b8;font-size:0.8rem;line-height:1.5;'>{_narrative}</div>"
+                    f"</div>", unsafe_allow_html=True)
 
     # ── Rule Recurrence ──────────────────────────────────────────────────────────
     ruledf = result["rule_df"]
-    st.markdown("<div class='dim-section-hdr'>🔄 Rule Recurrence</div>", unsafe_allow_html=True)
-    with st.expander("Rules firing across multiple periods", expanded=False):
+    st.markdown("<div class='dim-section-hdr'>🔄 Rule Recurrence Across Periods</div>", unsafe_allow_html=True)
+    _TREND_DEFS = {
+        "Significant Increase": ("Fired ≥30% more than prior period — escalating pattern", "#f87171"),
+        "Moderate Increase":    ("Fired 16–30% more — warrants monitoring", "#fb923c"),
+        "Slight Increase":      ("Fired 6–15% more — minor uptick", "#fbbf24"),
+        "Stable":               ("Firing rate within ±5% of prior period — no meaningful change", "#60a5fa"),
+        "Slight Decrease":      ("Firing rate down 6–15% — mild improvement", "#4ade80"),
+        "Moderate Decrease":    ("Firing rate down 16–30% — good improvement", "#4ade80"),
+        "Significant Decrease": ("Firing rate down ≥30% — strong improvement", "#4ade80"),
+    }
+    with st.expander("Rules firing across multiple periods", expanded=True):
         if ruledf.empty:
             st.info("No rule recurrence data available.")
         else:
-            _TC = {"Significant Increase":"#f87171","Moderate Increase":"#fb923c",
-                   "Slight Increase":"#fbbf24","Stable":"#60a5fa",
-                   "Slight Decrease":"#4ade80","Moderate Decrease":"#4ade80",
-                   "Significant Decrease":"#4ade80"}
+            st.caption(
+                "Rules that fired in more than one period. The trend shows how the firing rate changed "
+                "from the first to the last period it was seen. 'Stable' means ≤5% change in event count — "
+                "the rule is consistently triggering but not worsening."
+            )
             for _,row in ruledf.iterrows():
-                _ac = _TC.get(str(row["Trend_Label"]),"#94a3b8")
+                _tl  = str(row["Trend_Label"])
+                _def, _ac = _TREND_DEFS.get(_tl, ("", "#94a3b8"))
+                _first = int(row.get("First_Period_Cnt", 0))
+                _last  = int(row.get("Last_Period_Cnt", 0))
+                _plist = str(row.get("Period_List",""))
+                _hc    = int(row.get("High_Crit_Count", 0))
+                _rule_narrative = (
+                    f"Fired in <b>{row['Periods_Seen']} period(s)</b> ({_plist}). "
+                    f"Count: <b>{_first} → {_last}</b> events. "
+                    f"High/Critical findings: <b style='color:#f87171;'>{_hc}</b>. "
+                    f"<span style='color:{_ac};'>{_def}</span>"
+                )
                 st.markdown(
                     f"<div style='background:#1e293b;border-left:3px solid {_ac};"
-                    f"border-radius:0 8px 8px 0;padding:8px 14px;margin-bottom:6px;"
-                    f"display:flex;justify-content:space-between;align-items:center;'>"
+                    f"border-radius:0 8px 8px 0;padding:10px 16px;margin-bottom:8px;'>"
+                    f"<div style='display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;'>"
                     f"<span style='color:#e2e8f0;font-size:0.88rem;font-weight:600;'>{row['Rule']}</span>"
-                    f"<span style='display:flex;gap:16px;'>"
-                    f"<span style='color:#64748b;font-size:0.8rem;'>{row['Periods_Seen']} periods · {row['Total_Occurrences']} events</span>"
-                    f"<span style='color:{_ac};font-size:0.8rem;font-weight:700;'>{row['Trend_Label']}</span>"
-                    f"</span></div>", unsafe_allow_html=True)
+                    f"<span style='color:{_ac};font-size:0.8rem;font-weight:700;border:1px solid {_ac}44;"
+                    f"border-radius:4px;padding:1px 8px;'>{_tl}</span>"
+                    f"</div>"
+                    f"<div style='color:#94a3b8;font-size:0.79rem;line-height:1.5;'>{_rule_narrative}</div>"
+                    f"</div>", unsafe_allow_html=True)
 
+    # ── Download ──────────────────────────────────────────────────────────────
     st.markdown("---")
     st.markdown("<div class='dim-section-hdr'>📥 Download Evidence Package</div>", unsafe_allow_html=True)
     sysname  = st.session_state.get("dim_system_name","System")
@@ -12364,14 +12473,16 @@ def show_dim(user: str, role: str, model_id: str):
     out_name = f"DIM_{sysname.replace(' ','_')}_{datetime.datetime.utcnow().strftime('%Y-%m-%d')}.xlsx"
     dl_col, info_col = st.columns([3,5])
     with dl_col:
-        if _trial_gate("dim_download"):
-            with st.spinner("Building evidence package…"):
-                xlsx_bytes = dim_build_excel(result, sysname, fname_in, model_id)
-            st.download_button(
-                label="⬇️ Download DIM Evidence Package",
-                data=xlsx_bytes, file_name=out_name,
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True, key="dim_dl_btn")
+        with st.spinner("Building evidence package…"):
+            xlsx_bytes = dim_build_excel(result, sysname, fname_in, model_id)
+        _trial_gate(
+            label="⬇️ Download DIM Evidence Package",
+            data=xlsx_bytes,
+            file_name=out_name,
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key="dim_dl_btn",
+            use_container_width=True,
+        )
     with info_col:
         st.caption("5 sheets: **Dashboard** · **Period Trends** · **Repeat Users** · **Rule Recurrence** · **Narrative Summary**")
 
@@ -14709,7 +14820,7 @@ match your system's export column names to the fields above — rename nothing i
                 )
                 st.markdown(
                     "<p style='color:#64748b;font-size:0.76rem;margin-top:4px;line-height:1.5;'>"
-                    "4 sheets: <b style='color:#94a3b8;'>Summary</b> · "
+                    "Output generated with 4 worksheets: <b style='color:#94a3b8;'>Summary</b> · "
                     "<b style='color:#94a3b8;'>Events for Review</b> · "
                     "<b style='color:#94a3b8;'>Full Audit Log</b> · "
                     "<b style='color:#94a3b8;'>Detection Logic</b></p>",
@@ -14760,6 +14871,7 @@ match your system's export column names to the fields above — rename nothing i
                              use_container_width=True, type="primary"):
                     st.session_state["pr_active_module"] = "di_dashboard"
                     st.session_state["dim_analysis_done"] = False
+                    st.session_state["dim_autorun_pending"] = True
                     st.rerun()
         else:
             # Waiting — light blue card, full width, pip progress
