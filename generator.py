@@ -8223,8 +8223,7 @@ Write only the one sentence. No labels, no preamble, no explanation."""
     return top_df
 
 
-def at_build_excel(top_df, scored_df, system_name, r_start, r_end, fname,
-                   sop_ref: str = "") -> bytes:
+def at_build_excel(top_df, scored_df, system_name, r_start, r_end, fname) -> bytes:
     """
     Build a clean, professional evidence workbook for QA reviewers and auditors.
     White background, dark text, colour only on Risk Level cells.
@@ -8478,8 +8477,6 @@ def at_build_excel(top_df, scored_df, system_name, r_start, r_end, fname,
     _summary_row("REVIEW INFORMATION", "", section=True)
     _summary_row("System Name",     system_name or "(not entered)", bold_val=True)
     _summary_row("Review Period",   f"{r_start}  →  {r_end}")
-    if sop_ref and sop_ref.strip():
-        _summary_row("SOP Reference", sop_ref.strip())
     _summary_row("Source File",     fname)
     _summary_row("Analysis Date (UTC)", datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC"))
     _summary_row("Regulatory Basis", _REG_AT)
@@ -12718,30 +12715,6 @@ def show_audit_trail(user: str, role: str, model_id: str):
         except Exception:
             pass
 
-    # ── SOP Reference (second metadata row) ──────────────────────────────────
-    # Captures the client's governing SOP document number and section.
-    # Appears on the Summary sheet — establishes the review was conducted per
-    # a documented procedure (CSA-defensible rationale per FDA CSA Final Guidance).
-    sr1, sr2 = st.columns([2, 4])
-    with sr1:
-        st.session_state["at_sop_ref"] = st.text_input(
-            "SOP Reference",
-            value=st.session_state.get("at_sop_ref", ""),
-            placeholder="e.g. SOP-ATR-001, Section 4.2",
-            key="at_sop_ref_input",
-            help=(
-                "Enter your governing Audit Trail Review SOP number and section. "
-                "This reference appears on the Summary sheet of the evidence package, "
-                "confirming the review was conducted per a documented procedure."
-            ),
-        )
-    with sr2:
-        st.caption(
-            "📋 The SOP Reference appears on the evidence package Summary sheet. "
-            "It establishes that this review was conducted per your organisation's "
-            "documented procedure — required for CSA and Annex 11 defensibility."
-        )
-
     st.markdown("---")
 
     # ── STEP 1: Upload ────────────────────────────────────────────────────────
@@ -14599,12 +14572,24 @@ match your system's export column names to the fields above — rename nothing i
                 for _, _ev in top20.iterrows():
                     _dim_rows.append({
                         "Review_Period":  _at_period_label,
-                        "Username":       str(_ev.get("User", "unknown")),
+                        "Username":       str(_ev.get("user_id", _ev.get("User", "unknown"))),
                         "Risk_Level":     str(_ev.get("Risk_Tier", "Medium")),
                         "Rule_Triggered": str(_ev.get("Primary_Rule", "")),
                         "System_Name":    _at_sys,
-                        "Event_Type":     str(_ev.get("Action", "")),
-                        "Event_Timestamp":str(_ev.get("Timestamp", "")),
+                        "Event_Type":     str(_ev.get("action_type", _ev.get("Action", ""))),
+                        "Event_Timestamp":str(_ev.get("timestamp",   _ev.get("Timestamp", ""))),
+                    })
+                # Always bank the period even when 0 events are escalated
+                # (clean system is a valid DIM data point — no named rules fired)
+                if not _dim_rows:
+                    _dim_rows.append({
+                        "Review_Period":  _at_period_label,
+                        "Username":       "(no escalations)",
+                        "Risk_Level":     "Low",
+                        "Rule_Triggered": "No named rules triggered",
+                        "System_Name":    _at_sys,
+                        "Event_Type":     "",
+                        "Event_Timestamp":"",
                     })
                 _existing = [r for r in st.session_state.get("dim_accumulated_rows", [])
                              if r["Review_Period"] != _at_period_label]
@@ -14748,7 +14733,6 @@ match your system's export column names to the fields above — rename nothing i
                 r_start  or "(review period dates not specified)",
                 r_end    or "(review period dates not specified)",
                 st.session_state.get("at_file_name",""),
-                sop_ref=st.session_state.get("at_sop_ref","").strip(),
             )
             dl_c, inf_c = st.columns([4,5])
             with dl_c:
@@ -14772,9 +14756,78 @@ match your system's export column names to the fields above — rename nothing i
                     unsafe_allow_html=True
                 )
 
+        # ── DIM Counter + Start New Analysis — same row, right below download ──
+        _banked = st.session_state.get("dim_periods_banked", 0)
+        st.markdown("<div style='margin-top:10px;'></div>", unsafe_allow_html=True)
+
+        if _banked >= 2:
+            # ── Ready state — green, prominent, with CTA button ────────────────
+            dim_badge_col, na_col = st.columns([5, 3])
+            with dim_badge_col:
+                st.markdown(
+                    f"<div style='background:#052e16;border:1.5px solid #22c55e;"
+                    f"border-radius:10px;padding:12px 18px;display:flex;"
+                    f"align-items:center;gap:12px;'>"
+                    f"<span style='font-size:1.5rem;'>📊</span>"
+                    f"<div><b style='color:#4ade80;font-size:1.05rem;'>"
+                    f"{_banked} periods banked — DI Monitor ready</b><br>"
+                    f"<span style='color:#86efac;font-size:0.82rem;'>"
+                    f"Click to run trend analysis across all {_banked} periods.</span></div>"
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )
+            with na_col:
+                st.markdown("<div style='margin-top:4px;'></div>", unsafe_allow_html=True)
+                if st.button("📊 Open DI Monitor →",
+                             key="at_open_dim_btn",
+                             use_container_width=True, type="primary"):
+                    st.session_state["pr_active_module"] = "di_dashboard"
+                    st.session_state["dim_analysis_done"] = False
+                    st.rerun()
+                if st.button("🔄 Start New Analysis", key="at_reset_btn",
+                             use_container_width=True):
+                    for k in ["at_raw_df","at_mapped_df","at_scored_df","at_top20_df",
+                              "at_file_name","at_mapping_done","at_analysis_done","at_total_events"]:
+                        st.session_state[k] = _defaults.get(k)
+                    st.session_state["at_key_n"] = st.session_state.get("at_key_n",0) + 1
+                    st.rerun()
+        else:
+            # ── Waiting state — light blue, clear progress indicator ───────────
+            _needed = max(0, 2 - _banked)
+            dim_badge_col, na_col = st.columns([5, 3])
+            with dim_badge_col:
+                _pip_filled   = "●" * _banked
+                _pip_empty    = "○" * _needed
+                st.markdown(
+                    f"<div style='background:#0c1e35;border:1.5px solid #38bdf8;"
+                    f"border-radius:10px;padding:12px 18px;display:flex;"
+                    f"align-items:center;gap:12px;'>"
+                    f"<span style='font-size:1.5rem;'>📊</span>"
+                    f"<div>"
+                    f"<b style='color:#38bdf8;font-size:1.05rem;'>"
+                    f"DI Monitor &nbsp;{_pip_filled}<span style='color:#334155;'>{_pip_empty}</span>"
+                    f"&nbsp; {_banked}/2 periods banked</b><br>"
+                    f"<span style='color:#7dd3fc;font-size:0.82rem;'>"
+                    f"Run {_needed} more AT analysis period{'s' if _needed!=1 else ''} "
+                    f"to unlock trend analysis.</span>"
+                    f"</div></div>",
+                    unsafe_allow_html=True,
+                )
+            with na_col:
+                st.markdown("<div style='margin-top:4px;'></div>", unsafe_allow_html=True)
+                if st.button("🔄 Start New Analysis", key="at_reset_btn",
+                             use_container_width=True):
+                    for k in ["at_raw_df","at_mapped_df","at_scored_df","at_top20_df",
+                              "at_file_name","at_mapping_done","at_analysis_done","at_total_events"]:
+                        st.session_state[k] = _defaults.get(k)
+                    st.session_state["at_key_n"] = st.session_state.get("at_key_n",0) + 1
+                    st.rerun()
+
+        # ── Content for Periodic Review — pushed below DIM CTA ────────────────
+        st.markdown("<div style='margin-top:18px;'></div>", unsafe_allow_html=True)
         st.markdown(f"""
 <div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;
-            padding:14px 20px;margin-top:14px;font-size:0.8rem;">
+            padding:14px 20px;font-size:0.8rem;">
   <b style="color:#94a3b8;">Content for your Periodic Review Report:</b><br>
   <i style="color:#cbd5e1;">
   "System-assisted audit trail review identified the {n_esc} highest-risk events from
@@ -14784,54 +14837,6 @@ match your system's export column names to the fields above — rename nothing i
   the attached Appendix. Complies with 21 CFR Part 11 §11.10(e) and EU Annex 11 Clause 9."
   </i>
 </div>""", unsafe_allow_html=True)
-
-        # ── DIM Call-to-Action ────────────────────────────────────────────────
-        _banked = st.session_state.get("dim_periods_banked", 0)
-        st.markdown("<br>", unsafe_allow_html=True)
-        if _banked >= 2:
-            st.markdown(
-                f"<div style='background:#0c2d1e;border:1px solid #22c55e;"
-                f"border-radius:8px;padding:14px 20px;'>"
-                f"<b style='color:#4ade80;font-size:1rem;'>📊 {_banked} periods "
-                f"banked — Data Integrity Monitor ready</b><br>"
-                f"<span style='color:#86efac;font-size:0.85rem;'>"
-                f"Open the DI Monitor to view trend analysis across all "
-                f"{_banked} periods.</span></div>",
-                unsafe_allow_html=True,
-            )
-            st.markdown("<br>", unsafe_allow_html=True)
-            _dim_cta_col, _ = st.columns([3, 5])
-            with _dim_cta_col:
-                if st.button("📊 Open Data Integrity Monitor →",
-                             key="at_open_dim_btn",
-                             use_container_width=True, type="primary"):
-                    st.session_state["pr_active_module"] = "di_dashboard"
-                    st.session_state["dim_analysis_done"] = False
-                    st.rerun()
-        else:
-            _needed = max(0, 2 - _banked)
-            st.markdown(
-                f"<div style='background:#0c1a2e;border:1px solid #334155;"
-                f"border-radius:8px;padding:12px 18px;'>"
-                f"<b style='color:#7dd3fc;font-size:0.9rem;'>📊 DI Monitor — "
-                f"{_banked}/2 periods banked</b><br>"
-                f"<span style='color:#94a3b8;font-size:0.82rem;'>"
-                f"Run {_needed} more AT period{'s' if _needed > 1 else ''} to "
-                f"unlock trend analysis.</span></div>",
-                unsafe_allow_html=True,
-            )
-
-        # ── New Analysis button ───────────────────────────────────────────────
-        st.markdown("<br>", unsafe_allow_html=True)
-        _, na_col, _ = st.columns([3, 4, 3])
-        with na_col:
-            if st.button("🔄 Start New Analysis", key="at_reset_btn",
-                         use_container_width=True):
-                for k in ["at_raw_df","at_mapped_df","at_scored_df","at_top20_df",
-                          "at_file_name","at_mapping_done","at_analysis_done","at_total_events"]:
-                    st.session_state[k] = _defaults.get(k)
-                st.session_state["at_key_n"] = st.session_state.get("at_key_n",0) + 1
-                st.rerun()
 
         # ── Top 20 Events — collapsed by default ──────────────────────────────
         st.markdown("---")
