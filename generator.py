@@ -14415,6 +14415,13 @@ match your system's export column names to the fields above — rename nothing i
         st.success(f"✅ Mapping confirmed — **{len(df):,} events** ready")
 
         st.markdown("### Step 3 — Run Analysis")
+        _at_fname_step3 = st.session_state.get("at_file_name", "")
+        if _at_fname_step3:
+            st.markdown(
+                f"<p style='color:#64748b;font-size:0.76rem;margin:-4px 0 8px;'>"
+                f"📄 {_at_fname_step3}</p>",
+                unsafe_allow_html=True
+            )
         st.markdown("""
 <div style="display:inline-flex;align-items:center;gap:8px;
             background:#f0fdf4;border:1px solid #86efac;border-radius:8px;
@@ -14441,6 +14448,8 @@ match your system's export column names to the fields above — rename nothing i
                           "at_file_name","at_mapping_done","at_analysis_done","at_total_events",
                           "at_review_start","at_review_end"]:
                     st.session_state[k] = _defaults.get(k)
+                for _wk in ("at_rstart_picker", "at_rend_picker"):
+                    st.session_state.pop(_wk, None)
                 st.session_state["at_key_n"] = st.session_state.get("at_key_n",0) + 1
                 st.rerun()
 
@@ -14736,8 +14745,15 @@ match your system's export column names to the fields above — rename nothing i
                 st.session_state.get("at_file_name",""),
             )
             # ── Download left, Start New Analysis right ────────────────────────
+            _at_fname = st.session_state.get("at_file_name", "")
             dl_col, na_col = st.columns(2)
             with dl_col:
+                if _at_fname:
+                    st.markdown(
+                        f"<p style='color:#64748b;font-size:0.76rem;margin:0 0 4px;'>"
+                        f"📄 {_at_fname}</p>",
+                        unsafe_allow_html=True
+                    )
                 _trial_gate(
                     label="📥 Download Evidence Package (.xlsx)",
                     data=xlsx,
@@ -14756,7 +14772,11 @@ match your system's export column names to the fields above — rename nothing i
                     unsafe_allow_html=True
                 )
             with na_col:
-                st.markdown("<div style='margin-top:2px;'></div>", unsafe_allow_html=True)
+                # Push button down to align with download button
+                # (accounts for filename line above download if present)
+                _spacer_px = 26 if _at_fname else 4
+                st.markdown(f"<div style='margin-top:{_spacer_px}px;'></div>",
+                            unsafe_allow_html=True)
                 _reset_clicked = st.button("🔄 Start New Analysis", key="at_reset_btn",
                                            use_container_width=True)
                 if _reset_clicked:
@@ -14764,6 +14784,10 @@ match your system's export column names to the fields above — rename nothing i
                               "at_file_name","at_mapping_done","at_analysis_done","at_total_events",
                               "at_review_start","at_review_end"]:
                         st.session_state[k] = _defaults.get(k)
+                    # Also delete the date picker widget state so Streamlit
+                    # doesn't re-write the old dates back on next render
+                    for _wk in ("at_rstart_picker", "at_rend_picker"):
+                        st.session_state.pop(_wk, None)
                     st.session_state["at_key_n"] = st.session_state.get("at_key_n",0) + 1
                     st.rerun()
 
@@ -14832,7 +14856,10 @@ match your system's export column names to the fields above — rename nothing i
                 "This result has been auto-fed to the DI Monitor as a clean period."
             )
         else:
-            st.markdown(f"### Top {_AT_TOP_N} Highest-Risk Events")
+            st.markdown(f"### {n_esc} Highest-Risk Event{'s' if n_esc != 1 else ''} "
+                        f"<span style='font-size:0.75rem;color:#64748b;font-weight:400;'>"
+                        f"(up to {_AT_TOP_N} displayed)</span>",
+                        unsafe_allow_html=True)
             st.caption("Click any event to expand the full detail. "
                        "All events are collapsed by default to keep the page clean.")
 
