@@ -59,9 +59,22 @@ Version 78.0
      uar_build_excel()          line ~10337
      show_user_access_review()  line ~10810
 
-§11  SIGNALINTEL — Incident/Change Review — Periodic Review Module 3
-     show_signalintel()         line ~11255  (scaffold — full build v79+)
-     Constants: _SIG_REQUIRED_COLS, _SIG_OPTIONAL_COLS, _SIG_COL_ALIASES
+§11  SIGNALINTEL — DELISTED (code retained, card removed from landing page)
+     Absorbed into AT module roadmap as change-linkage feature.
+     show_signalintel() retained for reference — not routed from UI.
+
+§11a PRODUCT ROADMAP (not yet built)
+     Track 1 — DI Health Dashboard
+       Multi-period AT trend analysis (deletion rate, failed logins, off-hours,
+       dormancy movement). Builds on existing AT engine. Card live on landing page.
+     Track 2 — Risk-Based Assurance Case Generator (CSA-aligned)
+       2-page risk-justified assurance narrative. Replaces NV doc generation.
+       Input: system name, GAMP category, intended use, key functions.
+     Track 2 — Vendor Update Impact Analysis
+       Extend CIA to accept vendor release notes (Veeva, SAP, Medidata).
+       Maps impacted functions against stored requirements.
+     Track 3 — AI Inventory Register (GAMP AI Guide July 2025)
+       Register AI tools, risk classification, human oversight documentation.
 
 §12  PERIODIC REVIEW LANDING PAGE
      show_periodic_review()     line ~11357
@@ -205,7 +218,7 @@ except ImportError:
 # =============================================================================
 # 1. CONFIG
 # =============================================================================
-VERSION        = "78.0"
+VERSION        = "80.0"
 
 # =============================================================================
 # REGULATORY REFERENCE CONSTANTS
@@ -213,11 +226,11 @@ VERSION        = "78.0"
 # Referenced by AT summary sheet, UAR summary sheet, and Detection Logic blocks.
 # =============================================================================
 _REG_AT  = ("21 CFR Part 11 §11.10(e)  |  EU Annex 11, Clause 9  "
-            "|  GAMP 5 (2nd Ed, 2022)  |  FDA CSA Final Guidance (Sep 2025)")
+            "|  GAMP 5 (2nd Ed, 2022)  |  FDA CSA Final Guidance (Sep 2021)")
 _REG_UAR = ("21 CFR Part 11 §11.10(d), §11.300  |  EU Annex 11, Clause 12  "
-            "|  GAMP 5 (2nd Ed, 2022)  |  FDA CSA Final Guidance (Sep 2025)")
+            "|  GAMP 5 (2nd Ed, 2022)  |  FDA CSA Final Guidance (Sep 2021)")
 _REG_NV  = ("GAMP 5 (2nd Ed, 2022) — Appendix D1/D5  "
-            "|  FDA CSA Final Guidance (Sep 2025)  |  ICH Q10")
+            "|  FDA CSA Final Guidance (Sep 2021)  |  ICH Q10")
 
 # GAMP AI Guide compliance block — appended to Detection Logic sheets.
 # Documents AI use per ISPE GAMP® Guide: Artificial Intelligence (July 2025).
@@ -4365,6 +4378,13 @@ _defaults = {
     "sig_review_end":       "",
     "sig_file_name":        "",
     "sig_key_n":            0,
+    # ── Data Integrity Monitor ────────────────────────────────────────────────
+    "dim_raw_df":           None,
+    "dim_result":           None,
+    "dim_analysis_done":    False,
+    "dim_system_name":      "",
+    "dim_file_name":        "",
+    "dim_key_n":            0,
 }
 for _k, _v in _defaults.items():
     if _k not in st.session_state:
@@ -11311,6 +11331,1087 @@ _SIG_COL_ALIASES = {
 }
 
 
+# =============================================================================
+# DATA INTEGRITY MONITOR (DIM)
+# Analyses multiple AT review outputs across periods to identify DI trends.
+# Regulatory basis: ALCOA+ | 21 CFR Part 11 | EU Annex 11 | FDA CSA Final
+# Guidance (Sep 2021) — continuous monitoring over point-in-time snapshots.
+# =============================================================================
+
+# ── Column aliases ────────────────────────────────────────────────────────────
+_DIM_COL_ALIASES = {
+    "review_period": "Review_Period", "period": "Review_Period",
+    "quarter": "Review_Period", "review_date": "Review_Period",
+    "reporting_period": "Review_Period",
+    "username": "Username", "user": "Username", "user_id": "Username",
+    "user_name": "Username",
+    "risk_level": "Risk_Level", "risk": "Risk_Level",
+    "risk_tier": "Risk_Level", "tier": "Risk_Level",
+    "rule_triggered": "Rule_Triggered", "rule": "Rule_Triggered",
+    "triggered_rule": "Rule_Triggered", "rules_triggered": "Rule_Triggered",
+    "primary_rule": "Rule_Triggered",
+    "system_name": "System_Name", "system": "System_Name",
+    "application": "System_Name",
+    "event_type": "Event_Type", "action": "Event_Type",
+    "event_timestamp": "Event_Timestamp", "timestamp": "Event_Timestamp",
+    "date": "Event_Timestamp", "event_date": "Event_Timestamp",
+}
+
+_DIM_REQUIRED = {"Review_Period", "Username", "Risk_Level", "Rule_Triggered"}
+_DIM_OPTIONAL = {"System_Name", "Event_Type", "Event_Timestamp"}
+
+# ── Risk level numeric proxy (Option A — no Risk_Score input) ─────────────────
+_DIM_RISK_WEIGHT = {"Critical": 4, "High": 3, "Medium": 2, "Low": 1}
+
+# ── Trend thresholds ──────────────────────────────────────────────────────────
+def _dim_trend_label(pct_change: float) -> str:
+    a = abs(pct_change)
+    direction = "Increase" if pct_change > 0 else "Decrease"
+    if a <= 5:   return "Stable"
+    if a <= 15:  return f"Slight {direction}"
+    if a <= 30:  return f"Moderate {direction}"
+    return f"Significant {direction}"
+
+def _dim_trend_arrow(pct_change: float) -> str:
+    if abs(pct_change) <= 5: return "→"
+    return "↑" if pct_change > 0 else "↓"
+
+
+def _dim_normalise_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """Normalise column names using alias map. Returns df with standardised cols."""
+    rename = {}
+    for col in df.columns:
+        mapped = _DIM_COL_ALIASES.get(col.strip().lower().replace(" ", "_"))
+        if mapped:
+            rename[col] = mapped
+    return df.rename(columns=rename)
+
+
+def _dim_classify_rule(rule_str: str) -> dict:
+    """Classify a triggered rule string into event category flags."""
+    r = str(rule_str).lower()
+    return {
+        "is_deletion":    any(x in r for x in ["rule 6", "rule 7", "delete",
+                                                 "deletion", "reconstruct",
+                                                 "purge", "void", "erase"]),
+        "is_failed_login":any(x in r for x in ["rule 5", "failed login",
+                                                 "login fail", "login spike",
+                                                 "unauthorized access",
+                                                 "failed attempt"]),
+        "is_off_hours":   any(x in r for x in ["rule 10", "off-hours",
+                                                 "off hours", "after hours",
+                                                 "after-hours", "outside hours"]),
+        "is_dormant":     any(x in r for x in ["rule 9", "dormant",
+                                                 "inactive user", "never used",
+                                                 "never logged", "ghost"]),
+    }
+
+
+def dim_score_periods(df: pd.DataFrame) -> dict:
+    """
+    Core DIM scoring engine. Deterministic — no AI in this path.
+    Returns structured result dict for Excel builder and UI.
+    """
+    issues = []
+    rules_skipped = []
+
+    # ── Validate required columns ─────────────────────────────────────────────
+    missing = _DIM_REQUIRED - set(df.columns)
+    if missing:
+        return {"error": f"Missing required columns: {', '.join(sorted(missing))}"}
+
+    # ── Normalise Risk_Level ──────────────────────────────────────────────────
+    _RISK_NORM = {
+        "critical": "Critical", "crit": "Critical",
+        "high": "High", "hi": "High",
+        "medium": "Medium", "med": "Medium", "moderate": "Medium",
+        "low": "Low", "lo": "Low", "minimal": "Low",
+    }
+    df = df.copy()
+    df["Risk_Level_Norm"] = df["Risk_Level"].apply(
+        lambda v: _RISK_NORM.get(str(v).strip().lower(), str(v).strip()))
+    df["Risk_Weight"] = df["Risk_Level_Norm"].map(_DIM_RISK_WEIGHT).fillna(1)
+
+    # ── Classify events ───────────────────────────────────────────────────────
+    rule_flags = df["Rule_Triggered"].apply(_dim_classify_rule)
+    df["is_deletion"]     = rule_flags.apply(lambda x: x["is_deletion"])
+    df["is_failed_login"] = rule_flags.apply(lambda x: x["is_failed_login"])
+    df["is_off_hours"]    = rule_flags.apply(lambda x: x["is_off_hours"])
+    df["is_dormant"]      = rule_flags.apply(lambda x: x["is_dormant"])
+    df["is_high_crit"]    = df["Risk_Level_Norm"].isin(["High", "Critical"])
+
+    # ── Check optional columns ────────────────────────────────────────────────
+    has_system    = "System_Name"    in df.columns
+    has_event     = "Event_Type"     in df.columns
+    has_timestamp = "Event_Timestamp" in df.columns
+    if not has_system:
+        rules_skipped.append("System-level grouping — System_Name column not provided")
+    if not has_timestamp:
+        rules_skipped.append("Timestamp-based off-hours trend — Event_Timestamp column not provided")
+
+    # ── Sort periods ──────────────────────────────────────────────────────────
+    periods = sorted(df["Review_Period"].dropna().unique().tolist())
+    if len(periods) < 2:
+        return {"error": "Minimum 2 review periods required. "
+                         "Check the Review_Period column contains distinct period values."}
+
+    # ── Feature 1: Period trend metrics ──────────────────────────────────────
+    period_rows = []
+    for p in periods:
+        pf = df[df["Review_Period"] == p]
+        period_rows.append({
+            "Review_Period":        p,
+            "Total_Findings":       len(pf),
+            "High_Critical":        int(pf["is_high_crit"].sum()),
+            "Deletion_Findings":    int(pf["is_deletion"].sum()),
+            "Failed_Login":         int(pf["is_failed_login"].sum()),
+            "Off_Hours":            int(pf["is_off_hours"].sum()),
+            "Dormant_Findings":     int(pf["is_dormant"].sum()),
+            "Avg_Risk_Weight":      round(float(pf["Risk_Weight"].mean()), 2),
+        })
+    period_df = pd.DataFrame(period_rows)
+
+    # Calculate % change column-by-column vs prior period
+    metrics = ["Total_Findings", "High_Critical", "Deletion_Findings",
+               "Failed_Login", "Off_Hours", "Dormant_Findings"]
+    for m in metrics:
+        prev = period_df[m].shift(1)
+        period_df[f"{m}_pct_chg"] = (
+            ((period_df[m] - prev) / prev.replace(0, 1) * 100)
+            .round(1)
+        )
+        period_df[f"{m}_trend"] = period_df[f"{m}_pct_chg"].apply(
+            lambda v: _dim_trend_label(v) if pd.notna(v) else "—")
+        period_df[f"{m}_arrow"] = period_df[f"{m}_pct_chg"].apply(
+            lambda v: _dim_trend_arrow(v) if pd.notna(v) else "—")
+
+    # ── DI Posture per period ─────────────────────────────────────────────────
+    def _posture(row):
+        if pd.isna(row.get("Total_Findings_pct_chg")):
+            return "Baseline"
+        chg  = row["Total_Findings_pct_chg"]
+        hc   = row["High_Critical"]
+        if chg > 30 and hc > 0:  return "Critical"
+        if chg > 15:              return "Deteriorating"
+        if chg < -15:             return "Improving"
+        return "Stable"
+    period_df["DI_Posture"] = period_df.apply(_posture, axis=1)
+
+    # ── Feature 2: Repeat high-risk users ────────────────────────────────────
+    hc_df     = df[df["is_high_crit"]].copy()
+    user_grp  = hc_df.groupby("Username")
+    repeat_rows = []
+    for uname, grp in user_grp:
+        periods_flagged = sorted(grp["Review_Period"].unique().tolist())
+        if len(periods_flagged) < 2:
+            continue
+        rule_counts = grp["Rule_Triggered"].value_counts()
+        top_rule    = rule_counts.index[0] if len(rule_counts) else "—"
+        repeat_rows.append({
+            "Username":        uname,
+            "Periods_Flagged": len(periods_flagged),
+            "Period_List":     ", ".join(str(p) for p in periods_flagged),
+            "Last_Seen":       periods_flagged[-1],
+            "Total_Findings":  len(grp),
+            "Most_Common_Rule":str(top_rule)[:80],
+            "Risk_Levels":     ", ".join(sorted(grp["Risk_Level_Norm"].unique())),
+        })
+    repeat_df = pd.DataFrame(repeat_rows).sort_values(
+        ["Periods_Flagged", "Total_Findings"], ascending=False
+    ) if repeat_rows else pd.DataFrame()
+
+    # ── Feature 3: Rule recurrence ───────────────────────────────────────────
+    # Extract primary rule label (first token before " — " or full string)
+    def _primary_rule(r: str) -> str:
+        r = str(r).strip()
+        for sep in [" — ", " - ", ":"]:
+            if sep in r:
+                return r.split(sep)[0].strip()[:60]
+        return r[:60]
+
+    df["Primary_Rule"] = df["Rule_Triggered"].apply(_primary_rule)
+    rule_grp = df.groupby("Primary_Rule")
+    rule_rows = []
+    for rule, grp in rule_grp:
+        if not rule or rule == "nan":
+            continue
+        periods_seen  = sorted(grp["Review_Period"].unique().tolist())
+        period_counts = grp.groupby("Review_Period").size().to_dict()
+        first_cnt     = period_counts.get(periods_seen[0], 0)
+        last_cnt      = period_counts.get(periods_seen[-1], 0)
+        if first_cnt > 0:
+            recur_pct = round((last_cnt - first_cnt) / first_cnt * 100, 1)
+        else:
+            recur_pct = 0.0
+        rule_rows.append({
+            "Rule":             rule,
+            "Periods_Seen":     len(periods_seen),
+            "Period_List":      ", ".join(str(p) for p in periods_seen),
+            "Total_Occurrences":len(grp),
+            "First_Period_Cnt": first_cnt,
+            "Last_Period_Cnt":  last_cnt,
+            "Trend_pct":        recur_pct,
+            "Trend_Label":      _dim_trend_label(recur_pct),
+            "Trend_Arrow":      _dim_trend_arrow(recur_pct),
+            "High_Crit_Count":  int(grp["is_high_crit"].sum()),
+        })
+    rule_df = pd.DataFrame(rule_rows).sort_values(
+        ["Periods_Seen", "Total_Occurrences"], ascending=False
+    ) if rule_rows else pd.DataFrame()
+
+    # ── Top 3 to fix ──────────────────────────────────────────────────────────
+    last_period_row = period_df.iloc[-1]
+    metric_labels = {
+        "Total_Findings":    "Total Findings",
+        "High_Critical":     "High/Critical Findings",
+        "Deletion_Findings": "Deletion Events",
+        "Failed_Login":      "Failed Login Events",
+        "Off_Hours":         "Off-Hours Activity",
+        "Dormant_Findings":  "Dormant Account Flags",
+    }
+    top3_candidates = []
+    for m, label in metric_labels.items():
+        pct = last_period_row.get(f"{m}_pct_chg", 0)
+        if pd.notna(pct) and pct > 5:
+            top3_candidates.append({
+                "Metric": label,
+                "Current": int(last_period_row[m]),
+                "Pct_Change": pct,
+                "Trend": last_period_row.get(f"{m}_trend", "—"),
+            })
+    top3_candidates.sort(key=lambda x: x["Pct_Change"], reverse=True)
+    top3 = top3_candidates[:3]
+
+    # ── Summary stats for narrative ───────────────────────────────────────────
+    first_row = period_df.iloc[0]
+    last_row  = period_df.iloc[-1]
+    summary = {
+        "periods":           periods,
+        "n_periods":         len(periods),
+        "first_period":      periods[0],
+        "last_period":       periods[-1],
+        "total_findings_first": int(first_row["Total_Findings"]),
+        "total_findings_last":  int(last_row["Total_Findings"]),
+        "hc_first":          int(first_row["High_Critical"]),
+        "hc_last":           int(last_row["High_Critical"]),
+        "overall_pct_chg":   round(
+            (last_row["Total_Findings"] - first_row["Total_Findings"])
+            / max(first_row["Total_Findings"], 1) * 100, 1),
+        "posture_last":      last_row["DI_Posture"],
+        "repeat_users":      len(repeat_df),
+        "top_repeat_user":   repeat_df.iloc[0]["Username"] if len(repeat_df) else None,
+        "top_rule":          rule_df.iloc[0]["Rule"] if len(rule_df) else None,
+        "top3":              top3,
+        "rules_skipped":     rules_skipped,
+    }
+
+    return {
+        "period_df":   period_df,
+        "repeat_df":   repeat_df,
+        "rule_df":     rule_df,
+        "summary":     summary,
+        "raw_df":      df,
+        "periods":     periods,
+    }
+
+
+def dim_build_excel(result: dict, system_name: str, file_name: str,
+                    model_id: str) -> bytes:
+    """
+    Build 5-sheet GxP evidence workbook for Data Integrity Monitor findings.
+    Sheets: Dashboard, Period Trends, Repeat Users, Rule Recurrence, Narrative Summary.
+    """
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from openpyxl.utils import get_column_letter
+
+    output   = io.BytesIO()
+    wb       = Workbook()
+
+    # ── Colour palette ────────────────────────────────────────────────────────
+    C_NAVY   = "1E3A5F"
+    C_WHITE  = "FFFFFF"
+    C_TEAL   = "0E6655"
+    C_AMBER  = "D97706"
+    C_RED    = "C0392B"
+    C_GREEN  = "27AE60"
+    C_GREY   = "F1F5F9"
+    C_MID    = "94A3B8"
+
+    _POSTURE_COLORS = {
+        "Critical":     (C_RED,   C_WHITE),
+        "Deteriorating":("E67E22", C_WHITE),
+        "Stable":       ("2E86AB", C_WHITE),
+        "Improving":    (C_GREEN,  C_WHITE),
+        "Baseline":     (C_MID,    C_WHITE),
+    }
+    _RISK_COLORS = {
+        "Critical": (C_RED,    C_WHITE),
+        "High":     ("E67E22", C_WHITE),
+        "Medium":   ("D4A017", "1A1A1A"),
+        "Low":      ("27AE60", C_WHITE),
+    }
+    _TREND_COLORS = {
+        "Significant Increase": C_RED,
+        "Moderate Increase":    "E67E22",
+        "Slight Increase":      "D4A017",
+        "Stable":               C_GREEN,
+        "Slight Decrease":      "2E86AB",
+        "Moderate Decrease":    C_TEAL,
+        "Significant Decrease": C_TEAL,
+    }
+
+    bdr = Border(
+        left=Side(style="thin", color="D1D5DB"),
+        right=Side(style="thin", color="D1D5DB"),
+        top=Side(style="thin", color="D1D5DB"),
+        bottom=Side(style="thin", color="D1D5DB"),
+    )
+
+    def _fill(hex_color): return PatternFill("solid", fgColor=hex_color)
+
+    def _hdr(ws, row, col, val, width=None, bold=True, bg=C_NAVY, fg=C_WHITE,
+             size=9, wrap=False):
+        c = ws.cell(row=row, column=col, value=val)
+        c.font      = Font(name="Calibri", bold=bold, size=size, color=fg)
+        c.fill      = _fill(bg)
+        c.alignment = Alignment(horizontal="left", vertical="center",
+                                wrap_text=wrap)
+        c.border    = bdr
+        if width:
+            ws.column_dimensions[get_column_letter(col)].width = width
+        return c
+
+    def _cell(ws, row, col, val, bold=False, bg=None, fg="1A1A1A",
+              size=9, wrap=False, align="left"):
+        c = ws.cell(row=row, column=col, value=val)
+        c.font      = Font(name="Calibri", bold=bold, size=size, color=fg)
+        c.fill      = _fill(bg) if bg else PatternFill()
+        c.alignment = Alignment(horizontal=align, vertical="top",
+                                wrap_text=wrap)
+        c.border    = bdr
+        return c
+
+    smry    = result["summary"]
+    periods = result["periods"]
+
+    # =========================================================================
+    # SHEET 1 — DASHBOARD
+    # =========================================================================
+    ws1 = wb.active
+    ws1.title = "Dashboard"
+    ws1.column_dimensions["A"].width = 38
+    ws1.column_dimensions["B"].width = 22
+    ws1.column_dimensions["C"].width = 22
+    ws1.column_dimensions["D"].width = 22
+
+    # Title
+    t = ws1.cell(row=1, column=1,
+                 value="Data Integrity Monitor — Evidence Dashboard")
+    t.font      = Font(name="Calibri", bold=True, size=14, color=C_NAVY)
+    t.alignment = Alignment(horizontal="left")
+    ws1.row_dimensions[1].height = 24
+
+    ws1.cell(row=2, column=1,
+             value=f"System: {system_name or '(not entered)'}   |   "
+                   f"Source: {file_name}   |   "
+                   f"Periods reviewed: {smry['first_period']} → {smry['last_period']}   |   "
+                   f"Generated: {datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}"
+    ).font = Font(name="Calibri", size=9, color="5A6A7A")
+    ws1.row_dimensions[2].height = 14
+
+    # DI Posture banner
+    posture   = smry["posture_last"]
+    p_bg, p_fg = _POSTURE_COLORS.get(posture, (C_MID, C_WHITE))
+    pos_cell  = ws1.cell(row=4, column=1,
+                         value=f"DI Posture — {smry['last_period']}: {posture.upper()}")
+    pos_cell.font      = Font(name="Calibri", bold=True, size=12, color=p_fg)
+    pos_cell.fill      = _fill(p_bg)
+    pos_cell.alignment = Alignment(horizontal="left", vertical="center")
+    ws1.merge_cells("A4:D4")
+    ws1.row_dimensions[4].height = 28
+
+    # KPI block
+    ws1.cell(row=6, column=1,
+             value="KEY METRICS — LATEST PERIOD").font = Font(
+        name="Calibri", bold=True, size=10, color=C_NAVY)
+    ws1.row_dimensions[6].height = 16
+
+    last_row  = result["period_df"].iloc[-1]
+    kpis = [
+        ("Total Findings",       int(last_row["Total_Findings"]),
+         last_row.get("Total_Findings_pct_chg")),
+        ("High/Critical",        int(last_row["High_Critical"]),
+         last_row.get("High_Critical_pct_chg")),
+        ("Deletion Events",      int(last_row["Deletion_Findings"]),
+         last_row.get("Deletion_Findings_pct_chg")),
+        ("Failed Login Events",  int(last_row["Failed_Login"]),
+         last_row.get("Failed_Login_pct_chg")),
+    ]
+    for ci, (label, val, pct) in enumerate(kpis, 1):
+        _hdr(ws1, 7, ci, label, bold=True, bg=C_NAVY, fg=C_WHITE)
+        v_cell = ws1.cell(row=8, column=ci, value=val)
+        v_cell.font      = Font(name="Calibri", bold=True, size=16, color=C_NAVY)
+        v_cell.alignment = Alignment(horizontal="center", vertical="center")
+        ws1.row_dimensions[8].height = 32
+        if pd.notna(pct) and pct is not None:
+            trend_color = _TREND_COLORS.get(_dim_trend_label(float(pct)), "1A1A1A")
+            arrow = _dim_trend_arrow(float(pct))
+            t_cell = ws1.cell(row=9, column=ci,
+                              value=f"{arrow} {_dim_trend_label(float(pct))} ({pct:+.1f}%)")
+            t_cell.font      = Font(name="Calibri", size=8, color=trend_color, bold=True)
+            t_cell.alignment = Alignment(horizontal="center")
+        ws1.row_dimensions[9].height = 14
+
+    # Top 3 to fix
+    ws1.cell(row=11, column=1,
+             value="▼  TOP 3 TO REVIEW TODAY").font = Font(
+        name="Calibri", bold=True, size=10, color=C_RED)
+    ws1.row_dimensions[11].height = 16
+
+    top3 = smry.get("top3", [])
+    if top3:
+        _hdr(ws1, 12, 1, "Metric", bold=True)
+        _hdr(ws1, 12, 2, "Current Count", bold=True)
+        _hdr(ws1, 12, 3, "Change vs Prior", bold=True)
+        _hdr(ws1, 12, 4, "Trend", bold=True)
+        for ri, item in enumerate(top3, 13):
+            trend_color = _TREND_COLORS.get(item["Trend"], C_RED)
+            _cell(ws1, ri, 1, item["Metric"], bold=True, fg=C_NAVY)
+            _cell(ws1, ri, 2, item["Current"], align="center")
+            _cell(ws1, ri, 3, f"{item['Pct_Change']:+.1f}%",
+                  bold=True, fg=C_RED, align="center")
+            _cell(ws1, ri, 4, item["Trend"], fg=trend_color, bold=True)
+            ws1.row_dimensions[ri].height = 16
+    else:
+        ws1.cell(row=13, column=1,
+                 value="✓ No significant worsening metrics detected in the latest period."
+                 ).font = Font(name="Calibri", size=9, color=C_GREEN, bold=True)
+
+    # Repeat user summary
+    row_off = 16
+    ws1.cell(row=row_off, column=1,
+             value="REPEAT HIGH-RISK USERS").font = Font(
+        name="Calibri", bold=True, size=10, color=C_NAVY)
+    ws1.row_dimensions[row_off].height = 16
+
+    n_repeat = smry["repeat_users"]
+    top_repeat = smry["top_repeat_user"]
+    ws1.cell(row=row_off + 1, column=1,
+             value=f"{n_repeat} user(s) flagged High/Critical in 2 or more periods."
+                   + (f"  Most persistent: {top_repeat}." if top_repeat else "")
+    ).font = Font(name="Calibri", size=9, color="2C3E50")
+
+    # Regulatory basis
+    ws1.cell(row=row_off + 3, column=1,
+             value=f"Regulatory Basis: ALCOA+ | 21 CFR Part 11 §11.10(e) | "
+                   f"EU Annex 11 Clause 9 | FDA CSA Final Guidance (Sep 2021)"
+    ).font = Font(name="Calibri", size=8, italic=True, color=C_MID)
+
+    ws1.freeze_panes = "A3"
+
+    # =========================================================================
+    # SHEET 2 — PERIOD TRENDS
+    # =========================================================================
+    ws2 = wb.create_sheet("Period Trends")
+    pdf = result["period_df"]
+
+    trend_cols = [
+        ("Review Period",          "Review_Period",              18),
+        ("Total Findings",         "Total_Findings",             14),
+        ("High / Critical",        "High_Critical",              14),
+        ("Deletion Events",        "Deletion_Findings",          16),
+        ("Failed Logins",          "Failed_Login",               14),
+        ("Off-Hours",              "Off_Hours",                  14),
+        ("Dormant Flags",          "Dormant_Findings",           14),
+        ("Avg Risk Weight",        "Avg_Risk_Weight",            14),
+        ("DI Posture",             "DI_Posture",                 16),
+        ("Total Δ%",               "Total_Findings_pct_chg",    12),
+        ("Total Trend",            "Total_Findings_trend",       20),
+        ("H/C Δ%",                 "High_Critical_pct_chg",     10),
+        ("H/C Trend",              "High_Critical_trend",        18),
+        ("Deletion Δ%",            "Deletion_Findings_pct_chg", 12),
+        ("Deletion Trend",         "Deletion_Findings_trend",    20),
+    ]
+
+    title_c = ws2.cell(row=1, column=1,
+                       value="Period-over-Period Trend Analysis")
+    title_c.font = Font(name="Calibri", bold=True, size=12, color=C_NAVY)
+    ws2.row_dimensions[1].height = 20
+
+    for ci, (hdr, _, width) in enumerate(trend_cols, 1):
+        _hdr(ws2, 2, ci, hdr, width=width)
+    ws2.row_dimensions[2].height = 18
+
+    for ri, (_, row_data) in enumerate(pdf.iterrows(), 3):
+        posture = str(row_data.get("DI_Posture", "—"))
+        p_bg, p_fg = _POSTURE_COLORS.get(posture, (C_GREY, "1A1A1A"))
+        for ci, (_, col_key, _) in enumerate(trend_cols, 1):
+            val = row_data.get(col_key, "—")
+            if pd.isna(val): val = "—"
+            if isinstance(val, float) and col_key.endswith("_pct_chg"):
+                val = f"{val:+.1f}%" if val != "—" else "—"
+            c = ws2.cell(row=ri, column=ci, value=val)
+            if col_key == "DI_Posture":
+                c.font = Font(name="Calibri", bold=True, size=9, color=p_fg)
+                c.fill = _fill(p_bg)
+            elif col_key.endswith("_trend"):
+                trend_color = _TREND_COLORS.get(str(val), "1A1A1A")
+                c.font = Font(name="Calibri", size=9, color=trend_color,
+                              bold=("Increase" in str(val)))
+                c.fill = _fill(C_GREY)
+            elif col_key.endswith("_pct_chg") and val != "—":
+                raw_pct = row_data.get(col_key)
+                if pd.notna(raw_pct):
+                    fc = C_RED if float(raw_pct) > 15 else \
+                         C_AMBER if float(raw_pct) > 5 else \
+                         C_GREEN if float(raw_pct) < -5 else "1A1A1A"
+                    c.font = Font(name="Calibri", size=9, bold=True, color=fc)
+                    c.fill = _fill(C_GREY)
+                else:
+                    c.font = Font(name="Calibri", size=9)
+            else:
+                c.font = Font(name="Calibri", size=9, color="2C3E50")
+                if ri % 2 == 0: c.fill = _fill("F8FAFC")
+            c.alignment = Alignment(horizontal="center" if ci > 1 else "left",
+                                    vertical="center")
+            c.border = bdr
+        ws2.row_dimensions[ri].height = 16
+
+    ws2.freeze_panes = "A3"
+
+    # =========================================================================
+    # SHEET 3 — REPEAT USERS
+    # =========================================================================
+    ws3 = wb.create_sheet("Repeat Users")
+    rdf = result["repeat_df"]
+
+    ws3.cell(row=1, column=1,
+             value="Repeat High-Risk Users — Flagged High/Critical in 2+ Periods"
+    ).font = Font(name="Calibri", bold=True, size=12, color=C_NAVY)
+    ws3.row_dimensions[1].height = 20
+
+    repeat_cols = [
+        ("Username",         "Username",         20),
+        ("Periods Flagged",  "Periods_Flagged",  14),
+        ("Period List",      "Period_List",       30),
+        ("Last Seen",        "Last_Seen",         16),
+        ("Total Findings",   "Total_Findings",    14),
+        ("Most Common Rule", "Most_Common_Rule",  45),
+        ("Risk Levels",      "Risk_Levels",       18),
+    ]
+
+    if rdf.empty:
+        ws3.cell(row=3, column=1,
+                 value="✓ No repeat high-risk users detected across review periods."
+        ).font = Font(name="Calibri", size=9, color=C_GREEN, bold=True)
+    else:
+        for ci, (hdr, _, width) in enumerate(repeat_cols, 1):
+            _hdr(ws3, 2, ci, hdr, width=width)
+        ws3.row_dimensions[2].height = 18
+        for ri, (_, row_data) in enumerate(rdf.iterrows(), 3):
+            n_periods = int(row_data.get("Periods_Flagged", 0))
+            row_bg = "FFF0F0" if n_periods >= 3 else "FFFBF0" if n_periods == 2 else None
+            for ci, (_, col_key, _) in enumerate(repeat_cols, 1):
+                val = row_data.get(col_key, "")
+                c = ws3.cell(row=ri, column=ci, value=val)
+                c.font      = Font(name="Calibri", size=9,
+                                   bold=(ci == 1),
+                                   color=C_RED if n_periods >= 3 else C_NAVY)
+                c.fill      = _fill(row_bg) if row_bg else PatternFill()
+                c.alignment = Alignment(horizontal="left", vertical="top",
+                                        wrap_text=(ci in (3, 6)))
+                c.border    = bdr
+            ws3.row_dimensions[ri].height = 28
+
+    ws3.freeze_panes = "A3"
+
+    # =========================================================================
+    # SHEET 4 — RULE RECURRENCE
+    # =========================================================================
+    ws4 = wb.create_sheet("Rule Recurrence")
+    ruledf = result["rule_df"]
+
+    ws4.cell(row=1, column=1,
+             value="Rule Recurrence Analysis — Rules Firing Across Multiple Periods"
+    ).font = Font(name="Calibri", bold=True, size=12, color=C_NAVY)
+    ws4.cell(row=2, column=1,
+             value="Rules recurring across periods indicate systemic control gaps "
+                   "rather than isolated incidents. Prioritise for CAPA."
+    ).font = Font(name="Calibri", size=9, italic=True, color="5A6A7A")
+    ws4.row_dimensions[1].height = 20
+    ws4.row_dimensions[2].height = 14
+
+    rule_cols = [
+        ("Rule",                 "Rule",              50),
+        ("Periods Seen",         "Periods_Seen",      14),
+        ("Period List",          "Period_List",        30),
+        ("Total Occurrences",    "Total_Occurrences", 16),
+        ("First Period Count",   "First_Period_Cnt",  16),
+        ("Latest Period Count",  "Last_Period_Cnt",   16),
+        ("Trend %",              "Trend_pct",         12),
+        ("Trend",                "Trend_Label",       22),
+        ("H/C Count",            "High_Crit_Count",   12),
+    ]
+
+    if ruledf.empty:
+        ws4.cell(row=4, column=1,
+                 value="No rule recurrence data available."
+        ).font = Font(name="Calibri", size=9, color=C_MID)
+    else:
+        for ci, (hdr, _, width) in enumerate(rule_cols, 1):
+            _hdr(ws4, 3, ci, hdr, width=width)
+        ws4.row_dimensions[3].height = 18
+        for ri, (_, row_data) in enumerate(ruledf.iterrows(), 4):
+            trend_label = str(row_data.get("Trend_Label", ""))
+            trend_color = _TREND_COLORS.get(trend_label, "1A1A1A")
+            for ci, (_, col_key, _) in enumerate(rule_cols, 1):
+                val = row_data.get(col_key, "")
+                if col_key == "Trend_pct" and pd.notna(val):
+                    val = f"{float(val):+.1f}%"
+                c = ws4.cell(row=ri, column=ci, value=val)
+                if col_key == "Trend_Label":
+                    c.font = Font(name="Calibri", size=9, bold=True,
+                                  color=trend_color)
+                elif col_key == "Rule":
+                    c.font = Font(name="Calibri", size=9, bold=True,
+                                  color=C_NAVY)
+                else:
+                    c.font = Font(name="Calibri", size=9, color="2C3E50")
+                c.alignment = Alignment(horizontal="left" if ci in (1, 3) else "center",
+                                        vertical="top", wrap_text=(ci in (1, 3)))
+                c.border = bdr
+                if ri % 2 == 0: c.fill = _fill("F8FAFC")
+            ws4.row_dimensions[ri].height = 16
+
+    ws4.freeze_panes = "A4"
+
+    # =========================================================================
+    # SHEET 5 — NARRATIVE SUMMARY
+    # =========================================================================
+    ws5 = wb.create_sheet("Narrative Summary")
+    ws5.column_dimensions["A"].width = 105
+
+    ws5.cell(row=1, column=1,
+             value="Data Integrity Monitor — AI-Generated Executive Summary"
+    ).font = Font(name="Calibri", bold=True, size=13, color=C_NAVY)
+    ws5.row_dimensions[1].height = 22
+
+    ws5.cell(row=2, column=1,
+             value=("This narrative is generated from calculated metrics only. "
+                    "Every statement cites a specific count or percentage derived "
+                    "from the uploaded data. Human reviewer confirmation required "
+                    "before use as regulatory evidence.")
+    ).font = Font(name="Calibri", size=9, italic=True, color="5A6A7A")
+    ws5.row_dimensions[2].height = 28
+
+    # ── Generate narrative ────────────────────────────────────────────────────
+    narrative_text = _dim_generate_narrative(smry, result["period_df"], model_id)
+
+    for li, line in enumerate(narrative_text.split("\n"), 4):
+        c = ws5.cell(row=li, column=1, value=line)
+        if line.startswith("##"):
+            c.font = Font(name="Calibri", bold=True, size=11, color=C_NAVY)
+            ws5.row_dimensions[li].height = 20
+        elif line.startswith("**") or line.startswith("*"):
+            c.font = Font(name="Calibri", bold=True, size=9, color="2C3E50")
+            ws5.row_dimensions[li].height = 14
+        else:
+            c.font = Font(name="Calibri", size=9, color="2C3E50")
+            ws5.row_dimensions[li].height = 14
+        c.alignment = Alignment(horizontal="left", vertical="top",
+                                wrap_text=True)
+
+    # ── Rules skipped note ────────────────────────────────────────────────────
+    skipped = smry.get("rules_skipped", [])
+    if skipped:
+        skip_row = len(narrative_text.split("\n")) + 6
+        ws5.cell(row=skip_row, column=1,
+                 value="ℹ  Columns not provided (analysis scope reduced):"
+        ).font = Font(name="Calibri", size=9, bold=True, color=C_AMBER)
+        for i, note in enumerate(skipped, skip_row + 1):
+            ws5.cell(row=i, column=1, value=f"  • {note}"
+            ).font = Font(name="Calibri", size=9, color="5A6A7A")
+
+    wb.save(output)
+    return output.getvalue()
+
+
+def _dim_generate_narrative(smry: dict, period_df: pd.DataFrame,
+                             model_id: str) -> str:
+    """
+    Generate AI executive narrative from calculated metrics only.
+    Deterministic fallback if AI unavailable.
+    """
+    # Build context string from calculated metrics — no speculation
+    periods    = smry["periods"]
+    first_p    = smry["first_period"]
+    last_p     = smry["last_period"]
+    n_periods  = smry["n_periods"]
+    tf_first   = smry["total_findings_first"]
+    tf_last    = smry["total_findings_last"]
+    hc_first   = smry["hc_first"]
+    hc_last    = smry["hc_last"]
+    overall    = smry["overall_pct_chg"]
+    posture    = smry["posture_last"]
+    n_repeat   = smry["repeat_users"]
+    top_repeat = smry["top_repeat_user"]
+    top_rule   = smry["top_rule"]
+    top3       = smry.get("top3", [])
+
+    # Deterministic fallback — always available
+    fallback_lines = [
+        f"## Data Integrity Monitor — Executive Summary",
+        f"",
+        f"## Review Scope",
+        (f"This report covers {n_periods} review periods from {first_p} to {last_p}. "
+         f"Total findings moved from {tf_first} in {first_p} to {tf_last} in {last_p} "
+         f"({overall:+.1f}% overall change). "
+         f"DI Posture in the latest period: {posture.upper()}."),
+        f"",
+        f"## High/Critical Finding Trend",
+        (f"High and Critical findings moved from {hc_first} in {first_p} to "
+         f"{hc_last} in {last_p}. "
+         + (_dim_trend_label((hc_last - hc_first) / max(hc_first, 1) * 100)
+            + " trend across the review window.")
+         if hc_first > 0 else
+         f"High and Critical findings: {hc_last} in the latest period."),
+        f"",
+        f"## Repeat High-Risk Users",
+        (f"{n_repeat} user(s) appeared as High/Critical in two or more review periods, "
+         f"indicating persistent access or behavioural risk rather than isolated events."
+         + (f" Most persistent user: {top_repeat}." if top_repeat else "")
+         if n_repeat > 0 else
+         "No users appeared as High/Critical in multiple review periods."),
+        f"",
+        f"## Rule Recurrence",
+        (f"The most frequently recurring rule across periods is '{top_rule}'. "
+         f"Recurring rules indicate systemic control gaps requiring CAPA rather "
+         f"than event-level review."
+         if top_rule else "No rule recurrence data available."),
+    ]
+
+    if top3:
+        fallback_lines += ["", "## Priority Actions (Top 3)"]
+        for i, item in enumerate(top3, 1):
+            fallback_lines.append(
+                f"{i}. {item['Metric']}: {item['Current']} findings in latest period "
+                f"({item['Pct_Change']:+.1f}% vs prior period — {item['Trend']}).")
+
+    fallback_lines += [
+        "",
+        "## Reviewer Statement",
+        ("This summary was generated from calculated metrics. All counts and "
+         "percentages are derived deterministically from the uploaded data. "
+         "Narrative text does not influence risk classification. "
+         "Human reviewer confirmation is required before this document is used "
+         "as regulatory evidence."),
+    ]
+
+    # Try AI narrative
+    try:
+        ctx = "\n".join(fallback_lines)
+        prompt = f"""You are writing an executive summary for a pharmaceutical QA periodic review.
+
+RULES — strict:
+1. Every sentence MUST cite a specific number, count, or percentage from the data below.
+2. Do NOT speculate, infer causes, or use vague language.
+3. Do NOT use regulatory citation language (no "21 CFR", "ALCOA+", "GAMP").
+4. Structure: Review Scope / High-Critical Trend / Repeat Users / Rule Recurrence / Priority Actions.
+5. Max 250 words total. Plain English. No bullet points in narrative paragraphs.
+6. Use the exact counts and percentages provided — do not round or paraphrase numbers.
+
+CALCULATED DATA:
+{ctx}
+
+Write the executive summary now. Start with "## Review Scope" heading."""
+
+        resp = _comp(
+            model=model_id, stream=False, temperature=0.05, max_tokens=400,
+            messages=[
+                {"role": "system", "content":
+                 "You write data-grounded executive summaries for pharmaceutical QA teams. "
+                 "Every sentence cites a specific number. No vague language. No speculation."},
+                {"role": "user", "content": prompt},
+            ]
+        )
+        candidate = resp.choices[0].message.content.strip()
+        if len(candidate) > 100:
+            return candidate
+    except Exception:
+        pass
+
+    return "\n".join(fallback_lines)
+
+
+def show_dim(user: str, role: str, model_id: str):
+    """
+    Render Data Integrity Monitor — multi-period AT trend analysis.
+    """
+    st.title("📊 Data Integrity Monitor")
+    st.markdown(
+        "<p style='color:#94a3b8;margin-top:-12px;'>"
+        "Upload a consolidated audit trail findings file covering multiple review "
+        "periods to identify DI trends, repeat high-risk users, and recurring rule "
+        "patterns. Produces a GxP evidence package per ALCOA+ and FDA CSA Final "
+        "Guidance (Sep 2021).</p>",
+        unsafe_allow_html=True,
+    )
+    st.markdown("---")
+
+    # ── System metadata ───────────────────────────────────────────────────────
+    mc1, mc2 = st.columns([2, 1])
+    with mc1:
+        st.session_state["dim_system_name"] = st.text_input(
+            "System Name",
+            value=st.session_state.get("dim_system_name", ""),
+            placeholder="e.g. LabVantage LIMS",
+            key="dim_sysname",
+        )
+    with mc2:
+        st.info(f"Version: {VERSION}", icon="ℹ️")
+
+    st.markdown("---")
+
+    # ── Column spec expander ──────────────────────────────────────────────────
+    with st.expander("📋 What columns should my file have?", expanded=False):
+        st.markdown("**Required (4):**")
+        st.dataframe(pd.DataFrame({
+            "Column":        ["Review_Period", "Username", "Risk_Level", "Rule_Triggered"],
+            "Example":       ["Q1-2026", "analyst_x", "High", "Rule 5 — Failed Login"],
+            "Notes":         ["e.g. Q1-2026, Jan-2026, 2026-Q1 — consistent format",
+                              "Exact username from source system",
+                              "Critical / High / Medium / Low",
+                              "Rule label from AT evidence package"],
+        }), use_container_width=True, hide_index=True)
+        st.markdown("**Optional (adds depth):**")
+        st.dataframe(pd.DataFrame({
+            "Column":  ["System_Name", "Event_Type", "Event_Timestamp"],
+            "Example": ["LabVantage v8", "DELETE", "2026-03-15 14:23:00"],
+        }), use_container_width=True, hide_index=True)
+        st.info(
+            "**How to build this file:** Run your AT review for each period. "
+            "Copy the 'Events for Review' sheet from each evidence package into one "
+            "consolidated file. Add a 'Review_Period' column to identify each period. "
+            "Column names are flexible — common aliases are auto-mapped.",
+            icon="💡"
+        )
+
+    st.markdown("---")
+
+    # ── File upload ───────────────────────────────────────────────────────────
+    st.markdown("### Step 1 — Upload Consolidated Findings File")
+    uploaded = st.file_uploader(
+        "Consolidated AT findings (CSV or XLSX) — minimum 2 review periods",
+        type=["csv", "xlsx", "xls"],
+        key=f"dim_upload_{st.session_state.get('dim_key_n', 0)}",
+    )
+
+    if uploaded:
+        try:
+            if uploaded.name.endswith(".csv"):
+                raw_df = pd.read_csv(uploaded, dtype=str)
+            else:
+                raw_df = pd.read_excel(uploaded, dtype=str)
+            raw_df = _dim_normalise_columns(raw_df)
+            st.session_state["dim_raw_df"]   = raw_df
+            st.session_state["dim_file_name"] = uploaded.name
+            st.session_state["dim_analysis_done"] = False
+            st.success(
+                f"✅ {len(raw_df):,} rows loaded from {uploaded.name}. "
+                f"Columns mapped: {list(raw_df.columns)}",
+                icon="✅"
+            )
+        except Exception as e:
+            st.error(f"File read error: {e}")
+
+    raw_df = st.session_state.get("dim_raw_df")
+
+    if raw_df is not None:
+        missing = _DIM_REQUIRED - set(raw_df.columns)
+        if missing:
+            st.error(
+                f"❌ Missing required columns: {', '.join(sorted(missing))}. "
+                f"Check column names or aliases in the guide above."
+            )
+            return
+
+        periods_found = sorted(raw_df["Review_Period"].dropna().unique().tolist())
+        st.caption(
+            f"Periods detected: **{len(periods_found)}** — "
+            f"{', '.join(str(p) for p in periods_found)}"
+        )
+        if len(periods_found) < 2:
+            st.warning("⚠️ Minimum 2 review periods required. "
+                       "Check the Review_Period column contains distinct values.")
+            return
+
+    st.markdown("---")
+
+    # ── Run button ────────────────────────────────────────────────────────────
+    st.markdown("### Step 2 — Run Analysis")
+    _already_done = st.session_state.get("dim_analysis_done", False)
+    rb_col, rs_col, _ = st.columns([3, 2, 3])
+    with rb_col:
+        run_btn = st.button(
+            "✅ Analysis Complete" if _already_done else "▶ Run DI Monitor",
+            type="primary",
+            use_container_width=True,
+            key="dim_run_btn",
+            disabled=(_already_done or raw_df is None),
+        )
+    with rs_col:
+        if _already_done:
+            if st.button("🔄 New Analysis", use_container_width=True,
+                         key="dim_reset_btn"):
+                for k in ["dim_raw_df", "dim_result", "dim_analysis_done",
+                          "dim_file_name"]:
+                    st.session_state[k] = None if k != "dim_analysis_done" else False
+                st.session_state["dim_key_n"] = (
+                    st.session_state.get("dim_key_n", 0) + 1)
+                st.rerun()
+
+    if run_btn and raw_df is not None:
+        with st.status("Running Data Integrity Monitor…", expanded=True) as status:
+            st.write("Normalising columns and classifying events…")
+            result = dim_score_periods(raw_df)
+            if "error" in result:
+                status.update(label="Error", state="error")
+                st.error(result["error"])
+                return
+            st.write("Calculating period trends…")
+            st.write("Identifying repeat high-risk users…")
+            st.write("Running rule recurrence analysis…")
+            st.write("Generating AI narrative summary…")
+            st.session_state["dim_result"]       = result
+            st.session_state["dim_analysis_done"] = True
+            status.update(label="Analysis complete", state="complete")
+
+    # ── Results ───────────────────────────────────────────────────────────────
+    if not st.session_state.get("dim_analysis_done"):
+        return
+
+    result = st.session_state["dim_result"]
+    smry   = result["summary"]
+    st.markdown("---")
+    st.markdown("### Step 3 — Review Results")
+
+    # Posture banner
+    posture = smry["posture_last"]
+    _POS_CSS = {
+        "Critical":     "#C0392B", "Deteriorating": "#E67E22",
+        "Stable":       "#2E86AB", "Improving":      "#27AE60",
+        "Baseline":     "#94A3B8",
+    }
+    st.markdown(
+        f"<div style='background:{_POS_CSS.get(posture,'#94A3B8')};color:white;"
+        f"padding:16px 20px;border-radius:8px;margin-bottom:16px;'>"
+        f"<b style='font-size:1.1rem;'>DI Posture — {smry['last_period']}: "
+        f"{posture.upper()}</b>"
+        f"<span style='margin-left:24px;font-size:0.88rem;opacity:0.9;'>"
+        f"Overall change: {smry['overall_pct_chg']:+.1f}% "
+        f"({smry['first_period']} → {smry['last_period']})</span></div>",
+        unsafe_allow_html=True,
+    )
+
+    # KPI tiles
+    last_row = result["period_df"].iloc[-1]
+    k1, k2, k3, k4 = st.columns(4)
+    for col, label, metric in [
+        (k1, "Total Findings",  "Total_Findings"),
+        (k2, "High/Critical",   "High_Critical"),
+        (k3, "Deletion Events", "Deletion_Findings"),
+        (k4, "Failed Logins",   "Failed_Login"),
+    ]:
+        with col:
+            val = int(last_row[metric])
+            pct = last_row.get(f"{metric}_pct_chg")
+            delta = f"{pct:+.1f}%" if pd.notna(pct) else None
+            st.metric(label=label, value=val, delta=delta,
+                      delta_color="inverse" if pct and float(pct) > 0 else "normal")
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # Top 3
+    top3 = smry.get("top3", [])
+    if top3:
+        st.markdown("**⚠️ Top 3 to Review:**")
+        for i, item in enumerate(top3, 1):
+            st.markdown(
+                f"**{i}. {item['Metric']}** — {item['Current']} findings "
+                f"({item['Pct_Change']:+.1f}% vs prior — {item['Trend']})"
+            )
+    else:
+        st.success("✓ No significant worsening metrics in the latest period.")
+
+    st.markdown("---")
+
+    # Period trends table
+    with st.expander("📈 Period Trend Analysis", expanded=True):
+        display_cols = ["Review_Period", "Total_Findings", "High_Critical",
+                        "Deletion_Findings", "Failed_Login",
+                        "Total_Findings_trend", "High_Critical_trend",
+                        "DI_Posture"]
+        disp_df = result["period_df"][[
+            c for c in display_cols if c in result["period_df"].columns
+        ]].copy()
+        disp_df.columns = [c.replace("_", " ") for c in disp_df.columns]
+        st.dataframe(disp_df, use_container_width=True, hide_index=True)
+
+    # Repeat users
+    with st.expander(f"🔁 Repeat High-Risk Users ({smry['repeat_users']})",
+                     expanded=smry["repeat_users"] > 0):
+        if result["repeat_df"].empty:
+            st.success("No users flagged High/Critical in multiple periods.")
+        else:
+            show_rdf = result["repeat_df"][
+                ["Username", "Periods_Flagged", "Period_List",
+                 "Last_Seen", "Total_Findings", "Most_Common_Rule"]
+            ].copy()
+            show_rdf.columns = ["Username", "Periods Flagged", "Period List",
+                                 "Last Seen", "Total Findings", "Most Common Rule"]
+            st.dataframe(show_rdf, use_container_width=True, hide_index=True)
+
+    # Rule recurrence
+    with st.expander("🔄 Rule Recurrence Analysis", expanded=False):
+        if result["rule_df"].empty:
+            st.info("No rule recurrence data available.")
+        else:
+            show_ruledf = result["rule_df"][
+                ["Rule", "Periods_Seen", "Total_Occurrences",
+                 "Trend_Label", "High_Crit_Count"]
+            ].copy()
+            show_ruledf.columns = ["Rule", "Periods Seen", "Total Occurrences",
+                                    "Trend", "High/Critical Count"]
+            st.dataframe(show_ruledf, use_container_width=True, hide_index=True)
+
+    st.markdown("---")
+
+    # Download
+    st.markdown("### Step 4 — Download Evidence Package")
+    fname    = st.session_state.get("dim_file_name", "dim_input")
+    sysname  = st.session_state.get("dim_system_name", "System")
+    out_name = (f"DIM_{sysname.replace(' ','_')}_"
+                f"{datetime.datetime.utcnow().strftime('%Y-%m-%d')}.xlsx")
+
+    if _trial_gate("dim_download"):
+        with st.spinner("Building evidence package…"):
+            xlsx_bytes = dim_build_excel(
+                result, sysname, fname, model_id
+            )
+        st.download_button(
+            label="⬇️ Download DIM Evidence Package (Excel)",
+            data=xlsx_bytes,
+            file_name=out_name,
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True,
+        )
+        st.caption(
+            "5-sheet workbook: Dashboard · Period Trends · Repeat Users · "
+            "Rule Recurrence · Narrative Summary"
+        )
+
+
 def show_signalintel(user: str, role: str, model_id: str):
     """
     Render SIGNALINTEL — Periodic Review Module 3: Incident / Problem / Change Review.
@@ -11429,8 +12530,8 @@ def show_periodic_review(user: str, role: str, model_id: str):
         show_user_access_review(user, role, model_id)
         return
 
-    if active == "signalintel":
-        show_signalintel(user, role, model_id)
+    if active == "di_dashboard":
+        show_dim(user, role, model_id)
         return
 
     if active in ("report_drafter",):
@@ -11485,20 +12586,20 @@ def show_periodic_review(user: str, role: str, model_id: str):
             "border":  "#1e3a5f",
         },
         {
-            "key":     "signalintel",
-            "title":   "SIGNALINTEL — Incident & Change Review",
-            "section": "SOP-418 §9.1.3 / §9.1.4 · EU Annex 11 Cl. 10",
+            "key":     "di_dashboard",
+            "title":   "Data Integrity Monitor",
+            "section": "ALCOA+ · 21 CFR Part 11 · EU Annex 11",
             "desc":    (
-                "Upload your deviation log, CAPA register, or change control export "
-                "to classify GxP incidents, detect recurring trends, flag escalation "
-                "gaps, and cross-reference with AT findings. Produces a classified "
-                "incident register and trend analysis evidence package."
+                "Upload a consolidated findings file covering multiple review periods "
+                "to identify DI trends, repeat high-risk users, and recurring rule "
+                "patterns. Produces a GxP evidence package with period-over-period "
+                "trend analysis and AI-generated executive narrative."
             ),
-            "status":  "coming_soon",
-            "btn_label": "Coming Soon",
-            "color":   "#475569",
-            "bg":      "#0a1628",
-            "border":  "#1e293b",
+            "status":  "live",
+            "btn_label": "Open Data Integrity Monitor",
+            "color":   "#0284c7",
+            "bg":      "#0c1f36",
+            "border":  "#1e3a5f",
         },
     ]
 
