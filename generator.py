@@ -4327,7 +4327,7 @@ _defaults = {
     "pass2_chunk_size":   8,       # Phase 1: reduced from 40→8 to prevent 600s timeout
     "show_esig_form":     False,   # True when user clicked a download button → show inline form
     "esig_target":        None,    # "xlsx" or "pdf" — which format triggered the e-sig form
-    "app_mode":           "New Validation",   # sidebar mode selector
+    "app_mode":           "Review Intelligence",   # sidebar mode selector
     # ── Change Impact Analysis slots ────────────────────────────────────────
     "cia_change_spec_bytes": None,
     "cia_change_spec_name":  None,
@@ -4924,6 +4924,63 @@ MODELS = {
     "GPT-4o":            "openai/gpt-4o",
     "Groq (Llama 3.3)":  "groq/llama-3.3-70b-versatile",
 }
+
+# ── AI model cascade — priority-ordered, configurable via secrets.toml ────────
+# Add to secrets.toml to override:
+#   model_cascade = ["anthropic/claude-sonnet-4-5", "gemini/gemini-1.5-flash", ...]
+_AI_CASCADE_CACHE: list | None = None
+
+def _get_ai_cascade() -> list:
+    global _AI_CASCADE_CACHE
+    if _AI_CASCADE_CACHE is not None:
+        return _AI_CASCADE_CACHE
+    try:
+        cfg = st.secrets.get("model_cascade", None)
+        if cfg:
+            _AI_CASCADE_CACHE = list(cfg)
+            return _AI_CASCADE_CACHE
+    except Exception:
+        pass
+    _AI_CASCADE_CACHE = [
+        "anthropic/claude-sonnet-4-5",
+        "anthropic/claude-haiku-4-5-20251001",
+        "gemini/gemini-1.5-flash",
+        "gemini/gemini-1.5-pro",
+        "openai/gpt-4o-mini",
+    ]
+    return _AI_CASCADE_CACHE
+
+def _call_ai_with_fallback(
+    user_prompt: str,
+    system_prompt: str = "",
+    max_tokens: int = 80,
+    temperature: float = 0.05,
+) -> str | None:
+    """
+    Try each model in cascade order. Return response text on first success.
+    Returns None if all models fail — caller is responsible for deterministic fallback.
+    Permanent errors (auth/billing) skip that provider; transient errors try next.
+    """
+    from litellm import completion as _comp
+    messages = []
+    if system_prompt:
+        messages.append({"role": "system", "content": system_prompt})
+    messages.append({"role": "user", "content": user_prompt})
+
+    for _model in _get_ai_cascade():
+        try:
+            resp = _comp(
+                model=_model, stream=False,
+                temperature=temperature, max_tokens=max_tokens,
+                messages=messages, timeout=20,
+            )
+            candidate = resp.choices[0].message.content.strip()
+            if candidate:
+                return candidate
+        except Exception as _e:
+            # Always continue to next model — both transient and permanent failures
+            continue
+    return None
 
 
 def _capture_client_ip():
@@ -8195,18 +8252,17 @@ WRONG example: "Verify the user's access rights before closing this finding." [c
 
 Write only the one sentence. No labels, no preamble, no explanation."""
 
-            resp = _comp(
-                model=model_id, stream=False, temperature=0.05, max_tokens=80,
-                messages=[
-                    {"role": "system", "content":
-                     "You write one-sentence factual log summaries for pharmaceutical QA tables. "
-                     "State only observable facts: who, what, which record, when, what comment. "
-                     "No regulatory language. No action instructions. One sentence, max 30 words."},
-                    {"role": "user", "content": prompt}
-                ]
+            candidate = _call_ai_with_fallback(
+                user_prompt=prompt,
+                system_prompt=(
+                    "You write one-sentence factual log summaries for pharmaceutical QA tables. "
+                    "State only observable facts: who, what, which record, when, what comment. "
+                    "No regulatory language. No action instructions. One sentence, max 30 words."
+                ),
+                max_tokens=80,
+                temperature=0.05,
             )
-            candidate = resp.choices[0].message.content.strip()
-            if len(candidate) > 40 and "error" not in candidate.lower()[:30]:
+            if candidate and len(candidate) > 40 and "error" not in candidate.lower()[:30]:
                 text = candidate
 
         except Exception:
@@ -10380,18 +10436,17 @@ WRONG: "This user may represent a compliance risk and should be reviewed."
 
 Write only the one sentence. No labels, no preamble."""
 
-            resp = _comp(
-                model=model_id, stream=False, temperature=0.05, max_tokens=90,
-                messages=[
-                    {"role": "system", "content":
-                     "You write one-sentence factual access profile summaries for pharmaceutical QA tables. "
-                     "Always mention job-title/role mismatches and service account patterns when present. "
-                     "State only observable facts. No regulatory language. No action instructions."},
-                    {"role": "user", "content": prompt},
-                ]
+            candidate = _call_ai_with_fallback(
+                user_prompt=prompt,
+                system_prompt=(
+                    "You write one-sentence factual access profile summaries for pharmaceutical QA tables. "
+                    "Always mention job-title/role mismatches and service account patterns when present. "
+                    "State only observable facts. No regulatory language. No action instructions."
+                ),
+                max_tokens=90,
+                temperature=0.05,
             )
-            candidate = resp.choices[0].message.content.strip()
-            if len(candidate) > 20 and "error" not in candidate.lower()[:20]:
+            if candidate and len(candidate) > 20 and "error" not in candidate.lower()[:20]:
                 text = candidate
 
         except Exception:
@@ -11539,10 +11594,10 @@ def dim_score_periods(df: pd.DataFrame) -> dict:
         return r[:60]
 
     df["Primary_Rule"] = df["Rule_Triggered"].apply(_primary_rule)
-    rule_grp = df.groupby("Primary_Rule")
+    rule_grp = df[~df["_is_sentinel"]].groupby("Primary_Rule")   # exclude sentinels
     rule_rows = []
     for rule, grp in rule_grp:
-        if not rule or rule == "nan":
+        if not rule or rule == "nan" or "no named rules" in rule.lower():
             continue
         periods_seen  = sorted(grp["Review_Period"].unique().tolist())
         period_counts = grp.groupby("Review_Period").size().to_dict()
@@ -11564,9 +11619,15 @@ def dim_score_periods(df: pd.DataFrame) -> dict:
             "Trend_Arrow":      _dim_trend_arrow(recur_pct),
             "High_Crit_Count":  int(grp["is_high_crit"].sum()),
         })
-    rule_df = pd.DataFrame(rule_rows).sort_values(
-        ["Periods_Seen", "Total_Occurrences"], ascending=False
-    ) if rule_rows else pd.DataFrame()
+    if rule_rows:
+        import re as _re
+        def _rule_num_key(r: str) -> int:
+            m = _re.search(r'[Rr]ule\s+(\d+)', str(r))
+            return int(m.group(1)) if m else 999
+        rule_df = pd.DataFrame(rule_rows)
+        rule_df = rule_df.sort_values("Rule", key=lambda s: s.apply(_rule_num_key))
+    else:
+        rule_df = pd.DataFrame()
 
     # ── Top 3 to fix ──────────────────────────────────────────────────────────
     last_period_row = period_df.iloc[-1]
@@ -12216,7 +12277,7 @@ def show_dim(user: str, role: str, model_id: str):
                                      "dim_analysis_done": True,
                                      "dim_system_name": _sys_name})
             status.update(label="✅ Complete", state="complete")
-        _done = True
+        st.rerun()   # clear the status widget before rendering results
 
     # ── Ready to run manually (no autorun) ────────────────────────────────────
     if not _done:
@@ -12256,21 +12317,6 @@ def show_dim(user: str, role: str, model_id: str):
     last_row = pdf.iloc[-1]
     posture  = smry["posture_last"]
 
-    # ── New Analysis button ────────────────────────────────────────────────────
-    _, _na_col = st.columns([6, 2])
-    with _na_col:
-        if st.button("🔄 New Analysis", use_container_width=True, key="dim_reset_btn"):
-            # Clear DIM result (keep banked periods — user may want to add another)
-            st.session_state.update({"dim_result": None, "dim_analysis_done": False})
-            # Reset AT so user lands on a clean upload form
-            for _k in ["at_raw_df","at_mapped_df","at_scored_df","at_top20_df",
-                       "at_file_name","at_mapping_done","at_analysis_done",
-                       "at_total_events","at_review_start","at_review_end"]:
-                st.session_state[_k] = _defaults.get(_k)
-            st.session_state["at_key_n"] = st.session_state.get("at_key_n", 0) + 1
-            st.session_state["pr_active_module"] = "audit_trail"
-            st.rerun()
-
     # ── Posture banner ─────────────────────────────────────────────────────────
     _POS = {
         "Critical":     ("#7f1d1d","#fca5a5","#f87171","⬇️"),
@@ -12280,8 +12326,12 @@ def show_dim(user: str, role: str, model_id: str):
         "Baseline":     ("#1e293b","#cbd5e1","#94a3b8","◎"),
     }
     _bg,_fg_l,_fg_m,_arrow = _POS.get(posture,("#1e293b","#cbd5e1","#94a3b8","◎"))
-
-    # Build per-period lines for the banner
+    _first_row = pdf.iloc[0]
+    _last_row  = pdf.iloc[-1]
+    _total_first = int(_first_row["Total_Findings"])
+    _total_last  = int(_last_row["Total_Findings"])
+    _direction   = "↑ increased" if _total_last > _total_first else "↓ decreased" if _total_last < _total_first else "unchanged"
+    _dir_color   = "#f87171" if _total_last > _total_first else "#4ade80" if _total_last < _total_first else "#94a3b8"
     _period_lines = "".join(
         f"<div style='color:{_fg_l};font-size:0.82rem;margin-top:3px;'>"
         f"<b style='color:{_fg_m};'>Period {i+1}:</b> {p}</div>"
@@ -12290,94 +12340,36 @@ def show_dim(user: str, role: str, model_id: str):
     st.markdown(
         f"<div style='background:{_bg};border:2px solid {_fg_m};"
         f"border-radius:12px;padding:18px 26px;margin:16px 0;'>"
-        f"<div style='display:flex;align-items:baseline;gap:16px;'>"
-        f"<span style='font-size:2rem;'>{_arrow}</span><div style='flex:1;'>"
+        f"<div style='display:flex;align-items:flex-start;gap:16px;'>"
+        f"<span style='font-size:2rem;margin-top:2px;'>{_arrow}</span><div style='flex:1;'>"
         f"<div style='color:{_fg_m};font-size:1.3rem;font-weight:800;'>"
         f"DI Posture: {posture.upper()}</div>"
         f"<div style='color:{_fg_l};font-size:0.85rem;margin-top:6px;'>"
-        f"<b>{smry['overall_pct_chg']:+.1f}%</b> overall change · "
-        f"{smry['n_periods']} periods · {smry['repeat_users']} repeat user(s)</div>"
+        f"Total findings <span style='color:{_dir_color};font-weight:700;'>{_direction}</span> "
+        f"from <b>{_total_first}</b> to <b>{_total_last}</b> · "
+        f"{smry['repeat_users']} repeat user(s)</div>"
         f"{_period_lines}"
         f"</div></div></div>", unsafe_allow_html=True)
 
-    # ── KPI Tiles ──────────────────────────────────────────────────────────────
-    _TILES = [
-        ("Total Findings","Total_Findings","#0f172a","#60a5fa"),
-        ("High/Critical", "High_Critical", "#1a0505","#f87171"),
-        ("Deletion Events","Deletion_Findings","#1a0a05","#fb923c"),
-        ("Failed Logins",  "Failed_Login",     "#140f24","#c084fc"),
-    ]
-    for col,(lbl,metric,bg,acc) in zip(st.columns(4), _TILES):
-        with col:
-            val = int(last_row[metric])
-            pct = last_row.get(f"{metric}_pct_chg")
-            prev_val = None
-            if len(pdf) >= 2:
-                prev_val = int(pdf.iloc[-2][metric])
-            if pd.notna(pct) and pct is not None and prev_val is not None and prev_val > 0:
-                pf = float(pct)
-                _a = "▲" if pf>5 else "▼" if pf<-5 else "→"
-                _dc= "#f87171" if pf>5 else "#4ade80" if pf<-5 else "#94a3b8"
-                _dh= (f"<div style='color:{_dc};font-size:0.8rem;font-weight:700;margin-top:4px;'>"
-                      f"{_a} {pf:+.1f}% vs prior</div>")
-            elif pd.notna(pct) and prev_val == 0 and val > 0:
-                _dc = "#f87171"
-                _dh = f"<div style='color:{_dc};font-size:0.8rem;font-weight:700;margin-top:4px;'>▲ New findings</div>"
-            else:
-                _dh = "<div style='color:#475569;font-size:0.8rem;'>Baseline</div>"
-            st.markdown(
-                f"<div style='background:{bg};border:1px solid {acc}33;"
-                f"border-radius:10px;padding:16px;text-align:center;'>"
-                f"<div style='color:{acc};font-size:2rem;font-weight:800;line-height:1;'>{val}</div>"
-                f"<div style='color:#94a3b8;font-size:0.72rem;margin-top:6px;"
-                f"text-transform:uppercase;letter-spacing:1px;'>{lbl}</div>"
-                f"{_dh}</div>", unsafe_allow_html=True)
-
-    # ── Top 3 ──────────────────────────────────────────────────────────────────
-    top3 = smry.get("top3",[])
-    st.markdown("<div class='dim-section-hdr'>⚠️ Top 3 to Review</div>", unsafe_allow_html=True)
-    if top3:
-        for i,item in enumerate(top3,1):
-            pct = item["Pct_Change"]
-            _pc = f"{'▲' if pct>0 else '▼'} {abs(pct):.1f}%"
-            _c  = "#f87171" if pct>15 else "#fb923c" if pct>5 else "#4ade80"
-            st.markdown(
-                f"<div style='background:#1e293b;border-left:3px solid {_c};"
-                f"border-radius:0 8px 8px 0;padding:10px 16px;margin-bottom:8px;"
-                f"display:flex;justify-content:space-between;align-items:center;'>"
-                f"<span style='color:#e2e8f0;font-weight:600;'>{i}. {item['Metric']}</span>"
-                f"<span style='display:flex;gap:16px;'>"
-                f"<span style='color:#94a3b8;font-size:0.85rem;'>{item['Current']} findings</span>"
-                f"<span style='color:{_c};font-weight:700;'>{_pc}</span>"
-                f"<span style='color:{_c};font-size:0.8rem;'>{item['Trend']}</span>"
-                f"</span></div>", unsafe_allow_html=True)
-    else:
-        st.markdown("<div style='color:#4ade80;background:#052e16;border-radius:8px;padding:10px 16px;'>✓ No significant worsening metrics.</div>", unsafe_allow_html=True)
-
-    # ── Period Trend Table — descending (most recent first) ────────────────────
-    st.markdown("<div class='dim-section-hdr'>📈 Period Trend Analysis</div>", unsafe_allow_html=True)
-    _TREND_LEGEND = (
-        "<div style='color:#64748b;font-size:0.74rem;margin-bottom:8px;'>"
-        "<b style='color:#94a3b8;'>Trend legend:</b> "
-        "<span style='color:#f87171;'>Significant Increase</span> &gt;30% · "
-        "<span style='color:#fb923c;'>Moderate Increase</span> 16–30% · "
-        "<span style='color:#fbbf24;'>Slight Increase</span> 6–15% · "
-        "<span style='color:#60a5fa;'>Stable</span> ±5% · "
-        "<span style='color:#4ade80;'>Decreasing</span> &lt;-5%"
-        "</div>"
+    # ── Period Comparison Table — the core output ──────────────────────────────
+    st.markdown("<div class='dim-section-hdr'>📊 Period Comparison</div>", unsafe_allow_html=True)
+    st.caption(
+        "Each row is one review period. Subcategory counts overlap — "
+        "one event can be both High/Critical and a Deletion. "
+        "Most recent period shown first."
     )
-    st.markdown(_TREND_LEGEND, unsafe_allow_html=True)
-    with st.expander("Period-by-period breakdown", expanded=True):
-        _sc = ["Review_Period","Total_Findings","High_Critical","Deletion_Findings",
-               "Failed_Login","Dormant_Findings","Total_Findings_trend","DI_Posture"]
-        _d  = pdf[[c for c in _sc if c in pdf.columns]].copy()
-        _d  = _d.iloc[::-1].reset_index(drop=True)   # descending: most recent first
-        _d.columns = [c.replace("_"," ") for c in _d.columns]
-        st.dataframe(_d, use_container_width=True, hide_index=True)
-        st.caption(
-            "Most recent period shown first. 'Stable' means total findings changed by ≤5% vs the prior period. "
-            "DI Posture: Improving = >15% decrease · Deteriorating = >15% increase · Critical = >30% increase with High/Critical findings."
-        )
+    _sc = ["Review_Period","Total_Findings","High_Critical","Deletion_Findings",
+           "Failed_Login","Dormant_Findings","DI_Posture"]
+    _cmp = pdf[[c for c in _sc if c in pdf.columns]].copy()
+    _cmp = _cmp.iloc[::-1].reset_index(drop=True)
+    _cmp.columns = [c.replace("_"," ") for c in _cmp.columns]
+    st.dataframe(_cmp, use_container_width=True, hide_index=True)
+    st.caption(
+        "DI Posture: **Improving** = total findings down >15% · "
+        "**Stable** = within ±5% · "
+        "**Deteriorating** = up >15% · "
+        "**Critical** = up >30% with High/Critical events present."
+    )
 
     # ── Repeat Users ────────────────────────────────────────────────────────────
     rdf = result["repeat_df"]
@@ -12397,14 +12389,12 @@ def show_dim(user: str, role: str, model_id: str):
                 _rlvl = str(row.get("Risk_Levels","—"))
                 _tot  = int(row.get("Total_Findings", 0))
                 _narrative = (
-                    f"Flagged in <b>{_np} consecutive or non-consecutive periods</b>. "
+                    f"Flagged in <b>{_np} period(s)</b> ({row['Period_List']}). "
                     f"Most frequent rule: <b style='color:#fbbf24;'>{_rule}</b>. "
                     f"Risk levels observed: {_rlvl}. "
-                    f"Total of <b>{_tot} findings</b> across all periods. "
-                    + (
-                        "Persistent pattern — recommend access review or targeted audit."
-                        if _np >= 2 else "Monitor in next period before escalating."
-                    )
+                    f"Total <b>{_tot} finding(s)</b> across all periods. "
+                    + ("Persistent pattern — recommend access review or targeted audit."
+                       if _np >= 2 else "Monitor in next period before escalating.")
                 )
                 st.markdown(
                     f"<div style='background:#1e293b;border-radius:8px;padding:12px 16px;"
@@ -12412,11 +12402,9 @@ def show_dim(user: str, role: str, model_id: str):
                     f"<div style='display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;'>"
                     f"<div><span style='color:#e2e8f0;font-weight:700;font-size:0.95rem;'>{row['Username']}</span>"
                     f"<span style='color:#64748b;font-size:0.8rem;margin-left:10px;'>{row['Period_List']}</span></div>"
-                    f"<div style='display:flex;gap:12px;align-items:center;'>"
-                    f"<span style='color:#94a3b8;font-size:0.8rem;'>Last seen: {row['Last_Seen']}</span>"
                     f"<span style='background:{_bc}22;color:{_bc};border:1px solid {_bc}44;"
                     f"border-radius:6px;padding:2px 10px;font-size:0.78rem;font-weight:700;'>"
-                    f"{_np} periods</span></div></div>"
+                    f"{_np} periods</span></div>"
                     f"<div style='color:#94a3b8;font-size:0.8rem;line-height:1.5;'>{_narrative}</div>"
                     f"</div>", unsafe_allow_html=True)
 
@@ -12434,25 +12422,24 @@ def show_dim(user: str, role: str, model_id: str):
     }
     with st.expander("Rules firing across multiple periods", expanded=True):
         if ruledf.empty:
-            st.info("No rule recurrence data available.")
+            st.markdown("<span style='color:#4ade80;'>✓ No rules fired across multiple periods.</span>", unsafe_allow_html=True)
         else:
             st.caption(
-                "Rules that fired in more than one period. The trend shows how the firing rate changed "
-                "from the first to the last period it was seen. 'Stable' means ≤5% change in event count — "
-                "the rule is consistently triggering but not worsening."
+                "Rules that fired in more than one period, sorted by rule number. "
+                "'Stable' means the count changed ≤5% — the rule is consistently triggering but not worsening."
             )
             for _,row in ruledf.iterrows():
                 _tl  = str(row["Trend_Label"])
-                _def, _ac = _TREND_DEFS.get(_tl, ("", "#94a3b8"))
+                _def, _ac = _TREND_DEFS.get(_tl, ("No meaningful change.", "#94a3b8"))
                 _first = int(row.get("First_Period_Cnt", 0))
                 _last  = int(row.get("Last_Period_Cnt", 0))
-                _plist = str(row.get("Period_List",""))
                 _hc    = int(row.get("High_Crit_Count", 0))
+                _arrow_r = "▲" if _last > _first else "▼" if _last < _first else "→"
                 _rule_narrative = (
-                    f"Fired in <b>{row['Periods_Seen']} period(s)</b> ({_plist}). "
-                    f"Count: <b>{_first} → {_last}</b> events. "
-                    f"High/Critical findings: <b style='color:#f87171;'>{_hc}</b>. "
-                    f"<span style='color:{_ac};'>{_def}</span>"
+                    f"Fired in <b>{row['Periods_Seen']} period(s)</b>: {row['Period_List']}. "
+                    f"Count: <b>{_first} {_arrow_r} {_last}</b> events. "
+                    + (f"High/Critical findings: <b style='color:#f87171;'>{_hc}</b>. " if _hc > 0 else "")
+                    + f"<span style='color:{_ac};'>{_def}</span>"
                 )
                 st.markdown(
                     f"<div style='background:#1e293b;border-left:3px solid {_ac};"
@@ -12471,20 +12458,31 @@ def show_dim(user: str, role: str, model_id: str):
     sysname  = st.session_state.get("dim_system_name","System")
     fname_in = f"AT auto-feed ({_banked} periods)"
     out_name = f"DIM_{sysname.replace(' ','_')}_{datetime.datetime.utcnow().strftime('%Y-%m-%d')}.xlsx"
-    dl_col, info_col = st.columns([3,5])
-    with dl_col:
-        with st.spinner("Building evidence package…"):
-            xlsx_bytes = dim_build_excel(result, sysname, fname_in, model_id)
-        _trial_gate(
-            label="⬇️ Download DIM Evidence Package",
-            data=xlsx_bytes,
-            file_name=out_name,
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            key="dim_dl_btn",
-            use_container_width=True,
-        )
-    with info_col:
-        st.caption("5 sheets: **Dashboard** · **Period Trends** · **Repeat Users** · **Rule Recurrence** · **Narrative Summary**")
+    with st.spinner("Building evidence package…"):
+        xlsx_bytes = dim_build_excel(result, sysname, fname_in, model_id)
+    _trial_gate(
+        label="⬇️ Download DIM Evidence Package",
+        data=xlsx_bytes,
+        file_name=out_name,
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        key="dim_dl_btn",
+        use_container_width=False,
+    )
+    st.caption("Output generated with 5 worksheets: **Dashboard** · **Period Trends** · **Repeat Users** · **Rule Recurrence** · **Narrative Summary**")
+
+    # ── New Analysis — bottom of page ─────────────────────────────────────────
+    st.markdown("<div style='margin-top:24px;'></div>", unsafe_allow_html=True)
+    _, _na_col_bot, _ = st.columns([4, 3, 4])
+    with _na_col_bot:
+        if st.button("🔄 Start New AT Analysis", use_container_width=True, key="dim_new_analysis_bot"):
+            st.session_state.update({"dim_result": None, "dim_analysis_done": False})
+            for _k in ["at_raw_df","at_mapped_df","at_scored_df","at_top20_df",
+                       "at_file_name","at_mapping_done","at_analysis_done",
+                       "at_total_events","at_review_start","at_review_end"]:
+                st.session_state[_k] = _defaults.get(_k)
+            st.session_state["at_key_n"] = st.session_state.get("at_key_n", 0) + 1
+            st.session_state["pr_active_module"] = "audit_trail"
+            st.rerun()
 
 
 def show_signalintel(user: str, role: str, model_id: str):
@@ -12618,7 +12616,7 @@ def show_periodic_review(user: str, role: str, model_id: str):
         return
 
     # ── Landing page ──────────────────────────────────────────────────────────
-    st.title("🧠 Assurance Intelligence")
+    st.title("🔬 Review Intelligence")
     st.markdown(
         "<p style='color:#94a3b8;margin-top:-12px;'>Select a module below. "
         "Each module applies a deterministic scoring engine to produce "
@@ -15264,37 +15262,63 @@ def show_app():
         st.markdown(
             '<p style="color:#94a3b8;font-size:0.68rem;margin:-6px 0 4px;'
             'letter-spacing:0.5px;font-family:\'IBM Plex Mono\',monospace;">'
-            'Build v83 · CSA Change Impact coming next</p>',
+            'Build v85</p>',
             unsafe_allow_html=True)
         st.divider()
         st.markdown('<p class="sb-sub">🔧 Analysis Mode</p>', unsafe_allow_html=True)
         _modes = [
-            "New Validation",
-            "Change Impact Analysis",
-            "Assurance Intelligence",
+            "CSA Change Impact",
+            "CSA Test Optimisation",
+            "Review Intelligence",
         ]
+        # Migrate any stale app_mode values to new labels
+        _cur_mode = st.session_state.get("app_mode", "Review Intelligence")
+        if _cur_mode not in _modes:
+            _cur_mode = "Review Intelligence"
         app_mode = st.radio(
             "Mode", _modes,
-            index=_modes.index(st.session_state.get("app_mode","New Validation"))
-                  if st.session_state.get("app_mode","New Validation") in _modes else 0,
+            index=_modes.index(_cur_mode),
             label_visibility="collapsed",
             key="app_mode_radio",
         )
         st.session_state["app_mode"] = app_mode
-        st.divider()
-        st.markdown('<p class="sb-sub">🤖 AI Model</p>', unsafe_allow_html=True)
 
-        engine_name = st.radio(
-            "Model",
-            list(MODELS.keys()),
-            index=list(MODELS.keys()).index(st.session_state.selected_model),
-            label_visibility="collapsed",
-            key="model_radio"
+        # ── Evidence Pack section ───────────────────────────────────────────
+        st.divider()
+        _at_done  = bool(st.session_state.get("at_analysis_done"))
+        _uar_done = bool(st.session_state.get("uar_analysis_done"))
+        _cia_done = False   # CSA Change Impact not built yet
+        _cto_done = False   # CSA Test Optimisation not built yet
+        _pack_complete = sum([_at_done, _uar_done, _cia_done, _cto_done])
+        if _pack_complete == 4:
+            _pack_label = "📦 Build Inspection Evidence Pack →"
+            _pack_help  = "All 4 modules complete. Build the full evidence pack."
+            _pack_disabled = False
+            _pack_color_style = "color:#4ade80;font-size:0.78rem;font-weight:700;"
+        elif _pack_complete > 0:
+            _pack_label = f"📦 Evidence Pack ({_pack_complete}/4 modules)"
+            _pack_help  = "Complete all 4 modules to build the full pack."
+            _pack_disabled = False
+            _pack_color_style = "color:#fbbf24;font-size:0.78rem;font-weight:600;"
+        else:
+            _pack_label = "📦 Evidence Pack (0/4 modules)"
+            _pack_help  = "Run any analysis module to begin building the pack."
+            _pack_disabled = True
+            _pack_color_style = "color:#475569;font-size:0.78rem;"
+        _mod_icons = (
+            f"<span style='font-size:0.72rem;'>{'✅' if _at_done else '○'} AT &nbsp;"
+            f"{'✅' if _uar_done else '○'} UAR &nbsp;"
+            f"{'✅' if _cia_done else '○'} CIA &nbsp;"
+            f"{'✅' if _cto_done else '○'} CTO</span>"
         )
-      
-        # ── MANUAL EDIT v29-custom — DO NOT OVERWRITE ──────────────
-        st.session_state.selected_model = engine_name
-        # ── END MANUAL EDIT ────────────────────────────────────────
+        st.markdown(
+            f"<p style='{_pack_color_style}margin:0 0 4px;'>Inspection Evidence Pack</p>"
+            f"<p style='color:#475569;font-size:0.72rem;margin:0 0 6px;'>{_mod_icons}</p>",
+            unsafe_allow_html=True
+        )
+        if st.button(_pack_label, key="pack_btn", use_container_width=True,
+                     disabled=_pack_disabled, help=_pack_help):
+            st.info("Inspection Evidence Pack builder coming soon.")
 
         st.divider()
         st.markdown(f'<p class="sidebar-stats">Operator: {user} &nbsp;|&nbsp; Role: {role}</p>', unsafe_allow_html=True)
@@ -15332,14 +15356,16 @@ def show_app():
     # The back button only appears when inside a Periodic Review sub-module.
     # Both buttons sit in the same row so they align at the same visual level.
     _in_pr_submodule = (
-        st.session_state.get("app_mode") == "Assurance Intelligence"
+        st.session_state.get("app_mode") == "Review Intelligence"
         and st.session_state.get("pr_active_module") is not None
     )
     if _in_pr_submodule:
         _back_col, _spacer_col, _end_col = st.columns([5, 4, 3])
         with _back_col:
-            if st.button("← Back to Periodic Review", key="pr_back_btn",
+            if st.button("← Back to Review Intelligence", key="pr_back_btn",
                          use_container_width=True):
+                st.session_state["pr_active_module"] = None
+                st.rerun()
                 st.session_state["pr_active_module"] = None
                 st.rerun()
         with _end_col:
@@ -15419,15 +15445,30 @@ def show_app():
     # IP capture on every authenticated load
     _capture_client_ip()
 
-    # ── Mode routing ──────────────────────────────────────────────────────────
-    _mode = st.session_state.get("app_mode", "New Validation")
+    _mode = st.session_state.get("app_mode", "Review Intelligence")
+    # Use first model in cascade as nominal model_id for functions that still need a string
+    _model_id = _get_ai_cascade()[0]
 
-    if _mode == "Change Impact Analysis":
-        show_change_impact(user, role, MODELS[st.session_state.selected_model])
+    if _mode == "CSA Change Impact":
+        show_change_impact(user, role, _model_id)
         return
 
-    if _mode == "Assurance Intelligence":
-        show_periodic_review(user, role, MODELS[st.session_state.selected_model])
+    if _mode == "CSA Test Optimisation":
+        st.title("🧪 CSA Test Optimisation")
+        st.markdown(
+            "<p style='color:#94a3b8;margin-top:-10px;'>Risk-based test script optimisation "
+            "for computer system validation — coming soon.</p>",
+            unsafe_allow_html=True
+        )
+        st.info(
+            "**CSA Test Optimisation** will analyse your existing OQ/PQ test scripts against "
+            "your risk register and change history to identify redundant tests, coverage gaps, "
+            "and optimal test sequencing. This module is on the build roadmap."
+        )
+        return
+
+    if _mode == "Review Intelligence":
+        show_periodic_review(user, role, _model_id)
         return
 
     # ── Main area — New Validation ────────────────────────────────────────────
