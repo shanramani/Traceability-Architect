@@ -218,7 +218,7 @@ except ImportError:
 # =============================================================================
 # 1. CONFIG
 # =============================================================================
-VERSION        = "80.0"
+VERSION        = "82.0"
 
 # =============================================================================
 # REGULATORY REFERENCE CONSTANTS
@@ -4385,6 +4385,8 @@ _defaults = {
     "dim_system_name":      "",
     "dim_file_name":        "",
     "dim_key_n":            0,
+    "dim_accumulated_rows": [],
+    "dim_periods_banked":   0,
 }
 for _k, _v in _defaults.items():
     if _k not in st.session_state:
@@ -11639,26 +11641,35 @@ def dim_build_excel(result: dict, system_name: str, file_name: str,
     C_MID    = "94A3B8"
 
     _POSTURE_COLORS = {
-        "Critical":     (C_RED,   C_WHITE),
-        "Deteriorating":("E67E22", C_WHITE),
-        "Stable":       ("2E86AB", C_WHITE),
-        "Improving":    (C_GREEN,  C_WHITE),
-        "Baseline":     (C_MID,    C_WHITE),
+        "Critical":     ("C0392B", "FFFFFF"),
+        "Deteriorating":("EA580C", "FFFFFF"),
+        "Stable":       ("1D4ED8", "FFFFFF"),
+        "Improving":    ("16A34A", "FFFFFF"),
+        "Baseline":     ("64748B", "FFFFFF"),
     }
     _RISK_COLORS = {
-        "Critical": (C_RED,    C_WHITE),
-        "High":     ("E67E22", C_WHITE),
-        "Medium":   ("D4A017", "1A1A1A"),
-        "Low":      ("27AE60", C_WHITE),
+        "Critical": ("C0392B", "FFFFFF"),
+        "High":     ("EA580C", "FFFFFF"),
+        "Medium":   ("D97706", "FFFFFF"),
+        "Low":      ("16A34A", "FFFFFF"),
     }
     _TREND_COLORS = {
-        "Significant Increase": C_RED,
-        "Moderate Increase":    "E67E22",
-        "Slight Increase":      "D4A017",
-        "Stable":               C_GREEN,
-        "Slight Decrease":      "2E86AB",
-        "Moderate Decrease":    C_TEAL,
-        "Significant Decrease": C_TEAL,
+        "Significant Increase": "B91C1C",
+        "Moderate Increase":    "C2410C",
+        "Slight Increase":      "B45309",
+        "Stable":               "1D4ED8",
+        "Slight Decrease":      "15803D",
+        "Moderate Decrease":    "166534",
+        "Significant Decrease": "14532D",
+    }
+    _TREND_BG = {
+        "Significant Increase": "FEF2F2",
+        "Moderate Increase":    "FFF7ED",
+        "Slight Increase":      "FFFBEB",
+        "Stable":               "EFF6FF",
+        "Slight Decrease":      "F0FDF4",
+        "Moderate Decrease":    "DCFCE7",
+        "Significant Decrease": "BBF7D0",
     }
 
     bdr = Border(
@@ -11857,17 +11868,18 @@ def dim_build_excel(result: dict, system_name: str, file_name: str,
                 c.fill = _fill(p_bg)
             elif col_key.endswith("_trend"):
                 trend_color = _TREND_COLORS.get(str(val), "1A1A1A")
+                trend_bg    = _TREND_BG.get(str(val), C_GREY)
                 c.font = Font(name="Calibri", size=9, color=trend_color,
-                              bold=("Increase" in str(val)))
-                c.fill = _fill(C_GREY)
+                              bold=("Increase" in str(val) or "Decrease" in str(val)))
+                c.fill = _fill(trend_bg)
             elif col_key.endswith("_pct_chg") and val != "—":
                 raw_pct = row_data.get(col_key)
                 if pd.notna(raw_pct):
-                    fc = C_RED if float(raw_pct) > 15 else \
-                         C_AMBER if float(raw_pct) > 5 else \
-                         C_GREEN if float(raw_pct) < -5 else "1A1A1A"
+                    pf  = float(raw_pct)
+                    fc  = "B91C1C" if pf > 15 else                           "C2410C" if pf > 5  else                           "15803D" if pf < -5 else "1A1A1A"
+                    fbg = "FEF2F2" if pf > 15 else                           "FFF7ED" if pf > 5  else                           "F0FDF4" if pf < -5 else C_GREY
                     c.font = Font(name="Calibri", size=9, bold=True, color=fc)
-                    c.fill = _fill(C_GREY)
+                    c.fill = _fill(fbg)
                 else:
                     c.font = Font(name="Calibri", size=9)
             else:
@@ -12145,271 +12157,226 @@ Write the executive summary now. Start with "## Review Scope" heading."""
 
 
 def show_dim(user: str, role: str, model_id: str):
-    """
-    Render Data Integrity Monitor — multi-period AT trend analysis.
-    """
-    st.title("📊 Data Integrity Monitor")
+    """Render Data Integrity Monitor — multi-period AT trend analysis."""
+    _CSS = """<style>
+.dim-section-hdr{color:#7dd3fc;font-size:0.75rem;font-weight:700;
+ text-transform:uppercase;letter-spacing:2px;margin:20px 0 8px;}
+</style>"""
+    st.markdown(_CSS, unsafe_allow_html=True)
     st.markdown(
-        "<p style='color:#94a3b8;margin-top:-12px;'>"
-        "Upload a consolidated audit trail findings file covering multiple review "
-        "periods to identify DI trends, repeat high-risk users, and recurring rule "
-        "patterns. Produces a GxP evidence package per ALCOA+ and FDA CSA Final "
-        "Guidance (Sep 2021).</p>",
-        unsafe_allow_html=True,
-    )
+        "<h1 style='color:#e2e8f0;margin-bottom:4px;'>📊 Data Integrity Monitor</h1>"
+        "<p style='color:#94a3b8;margin-top:0;font-size:0.9rem;'>"
+        "Multi-period DI trend analysis · ALCOA+ · 21 CFR Part 11 · FDA CSA (Sep 2021)"
+        "</p>", unsafe_allow_html=True)
     st.markdown("---")
 
-    # ── System metadata ───────────────────────────────────────────────────────
-    mc1, mc2 = st.columns([2, 1])
-    with mc1:
-        st.session_state["dim_system_name"] = st.text_input(
-            "System Name",
-            value=st.session_state.get("dim_system_name", ""),
-            placeholder="e.g. LabVantage LIMS",
-            key="dim_sysname",
-        )
-    with mc2:
-        st.info(f"Version: {VERSION}", icon="ℹ️")
+    _acc_rows = st.session_state.get("dim_accumulated_rows", [])
+    _banked   = st.session_state.get("dim_periods_banked", 0)
+    _sys_name = (st.session_state.get("dim_system_name") or
+                 st.session_state.get("at_system_name", ""))
+    _done     = st.session_state.get("dim_analysis_done", False)
 
-    st.markdown("---")
+    if _banked < 2 and not _done:
+        _needed = 2 - _banked
+        st.markdown(
+            f"<div style='background:#0c1a2e;border:1px solid #334155;"
+            f"border-radius:10px;padding:24px 28px;text-align:center;'>"
+            f"<div style='font-size:2.5rem;margin-bottom:12px;'>📊</div>"
+            f"<div style='color:#7dd3fc;font-size:1.1rem;font-weight:700;"
+            f"margin-bottom:8px;'>DI Monitor — {_banked}/2 periods banked</div>"
+            f"<div style='color:#94a3b8;font-size:0.9rem;'>"
+            f"Run the <b style='color:#e2e8f0;'>Audit Trail Review</b> for "
+            f"{_needed} more period{'s' if _needed > 1 else ''} to unlock "
+            f"trend analysis. Each AT run automatically banks its findings here."
+            f"</div></div>",
+            unsafe_allow_html=True)
+        return
 
-    # ── Column spec expander ──────────────────────────────────────────────────
-    with st.expander("📋 What columns should my file have?", expanded=False):
-        st.markdown("**Required (4):**")
-        st.dataframe(pd.DataFrame({
-            "Column":        ["Review_Period", "Username", "Risk_Level", "Rule_Triggered"],
-            "Example":       ["Q1-2026", "analyst_x", "High", "Rule 5 — Failed Login"],
-            "Notes":         ["e.g. Q1-2026, Jan-2026, 2026-Q1 — consistent format",
-                              "Exact username from source system",
-                              "Critical / High / Medium / Low",
-                              "Rule label from AT evidence package"],
-        }), use_container_width=True, hide_index=True)
-        st.markdown("**Optional (adds depth):**")
-        st.dataframe(pd.DataFrame({
-            "Column":  ["System_Name", "Event_Type", "Event_Timestamp"],
-            "Example": ["LabVantage v8", "DELETE", "2026-03-15 14:23:00"],
-        }), use_container_width=True, hide_index=True)
-        st.info(
-            "**How to build this file:** Run your AT review for each period. "
-            "Copy the 'Events for Review' sheet from each evidence package into one "
-            "consolidated file. Add a 'Review_Period' column to identify each period. "
-            "Column names are flexible — common aliases are auto-mapped.",
-            icon="💡"
-        )
+    # ── Ready to run or already done ──────────────────────────────────────────
+    if not _done:
+        st.markdown(
+            f"<div style='background:#0c2d1e;border:1px solid #22c55e;"
+            f"border-radius:10px;padding:16px 22px;margin-bottom:16px;'>"
+            f"<b style='color:#4ade80;font-size:1rem;'>✅ {_banked} periods "
+            f"ready — {_sys_name or 'AT findings'}</b><br>"
+            f"<span style='color:#86efac;font-size:0.85rem;'>"
+            f"Click Run to generate trend analysis.</span></div>",
+            unsafe_allow_html=True)
 
-    st.markdown("---")
-
-    # ── File upload ───────────────────────────────────────────────────────────
-    st.markdown("### Step 1 — Upload Consolidated Findings File")
-    uploaded = st.file_uploader(
-        "Consolidated AT findings (CSV or XLSX) — minimum 2 review periods",
-        type=["csv", "xlsx", "xls"],
-        key=f"dim_upload_{st.session_state.get('dim_key_n', 0)}",
-    )
-
-    if uploaded:
-        try:
-            if uploaded.name.endswith(".csv"):
-                raw_df = pd.read_csv(uploaded, dtype=str)
-            else:
-                raw_df = pd.read_excel(uploaded, dtype=str)
-            raw_df = _dim_normalise_columns(raw_df)
-            st.session_state["dim_raw_df"]   = raw_df
-            st.session_state["dim_file_name"] = uploaded.name
-            st.session_state["dim_analysis_done"] = False
-            st.success(
-                f"✅ {len(raw_df):,} rows loaded from {uploaded.name}. "
-                f"Columns mapped: {list(raw_df.columns)}",
-                icon="✅"
-            )
-        except Exception as e:
-            st.error(f"File read error: {e}")
-
-    raw_df = st.session_state.get("dim_raw_df")
-
-    if raw_df is not None:
-        missing = _DIM_REQUIRED - set(raw_df.columns)
-        if missing:
-            st.error(
-                f"❌ Missing required columns: {', '.join(sorted(missing))}. "
-                f"Check column names or aliases in the guide above."
-            )
-            return
-
-        periods_found = sorted(raw_df["Review_Period"].dropna().unique().tolist())
-        st.caption(
-            f"Periods detected: **{len(periods_found)}** — "
-            f"{', '.join(str(p) for p in periods_found)}"
-        )
-        if len(periods_found) < 2:
-            st.warning("⚠️ Minimum 2 review periods required. "
-                       "Check the Review_Period column contains distinct values.")
-            return
-
-    st.markdown("---")
-
-    # ── Run button ────────────────────────────────────────────────────────────
-    st.markdown("### Step 2 — Run Analysis")
-    _already_done = st.session_state.get("dim_analysis_done", False)
     rb_col, rs_col, _ = st.columns([3, 2, 3])
     with rb_col:
         run_btn = st.button(
-            "✅ Analysis Complete" if _already_done else "▶ Run DI Monitor",
-            type="primary",
-            use_container_width=True,
-            key="dim_run_btn",
-            disabled=(_already_done or raw_df is None),
-        )
+            "✅ Analysis Complete" if _done else "▶ Run DI Monitor",
+            type="primary", use_container_width=True,
+            key="dim_run_btn", disabled=_done)
     with rs_col:
-        if _already_done:
-            if st.button("🔄 New Analysis", use_container_width=True,
-                         key="dim_reset_btn"):
-                for k in ["dim_raw_df", "dim_result", "dim_analysis_done",
-                          "dim_file_name"]:
-                    st.session_state[k] = None if k != "dim_analysis_done" else False
-                st.session_state["dim_key_n"] = (
-                    st.session_state.get("dim_key_n", 0) + 1)
-                st.rerun()
+        if _done and st.button("🔄 New Analysis", use_container_width=True, key="dim_reset_btn"):
+            st.session_state.update({"dim_result": None, "dim_analysis_done": False})
+            st.rerun()
 
-    if run_btn and raw_df is not None:
+    if run_btn:
+        input_df = _dim_normalise_columns(pd.DataFrame(_acc_rows))
         with st.status("Running Data Integrity Monitor…", expanded=True) as status:
-            st.write("Normalising columns and classifying events…")
-            result = dim_score_periods(raw_df)
+            st.write("Classifying events and calculating trends…")
+            result = dim_score_periods(input_df)
             if "error" in result:
                 status.update(label="Error", state="error")
-                st.error(result["error"])
-                return
-            st.write("Calculating period trends…")
-            st.write("Identifying repeat high-risk users…")
-            st.write("Running rule recurrence analysis…")
-            st.write("Generating AI narrative summary…")
-            st.session_state["dim_result"]       = result
-            st.session_state["dim_analysis_done"] = True
-            status.update(label="Analysis complete", state="complete")
+                st.error(result["error"]); return
+            st.write("Identifying repeat users and rule recurrence…")
+            st.write("Generating narrative…")
+            st.session_state.update({"dim_result": result,
+                                     "dim_analysis_done": True,
+                                     "dim_system_name": _sys_name})
+            status.update(label="✅ Complete", state="complete")
 
-    # ── Results ───────────────────────────────────────────────────────────────
-    if not st.session_state.get("dim_analysis_done"):
+    if not _done:
         return
 
-    result = st.session_state["dim_result"]
-    smry   = result["summary"]
-    st.markdown("---")
-    st.markdown("### Step 3 — Review Results")
+    result   = st.session_state["dim_result"]
+    smry     = result["summary"]
+    pdf      = result["period_df"]
+    last_row = pdf.iloc[-1]
+    posture  = smry["posture_last"]
 
-    # Posture banner
-    posture = smry["posture_last"]
-    _POS_CSS = {
-        "Critical":     "#C0392B", "Deteriorating": "#E67E22",
-        "Stable":       "#2E86AB", "Improving":      "#27AE60",
-        "Baseline":     "#94A3B8",
+    # ── Posture banner ─────────────────────────────────────────────────────────
+    _POS = {
+        "Critical":     ("#7f1d1d","#fca5a5","#f87171","⬇️"),
+        "Deteriorating":("#7c2d12","#fdba74","#fb923c","↘️"),
+        "Stable":       ("#0f2942","#93c5fd","#60a5fa","→"),
+        "Improving":    ("#052e16","#86efac","#4ade80","↗️"),
+        "Baseline":     ("#1e293b","#cbd5e1","#94a3b8","◎"),
     }
+    _bg,_fg_l,_fg_m,_arrow = _POS.get(posture,("#1e293b","#cbd5e1","#94a3b8","◎"))
     st.markdown(
-        f"<div style='background:{_POS_CSS.get(posture,'#94A3B8')};color:white;"
-        f"padding:16px 20px;border-radius:8px;margin-bottom:16px;'>"
-        f"<b style='font-size:1.1rem;'>DI Posture — {smry['last_period']}: "
-        f"{posture.upper()}</b>"
-        f"<span style='margin-left:24px;font-size:0.88rem;opacity:0.9;'>"
-        f"Overall change: {smry['overall_pct_chg']:+.1f}% "
-        f"({smry['first_period']} → {smry['last_period']})</span></div>",
-        unsafe_allow_html=True,
-    )
+        f"<div style='background:{_bg};border:2px solid {_fg_m};"
+        f"border-radius:12px;padding:18px 26px;margin:16px 0;'>"
+        f"<div style='display:flex;align-items:baseline;gap:16px;'>"
+        f"<span style='font-size:2rem;'>{_arrow}</span><div>"
+        f"<div style='color:{_fg_m};font-size:1.3rem;font-weight:800;'>"
+        f"DI Posture: {posture.upper()}</div>"
+        f"<div style='color:{_fg_l};font-size:0.85rem;margin-top:4px;'>"
+        f"Overall {smry['first_period']} → {smry['last_period']}: "
+        f"<b>{smry['overall_pct_chg']:+.1f}%</b> · "
+        f"{smry['n_periods']} periods · {smry['repeat_users']} repeat user(s)"
+        f"</div></div></div></div>", unsafe_allow_html=True)
 
-    # KPI tiles
-    last_row = result["period_df"].iloc[-1]
-    k1, k2, k3, k4 = st.columns(4)
-    for col, label, metric in [
-        (k1, "Total Findings",  "Total_Findings"),
-        (k2, "High/Critical",   "High_Critical"),
-        (k3, "Deletion Events", "Deletion_Findings"),
-        (k4, "Failed Logins",   "Failed_Login"),
-    ]:
+    # ── KPI Tiles ──────────────────────────────────────────────────────────────
+    _TILES = [
+        ("Total Findings","Total_Findings","#0f172a","#60a5fa"),
+        ("High/Critical", "High_Critical", "#1a0505","#f87171"),
+        ("Deletion Events","Deletion_Findings","#1a0a05","#fb923c"),
+        ("Failed Logins",  "Failed_Login",     "#140f24","#c084fc"),
+    ]
+    for col,(lbl,metric,bg,acc) in zip(st.columns(4), _TILES):
         with col:
             val = int(last_row[metric])
             pct = last_row.get(f"{metric}_pct_chg")
-            delta = f"{pct:+.1f}%" if pd.notna(pct) else None
-            st.metric(label=label, value=val, delta=delta,
-                      delta_color="inverse" if pct and float(pct) > 0 else "normal")
-
-    st.markdown("<br>", unsafe_allow_html=True)
-
-    # Top 3
-    top3 = smry.get("top3", [])
-    if top3:
-        st.markdown("**⚠️ Top 3 to Review:**")
-        for i, item in enumerate(top3, 1):
+            if pd.notna(pct) and pct is not None:
+                pf = float(pct)
+                _a = "▲" if pf>5 else "▼" if pf<-5 else "→"
+                _dc= "#f87171" if pf>5 else "#4ade80" if pf<-5 else "#94a3b8"
+                _dh= f"<div style='color:{_dc};font-size:0.8rem;font-weight:700;margin-top:4px;'>{_a} {pf:+.1f}%</div>"
+            else:
+                _dh = "<div style='color:#475569;font-size:0.8rem;'>Baseline</div>"
             st.markdown(
-                f"**{i}. {item['Metric']}** — {item['Current']} findings "
-                f"({item['Pct_Change']:+.1f}% vs prior — {item['Trend']})"
-            )
+                f"<div style='background:{bg};border:1px solid {acc}33;"
+                f"border-radius:10px;padding:16px;text-align:center;'>"
+                f"<div style='color:{acc};font-size:2rem;font-weight:800;line-height:1;'>{val}</div>"
+                f"<div style='color:#94a3b8;font-size:0.72rem;margin-top:6px;"
+                f"text-transform:uppercase;letter-spacing:1px;'>{lbl}</div>"
+                f"{_dh}</div>", unsafe_allow_html=True)
+
+    # ── Top 3 ──────────────────────────────────────────────────────────────────
+    top3 = smry.get("top3",[])
+    st.markdown("<div class='dim-section-hdr'>⚠️ Top 3 to Review</div>", unsafe_allow_html=True)
+    if top3:
+        for i,item in enumerate(top3,1):
+            pct = item["Pct_Change"]
+            _pc = f"{'▲' if pct>0 else '▼'} {abs(pct):.1f}%"
+            _c  = "#f87171" if pct>15 else "#fb923c" if pct>5 else "#4ade80"
+            st.markdown(
+                f"<div style='background:#1e293b;border-left:3px solid {_c};"
+                f"border-radius:0 8px 8px 0;padding:10px 16px;margin-bottom:8px;"
+                f"display:flex;justify-content:space-between;align-items:center;'>"
+                f"<span style='color:#e2e8f0;font-weight:600;'>{i}. {item['Metric']}</span>"
+                f"<span style='display:flex;gap:16px;'>"
+                f"<span style='color:#94a3b8;font-size:0.85rem;'>{item['Current']} findings</span>"
+                f"<span style='color:{_c};font-weight:700;'>{_pc}</span>"
+                f"<span style='color:{_c};font-size:0.8rem;'>{item['Trend']}</span>"
+                f"</span></div>", unsafe_allow_html=True)
     else:
-        st.success("✓ No significant worsening metrics in the latest period.")
+        st.markdown("<div style='color:#4ade80;background:#052e16;border-radius:8px;padding:10px 16px;'>✓ No significant worsening metrics.</div>", unsafe_allow_html=True)
 
-    st.markdown("---")
+    # ── Period Trend Table ──────────────────────────────────────────────────────
+    st.markdown("<div class='dim-section-hdr'>📈 Period Trend Analysis</div>", unsafe_allow_html=True)
+    with st.expander("Period-by-period breakdown", expanded=True):
+        _sc = ["Review_Period","Total_Findings","High_Critical","Deletion_Findings",
+               "Failed_Login","Dormant_Findings","Total_Findings_trend","DI_Posture"]
+        _d  = pdf[[c for c in _sc if c in pdf.columns]].copy()
+        _d.columns = [c.replace("_"," ") for c in _d.columns]
+        st.dataframe(_d, use_container_width=True, hide_index=True)
 
-    # Period trends table
-    with st.expander("📈 Period Trend Analysis", expanded=True):
-        display_cols = ["Review_Period", "Total_Findings", "High_Critical",
-                        "Deletion_Findings", "Failed_Login",
-                        "Total_Findings_trend", "High_Critical_trend",
-                        "DI_Posture"]
-        disp_df = result["period_df"][[
-            c for c in display_cols if c in result["period_df"].columns
-        ]].copy()
-        disp_df.columns = [c.replace("_", " ") for c in disp_df.columns]
-        st.dataframe(disp_df, use_container_width=True, hide_index=True)
-
-    # Repeat users
-    with st.expander(f"🔁 Repeat High-Risk Users ({smry['repeat_users']})",
-                     expanded=smry["repeat_users"] > 0):
-        if result["repeat_df"].empty:
-            st.success("No users flagged High/Critical in multiple periods.")
+    # ── Repeat Users ────────────────────────────────────────────────────────────
+    rdf = result["repeat_df"]
+    st.markdown(f"<div class='dim-section-hdr'>🔁 Repeat High-Risk Users ({smry['repeat_users']})</div>", unsafe_allow_html=True)
+    with st.expander("Repeat user details", expanded=smry["repeat_users"]>0):
+        if rdf.empty:
+            st.markdown("<span style='color:#4ade80;'>✓ No repeat high-risk users.</span>", unsafe_allow_html=True)
         else:
-            show_rdf = result["repeat_df"][
-                ["Username", "Periods_Flagged", "Period_List",
-                 "Last_Seen", "Total_Findings", "Most_Common_Rule"]
-            ].copy()
-            show_rdf.columns = ["Username", "Periods Flagged", "Period List",
-                                 "Last Seen", "Total Findings", "Most Common Rule"]
-            st.dataframe(show_rdf, use_container_width=True, hide_index=True)
+            for _,row in rdf.iterrows():
+                _np = int(row["Periods_Flagged"])
+                _bc = "#f87171" if _np>=3 else "#fb923c"
+                st.markdown(
+                    f"<div style='background:#1e293b;border-radius:8px;padding:10px 16px;"
+                    f"margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;'>"
+                    f"<div><span style='color:#e2e8f0;font-weight:700;'>{row['Username']}</span>"
+                    f"<span style='color:#64748b;font-size:0.82rem;margin-left:10px;'>{row['Period_List']}</span></div>"
+                    f"<div style='display:flex;gap:12px;align-items:center;'>"
+                    f"<span style='color:#94a3b8;font-size:0.82rem;'>Last: {row['Last_Seen']}</span>"
+                    f"<span style='background:{_bc}22;color:{_bc};border:1px solid {_bc}44;"
+                    f"border-radius:6px;padding:2px 10px;font-size:0.78rem;font-weight:700;'>"
+                    f"{_np} periods</span></div></div>", unsafe_allow_html=True)
 
-    # Rule recurrence
-    with st.expander("🔄 Rule Recurrence Analysis", expanded=False):
-        if result["rule_df"].empty:
+    # ── Rule Recurrence ──────────────────────────────────────────────────────────
+    ruledf = result["rule_df"]
+    st.markdown("<div class='dim-section-hdr'>🔄 Rule Recurrence</div>", unsafe_allow_html=True)
+    with st.expander("Rules firing across multiple periods", expanded=False):
+        if ruledf.empty:
             st.info("No rule recurrence data available.")
         else:
-            show_ruledf = result["rule_df"][
-                ["Rule", "Periods_Seen", "Total_Occurrences",
-                 "Trend_Label", "High_Crit_Count"]
-            ].copy()
-            show_ruledf.columns = ["Rule", "Periods Seen", "Total Occurrences",
-                                    "Trend", "High/Critical Count"]
-            st.dataframe(show_ruledf, use_container_width=True, hide_index=True)
+            _TC = {"Significant Increase":"#f87171","Moderate Increase":"#fb923c",
+                   "Slight Increase":"#fbbf24","Stable":"#60a5fa",
+                   "Slight Decrease":"#4ade80","Moderate Decrease":"#4ade80",
+                   "Significant Decrease":"#4ade80"}
+            for _,row in ruledf.iterrows():
+                _ac = _TC.get(str(row["Trend_Label"]),"#94a3b8")
+                st.markdown(
+                    f"<div style='background:#1e293b;border-left:3px solid {_ac};"
+                    f"border-radius:0 8px 8px 0;padding:8px 14px;margin-bottom:6px;"
+                    f"display:flex;justify-content:space-between;align-items:center;'>"
+                    f"<span style='color:#e2e8f0;font-size:0.88rem;font-weight:600;'>{row['Rule']}</span>"
+                    f"<span style='display:flex;gap:16px;'>"
+                    f"<span style='color:#64748b;font-size:0.8rem;'>{row['Periods_Seen']} periods · {row['Total_Occurrences']} events</span>"
+                    f"<span style='color:{_ac};font-size:0.8rem;font-weight:700;'>{row['Trend_Label']}</span>"
+                    f"</span></div>", unsafe_allow_html=True)
 
     st.markdown("---")
-
-    # Download
-    st.markdown("### Step 4 — Download Evidence Package")
-    fname    = st.session_state.get("dim_file_name", "dim_input")
-    sysname  = st.session_state.get("dim_system_name", "System")
-    out_name = (f"DIM_{sysname.replace(' ','_')}_"
-                f"{datetime.datetime.utcnow().strftime('%Y-%m-%d')}.xlsx")
-
-    if _trial_gate("dim_download"):
-        with st.spinner("Building evidence package…"):
-            xlsx_bytes = dim_build_excel(
-                result, sysname, fname, model_id
-            )
-        st.download_button(
-            label="⬇️ Download DIM Evidence Package (Excel)",
-            data=xlsx_bytes,
-            file_name=out_name,
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True,
-        )
-        st.caption(
-            "5-sheet workbook: Dashboard · Period Trends · Repeat Users · "
-            "Rule Recurrence · Narrative Summary"
-        )
+    st.markdown("<div class='dim-section-hdr'>📥 Download Evidence Package</div>", unsafe_allow_html=True)
+    sysname  = st.session_state.get("dim_system_name","System")
+    fname_in = f"AT auto-feed ({_banked} periods)"
+    out_name = f"DIM_{sysname.replace(' ','_')}_{datetime.datetime.utcnow().strftime('%Y-%m-%d')}.xlsx"
+    dl_col, info_col = st.columns([3,5])
+    with dl_col:
+        if _trial_gate("dim_download"):
+            with st.spinner("Building evidence package…"):
+                xlsx_bytes = dim_build_excel(result, sysname, fname_in, model_id)
+            st.download_button(
+                label="⬇️ Download DIM Evidence Package",
+                data=xlsx_bytes, file_name=out_name,
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True, key="dim_dl_btn")
+    with info_col:
+        st.caption("5 sheets: **Dashboard** · **Period Trends** · **Repeat Users** · **Rule Recurrence** · **Narrative Summary**")
 
 
 def show_signalintel(user: str, role: str, model_id: str):
@@ -14638,6 +14605,30 @@ match your system's export column names to the fields above — rename nothing i
                 st.session_state["at_total_events"]  = len(scored)
                 st.session_state["at_analysis_done"] = True
 
+                # ── Auto-feed DIM ──────────────────────────────────────────────
+                _at_period_label = (
+                    f"{st.session_state.get('at_review_start','')} → "
+                    f"{st.session_state.get('at_review_end','')}"
+                ).strip(" →") or f"Period {st.session_state.get('dim_periods_banked',0)+1}"
+                _at_sys = st.session_state.get("at_system_name", "System")
+                _dim_rows = []
+                for _, _ev in top20.iterrows():
+                    _dim_rows.append({
+                        "Review_Period":  _at_period_label,
+                        "Username":       str(_ev.get("User", "unknown")),
+                        "Risk_Level":     str(_ev.get("Risk_Tier", "Medium")),
+                        "Rule_Triggered": str(_ev.get("Primary_Rule", "")),
+                        "System_Name":    _at_sys,
+                        "Event_Type":     str(_ev.get("Action", "")),
+                        "Event_Timestamp":str(_ev.get("Timestamp", "")),
+                    })
+                _existing = [r for r in st.session_state.get("dim_accumulated_rows", [])
+                             if r["Review_Period"] != _at_period_label]
+                _existing.extend(_dim_rows)
+                st.session_state["dim_accumulated_rows"] = _existing
+                st.session_state["dim_periods_banked"]   = len(
+                    set(r["Review_Period"] for r in _existing))
+
                 n_crit = int((scored["Risk_Tier"]=="Critical").sum())
                 _ = prog.progress(1.0)
                 log_audit(user,"AT_ANALYSIS_COMPLETE","AUDIT_TRAIL",
@@ -14809,6 +14800,42 @@ match your system's export column names to the fields above — rename nothing i
   the attached Appendix. Complies with 21 CFR Part 11 §11.10(e) and EU Annex 11 Clause 9."
   </i>
 </div>""", unsafe_allow_html=True)
+
+        # ── DIM Call-to-Action ────────────────────────────────────────────────
+        _banked = st.session_state.get("dim_periods_banked", 0)
+        st.markdown("<br>", unsafe_allow_html=True)
+        if _banked >= 2:
+            st.markdown(
+                f"<div style='background:#0c2d1e;border:1px solid #22c55e;"
+                f"border-radius:8px;padding:14px 20px;'>"
+                f"<b style='color:#4ade80;font-size:1rem;'>📊 {_banked} periods "
+                f"banked — Data Integrity Monitor ready</b><br>"
+                f"<span style='color:#86efac;font-size:0.85rem;'>"
+                f"Open the DI Monitor to view trend analysis across all "
+                f"{_banked} periods.</span></div>",
+                unsafe_allow_html=True,
+            )
+            st.markdown("<br>", unsafe_allow_html=True)
+            _dim_cta_col, _ = st.columns([3, 5])
+            with _dim_cta_col:
+                if st.button("📊 Open Data Integrity Monitor →",
+                             key="at_open_dim_btn",
+                             use_container_width=True, type="primary"):
+                    st.session_state["pr_active_module"] = "di_dashboard"
+                    st.session_state["dim_analysis_done"] = False
+                    st.rerun()
+        else:
+            _needed = max(0, 2 - _banked)
+            st.markdown(
+                f"<div style='background:#0c1a2e;border:1px solid #334155;"
+                f"border-radius:8px;padding:12px 18px;'>"
+                f"<b style='color:#7dd3fc;font-size:0.9rem;'>📊 DI Monitor — "
+                f"{_banked}/2 periods banked</b><br>"
+                f"<span style='color:#94a3b8;font-size:0.82rem;'>"
+                f"Run {_needed} more AT period{'s' if _needed > 1 else ''} to "
+                f"unlock trend analysis.</span></div>",
+                unsafe_allow_html=True,
+            )
 
         # ── New Analysis button ───────────────────────────────────────────────
         st.markdown("<br>", unsafe_allow_html=True)
