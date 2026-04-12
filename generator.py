@@ -12632,88 +12632,13 @@ def show_audit_trail(user: str, role: str, model_id: str):
         unsafe_allow_html=True
     )
 
-    # ── System metadata (always shown) ───────────────────────────────────────
-    mc1, mc2, mc3 = st.columns(3)
-    with mc1:
-        st.session_state["at_system_name"] = st.text_input(
-            "System Name", value=st.session_state.get("at_system_name",""),
-            placeholder="e.g. DocuSign Part 11", key="at_sysname")
-
-    # ── Previous quarter defaults for date pickers ───────────────────────────
-    import datetime as _dt_q
-    def _prev_quarter_dates():
-        today = _dt_q.date.today()
-        q = (today.month - 1) // 3 + 1
-        if q == 1:
-            return (_dt_q.date(today.year - 1, 10, 1),
-                    _dt_q.date(today.year - 1, 12, 31))
-        elif q == 2:
-            return (_dt_q.date(today.year, 1, 1),
-                    _dt_q.date(today.year, 3, 31))
-        elif q == 3:
-            return (_dt_q.date(today.year, 4, 1),
-                    _dt_q.date(today.year, 6, 30))
-        else:
-            return (_dt_q.date(today.year, 7, 1),
-                    _dt_q.date(today.year, 9, 30))
-
-    _pq_start, _pq_end = _prev_quarter_dates()
-
-    def _parse_date_input(key_date, key_str, label, fallback):
-        """
-        Render a date_input calendar picker. Defaults to `fallback` (previous
-        quarter start or end) when no value has been stored yet.
-        Parses any pre-stored string back to a date object on rerender.
-        """
-        import datetime as _dt
-        stored = st.session_state.get(key_str, "")
-        default_val = fallback
-        if stored:
-            for fmt in ("%d-%b-%Y", "%d/%m/%Y", "%Y-%m-%d", "%d%m%Y", "%Y%m%d"):
-                try:
-                    default_val = _dt.datetime.strptime(stored.strip(), fmt).date()
-                    break
-                except ValueError:
-                    continue
-        picked = st.date_input(
-            label,
-            value=default_val,
-            format="DD/MM/YYYY",
-            key=key_date,
-        )
-        if picked:
-            formatted = picked.strftime("%d-%b-%Y")
-            st.session_state[key_str] = formatted
-            return formatted
-        return stored
-
-    with mc2:
-        _parse_date_input("at_rstart_picker", "at_review_start",
-                          "Review Period Start", _pq_start)
-    with mc3:
-        _parse_date_input("at_rend_picker",   "at_review_end",
-                          "Review Period End",   _pq_end)
-
-    # FIX 4: Warn if review period end date is more than 30 days in the future.
-    # A review period ending in 2027 or 2028 makes the report look wrong —
-    # "reviewed from 2020 to 2028" covers dates that haven't happened yet.
-    # Default date picker behaviour lets users set any future date unchecked.
-    _rend_str = st.session_state.get("at_review_end", "").strip()
-    if _rend_str and _rend_str != "(review period dates not specified)":
-        try:
-            _rend_dt = pd.to_datetime(_rend_str, dayfirst=True, errors="coerce")
-            _today   = pd.Timestamp.utcnow().normalize()
-            if pd.notna(_rend_dt) and (_rend_dt - _today).days > 30:
-                st.warning(
-                    f"⚠️ **Review Period End is {(_rend_dt - _today).days} days in the future "
-                    f"({_rend_dt.strftime('%d-%b-%Y')}).** "
-                    f"A periodic review report should cover a completed period. "
-                    f"For a current review, set the end date to today or the last completed quarter-end. "
-                    f"An auditor reading 'reviewed to {_rend_dt.strftime('%d-%b-%Y')}' "
-                    f"will question the scope."
-                )
-        except Exception:
-            pass
+    # ── System metadata ───────────────────────────────────────────────────────
+    st.session_state["at_system_name"] = st.text_input(
+        "System Name", value=st.session_state.get("at_system_name",""),
+        placeholder="e.g. StarLIMS, Veeva Vault, MasterControl",
+        key="at_sysname")
+    # Review period is auto-detected from the uploaded file's timestamp range —
+    # shown as a read-only detected period once mapping is confirmed.
 
     st.markdown("---")
 
@@ -14407,6 +14332,18 @@ match your system's export column names to the fields above — rename nothing i
                         st.session_state["at_mapped_df"]   = mdf
                         st.session_state["at_column_map"]  = mapping
                         st.session_state["at_mapping_done"] = True
+                        # ── Auto-detect review period from timestamp column ────
+                        try:
+                            _ts_raw = pd.to_datetime(mdf["timestamp"], errors="coerce").dropna()
+                            if not _ts_raw.empty:
+                                st.session_state["at_review_start"] = _ts_raw.min().strftime("%d-%b-%Y")
+                                st.session_state["at_review_end"]   = _ts_raw.max().strftime("%d-%b-%Y")
+                            else:
+                                st.session_state["at_review_start"] = ""
+                                st.session_state["at_review_end"]   = ""
+                        except Exception:
+                            st.session_state["at_review_start"] = ""
+                            st.session_state["at_review_end"]   = ""
                         st.rerun()
 
     # ── STEP 2: Run analysis ──────────────────────────────────────────────────
@@ -14416,10 +14353,19 @@ match your system's export column names to the fields above — rename nothing i
 
         st.markdown("### Step 3 — Run Analysis")
         _at_fname_step3 = st.session_state.get("at_file_name", "")
+        _at_det_start   = st.session_state.get("at_review_start", "")
+        _at_det_end     = st.session_state.get("at_review_end", "")
         if _at_fname_step3:
             st.markdown(
-                f"<p style='color:#64748b;font-size:0.76rem;margin:-4px 0 8px;'>"
+                f"<p style='color:#64748b;font-size:0.76rem;margin:-4px 0 2px;'>"
                 f"📄 {_at_fname_step3}</p>",
+                unsafe_allow_html=True
+            )
+        if _at_det_start and _at_det_end:
+            st.markdown(
+                f"<p style='color:#64748b;font-size:0.76rem;margin:0 0 10px;'>"
+                f"📅 Detected period: <b style='color:#94a3b8;'>"
+                f"{_at_det_start} → {_at_det_end}</b></p>",
                 unsafe_allow_html=True
             )
         st.markdown("""
@@ -14448,7 +14394,6 @@ match your system's export column names to the fields above — rename nothing i
                           "at_file_name","at_mapping_done","at_analysis_done","at_total_events",
                           "at_review_start","at_review_end"]:
                     st.session_state[k] = _defaults.get(k)
-                for _wk in ("at_rstart_picker", "at_rend_picker"):
                     st.session_state.pop(_wk, None)
                 st.session_state["at_key_n"] = st.session_state.get("at_key_n",0) + 1
                 st.rerun()
@@ -14748,12 +14693,12 @@ match your system's export column names to the fields above — rename nothing i
             _at_fname = st.session_state.get("at_file_name", "")
             dl_col, na_col = st.columns(2)
             with dl_col:
-                if _at_fname:
-                    st.markdown(
-                        f"<p style='color:#64748b;font-size:0.76rem;margin:0 0 4px;'>"
-                        f"📄 {_at_fname}</p>",
-                        unsafe_allow_html=True
-                    )
+                st.markdown(
+                    f"<p style='color:#64748b;font-size:0.76rem;margin:0 0 4px;'>"
+                    f"Input file: {_at_fname}</p>" if _at_fname else
+                    "<p style='font-size:0.76rem;margin:0 0 4px;visibility:hidden;'>_</p>",
+                    unsafe_allow_html=True
+                )
                 _trial_gate(
                     label="📥 Download Evidence Package (.xlsx)",
                     data=xlsx,
@@ -14772,11 +14717,11 @@ match your system's export column names to the fields above — rename nothing i
                     unsafe_allow_html=True
                 )
             with na_col:
-                # Push button down to align with download button
-                # (accounts for filename line above download if present)
-                _spacer_px = 26 if _at_fname else 4
-                st.markdown(f"<div style='margin-top:{_spacer_px}px;'></div>",
-                            unsafe_allow_html=True)
+                # Ghost line — same height as "Input file:" in left col, keeps buttons aligned
+                st.markdown(
+                    "<p style='font-size:0.76rem;margin:0 0 4px;visibility:hidden;'>_</p>",
+                    unsafe_allow_html=True
+                )
                 _reset_clicked = st.button("🔄 Start New Analysis", key="at_reset_btn",
                                            use_container_width=True)
                 if _reset_clicked:
@@ -14784,9 +14729,7 @@ match your system's export column names to the fields above — rename nothing i
                               "at_file_name","at_mapping_done","at_analysis_done","at_total_events",
                               "at_review_start","at_review_end"]:
                         st.session_state[k] = _defaults.get(k)
-                    # Also delete the date picker widget state so Streamlit
                     # doesn't re-write the old dates back on next render
-                    for _wk in ("at_rstart_picker", "at_rend_picker"):
                         st.session_state.pop(_wk, None)
                     st.session_state["at_key_n"] = st.session_state.get("at_key_n",0) + 1
                     st.rerun()
