@@ -7733,7 +7733,32 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
 
     def _primary_rule(row):
         m = _master_lookup(row)
-        return m[2] if m else "Composite risk score — no single rule dominant"
+        if m:
+            return m[2]
+        # No single named rule met its threshold — find the two highest-scoring
+        # dimensions and name them so a reviewer can see exactly what triggered.
+        _DIM_NAMES = {
+            "score_rule1_vague_rationale":      "Vague/missing rationale",
+            "score_rule2_burst":                "High-volume burst activity",
+            "score_rule3_admin_conflict":       "Admin/GxP role conflict",
+            "score_rule4_drift":                "Change-control drift",
+            "score_rule5_failed_login":         "Failed login preceding action",
+            "score_del_recreate":               "Delete-recreate sequence",
+            "score_record":                     "Sensitive record deletion",
+            "score_privilege":                  "Privileged-user action on GxP data",
+            "score_gap":                        "Audit trail timestamp gap",
+            "score_temporal":                   "Off-hours/holiday activity",
+            "score_rule12_timestamp_reversal":  "Timestamp reversal",
+            "score_rule13_service_account":     "Service/shared account action",
+            "score_rule14_dormant_account":     "Dormant account activity",
+            "score_rule16_first_time_behavior": "First-time action type for user",
+        }
+        _scored = [(float(row.get(c, 0)), name) for c, name in _DIM_NAMES.items() if float(row.get(c, 0)) > 0]
+        _scored.sort(reverse=True)
+        if _scored:
+            top = [n for _, n in _scored[:2]]
+            return "Multiple signals — " + " + ".join(top)
+        return "No named rule threshold met"
 
     def _evidence_strength(row):
         m = _master_lookup(row)
@@ -7798,7 +7823,29 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
             if float(row.get(score_col, 0)) >= threshold:
                 return label
         # Fallback: highest scoring dimension
-        return "Composite risk score — no single rule dominant"
+        # No single named rule met its threshold — surface the top contributing signals
+        _DIM_NAMES2 = {
+            "score_rule1_vague_rationale":      "Vague/missing rationale",
+            "score_rule2_burst":                "High-volume burst activity",
+            "score_rule3_admin_conflict":       "Admin/GxP role conflict",
+            "score_rule4_drift":                "Change-control drift",
+            "score_rule5_failed_login":         "Failed login preceding action",
+            "score_del_recreate":               "Delete-recreate sequence",
+            "score_record":                     "Sensitive record deletion",
+            "score_privilege":                  "Privileged-user action on GxP data",
+            "score_gap":                        "Audit trail timestamp gap",
+            "score_temporal":                   "Off-hours/holiday activity",
+            "score_rule12_timestamp_reversal":  "Timestamp reversal",
+            "score_rule13_service_account":     "Service/shared account action",
+            "score_rule14_dormant_account":     "Dormant account activity",
+            "score_rule16_first_time_behavior": "First-time action type for user",
+        }
+        _sc2 = [(float(row.get(c, 0)), name) for c, name in _DIM_NAMES2.items() if float(row.get(c, 0)) > 0]
+        _sc2.sort(reverse=True)
+        if _sc2:
+            top2 = [n for _, n in _sc2[:2]]
+            return "Multiple signals — " + " + ".join(top2)
+        return "No named rule threshold met"
 
     def _supporting_signals(row):
         primary = _primary_rule(row)
@@ -8930,10 +8977,12 @@ def at_build_excel(top_df, scored_df, system_name, r_start, r_end, fname) -> byt
     if n_full_high_crit > n_shown:
         note_text = (
             f"ℹ️  Showing {n_shown} of {n_full_high_crit} High/Critical events from the Full Audit Log. "
-            f"The remaining {n_full_high_crit - n_shown} events were excluded by: "
-            f"(a) burst deduplication — only the highest-scoring event from each burst group is shown, "
-            f"or (b) named-rule gate — events scoring High on composite score alone without a specific "
-            f"named rule (Rules 1–14) above 7.0 are excluded to prevent noise. "
+            f"The remaining {n_full_high_crit - n_shown} events were excluded by one of two rules: "
+            f"(a) Burst deduplication — when the same user repeats the same action many times, only the "
+            f"single highest-risk instance is shown here (all copies remain in the Full Audit Log). "
+            f"(b) Named-rule gate — events are only escalated for human review when at least one specific "
+            f"named rule (Rules 1–14) fired clearly above its threshold; events with only weak signals "
+            f"across multiple dimensions are logged but not escalated. "
             f"All events remain visible in the Full Audit Log sheet."
         )
         ws2.merge_cells(f"A1:{get_column_letter(len(reviewer_cols))}1")
@@ -12465,29 +12514,30 @@ def show_dim(user: str, role: str, model_id: str):
                 "Repeat flagging indicates a persistent pattern requiring targeted review or access remediation."
             )
             for _,row in rdf.iterrows():
-                _np  = int(row["Periods_Flagged"])
-                _bc  = "#f87171" if _np>=3 else "#fb923c"
-                _rule = str(row.get("Most_Common_Rule","—"))[:70]
-                _rlvl = str(row.get("Risk_Levels","—"))
+                _np   = int(row["Periods_Flagged"])
+                _bc   = "#f87171" if _np >= 3 else "#fb923c"
+                _rule = str(row.get("Most_Common_Rule","—"))
+                # Strip severity bracket from rule label for cleaner display
+                _rule = re.sub(r'\s*\[(CRITICAL|HIGH|MEDIUM|LOW)\]', '', _rule).strip()
+                if len(_rule) > 60:
+                    _rule = _rule[:57] + "…"
                 _tot  = int(row.get("Total_Findings", 0))
-                _narrative = (
-                    f"Flagged in <b>{_np} period(s)</b> ({row['Period_List']}). "
-                    f"Most frequent rule: <b style='color:#fbbf24;'>{_rule}</b>. "
-                    f"Risk levels observed: {_rlvl}. "
-                    f"Total <b>{_tot} finding(s)</b> across all periods. "
-                    + ("Persistent pattern — recommend access review or targeted audit."
-                       if _np >= 2 else "Monitor in next period before escalating.")
-                )
                 st.markdown(
                     f"<div style='background:#1e293b;border-radius:8px;padding:12px 16px;"
-                    f"margin-bottom:10px;border-left:3px solid {_bc};'>"
-                    f"<div style='display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;'>"
-                    f"<div><span style='color:#e2e8f0;font-weight:700;font-size:0.95rem;'>{row['Username']}</span>"
-                    f"<span style='color:#64748b;font-size:0.8rem;margin-left:10px;'>{row['Period_List']}</span></div>"
+                    f"margin-bottom:10px;border-left:3px solid {_bc};display:flex;"
+                    f"justify-content:space-between;align-items:center;'>"
+                    f"<div>"
+                    f"<span style='color:#e2e8f0;font-weight:700;font-size:0.95rem;'>"
+                    f"{row['Username']}</span>"
+                    f"<div style='color:#94a3b8;font-size:0.8rem;margin-top:4px;'>"
+                    f"{_rule}</div>"
+                    f"</div>"
+                    f"<div style='text-align:right;flex-shrink:0;margin-left:16px;'>"
                     f"<span style='background:{_bc}22;color:{_bc};border:1px solid {_bc}44;"
-                    f"border-radius:6px;padding:2px 10px;font-size:0.78rem;font-weight:700;'>"
-                    f"{_np} periods</span></div>"
-                    f"<div style='color:#94a3b8;font-size:0.8rem;line-height:1.5;'>{_narrative}</div>"
+                    f"border-radius:6px;padding:2px 10px;font-size:0.78rem;font-weight:700;"
+                    f"display:block;margin-bottom:4px;'>{_np} period{'s' if _np!=1 else ''}</span>"
+                    f"<span style='color:#64748b;font-size:0.75rem;'>{_tot} finding{'s' if _tot!=1 else ''}</span>"
+                    f"</div>"
                     f"</div>", unsafe_allow_html=True)
 
     # ── Rule Recurrence ──────────────────────────────────────────────────────────
@@ -14700,9 +14750,33 @@ match your system's export column names to the fields above — rename nothing i
                 # Filter 3: Named rule gate
                 has_rule  = non_dup.apply(_has_named_rule, axis=1)
                 qualified = non_dup[has_rule].head(_AT_TOP_N)
+
+                # ── Force Rule 6 Critical events into top-N ───────────────────
+                # Rule 6 (delete-recreate) is the highest-severity data integrity
+                # pattern. If any Rule 6 Critical events were cut by the head()
+                # cap (because Rule 3 events scored higher on composite), we
+                # force them in by displacing the lowest-risk events in the pool.
+                _r6_critical = non_dup[
+                    has_rule &
+                    (non_dup["Risk_Tier"] == "Critical") &
+                    (non_dup["score_del_recreate"] >= 9)
+                ]
+                _r6_missing = _r6_critical[~_r6_critical.index.isin(qualified.index)]
+                if not _r6_missing.empty and len(qualified) >= _AT_TOP_N:
+                    # Sort qualified so we displace the lowest-risk rows first
+                    _q_sorted = qualified.sort_values(
+                        ["Risk_Score"], ascending=[True])
+                    _slots_needed = len(_r6_missing)
+                    _keep = _q_sorted.iloc[_slots_needed:]  # drop lowest N
+                    qualified = pd.concat([_keep, _r6_missing]).sort_values(
+                        ["Risk_Score"], ascending=[False]).head(_AT_TOP_N)
+                elif not _r6_missing.empty:
+                    qualified = pd.concat([qualified, _r6_missing]).sort_values(
+                        ["Risk_Score"], ascending=[False]).head(_AT_TOP_N)
+
                 # No fill padding — if fewer than TOP_N genuine findings exist,
                 # show only genuine findings. A shorter honest report is better
-                # than a padded one with composite-score filler.
+                # than a padded one with low-signal filler.
                 top20 = qualified.copy()
 
                 st.write(f"✍️ Step 3: Generating system narratives for top {_AT_TOP_N} events...")
@@ -14725,7 +14799,19 @@ match your system's export column names to the fields above — rename nothing i
                 ).strip(" →") or f"Period {st.session_state.get('dim_periods_banked',0)+1}"
                 _at_sys  = st.session_state.get("at_system_name", "System")
                 _at_file = st.session_state.get("at_file_name", "")
-                _hc_scored = scored[scored["Risk_Tier"].isin(["High", "Critical"])]
+                # Bank H/C events PLUS Medium Rule 11 (Off-Hours) events.
+                # Rule 11 fires at MEDIUM by design so it never reaches H/C banking
+                # on its own — but it is a genuine DI signal and Off_Hours in DIM
+                # was always 0 without this. Include them explicitly.
+                _r11_medium = scored[
+                    (scored["Risk_Tier"] == "Medium") &
+                    (scored["Primary_Rule"].str.contains(
+                        "Rule 11|Off-Hours|off.hours", case=False, na=False))
+                ]
+                _hc_scored = pd.concat([
+                    scored[scored["Risk_Tier"].isin(["High", "Critical"])],
+                    _r11_medium
+                ]).drop_duplicates()
                 _dim_rows = []
                 for _, _ev in _hc_scored.iterrows():
                     _dim_rows.append({
