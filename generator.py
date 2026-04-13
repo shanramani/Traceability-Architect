@@ -8266,6 +8266,7 @@ def at_generate_justifications(top_df: pd.DataFrame, model_id: str) -> pd.DataFr
     # ── Build batch prompt ────────────────────────────────────────────────────
     events_payload = []
     for rank, (_, row) in enumerate(top_df.iterrows(), 1):
+        _primary = str(row.get("Primary_Rule","")).replace(" [CRITICAL]","").replace(" [HIGH]","").replace(" [MEDIUM]","")
         events_payload.append({
             "id":          rank,
             "user":        str(row.get("user_id",     "unknown")),
@@ -8275,20 +8276,30 @@ def at_generate_justifications(top_df: pd.DataFrame, model_id: str) -> pd.DataFr
             "timestamp":   str(row.get("timestamp",   "")),
             "comment":     str(row.get("comments",    ""))[:80],
             "sequence":    str(row.get("Sequence_Context", "")).strip(),
+            "rule":        _primary[:80],
+            "tier":        str(row.get("Risk_Tier",   "")),
         })
 
     import json as _json
-    batch_prompt = f"""You are writing the "What Happened" column in a GxP audit trail review table.
+    batch_prompt = f"""You are a GxP compliance analyst writing the "What Happened" column for a pharmaceutical audit trail review.
 
-For each of the {total} events below, write exactly ONE sentence stating observable log facts only.
+For each event below, write ONE sentence (max 45 words) that a QA Director can read and immediately understand WHY this event was flagged as high risk.
 
-HARD RULES:
-1. State ONLY: who, what action, which record, when, what comment was recorded.
-2. If "sequence" is provided, include it in your sentence.
-3. Do NOT use regulatory language, risk language, or action instructions.
-4. ONE sentence per event. Max 40 words each.
-5. Respond ONLY with a valid JSON array of objects: [{{"id": 1, "narrative": "..."}}, ...]
-6. No preamble, no explanation, no markdown. Raw JSON only.
+RULES:
+1. Start with the user and action: who did what, to which record, when.
+2. Then add the risk context from the "rule" field in plain English — explain what makes this suspicious.
+3. If "sequence" is provided, include it — it shows how this event connects to others.
+4. Do NOT use regulatory citations (no "21 CFR", "ALCOA+", "GxP").
+5. Do NOT say "escalated", "flagged", "risk", "concern", "violation" — describe the observable facts that imply the risk.
+6. Vary your sentence structure — do not start every sentence with the username.
+7. Respond ONLY with a valid JSON array: [{{"id": 1, "narrative": "..."}}, ...]
+8. Raw JSON only. No preamble, no markdown, no explanation.
+
+GOOD example (Rule 6 — delete/recreate): "At 02:14, analyst_x deleted RESULTS/RES-042 with no change reason, then recreated the same record 90 seconds later with a different value — the original entry no longer exists in the audit trail."
+GOOD example (Rule 3 — admin on GxP): "Using an administrator account, admin_sys modified a result record at 00:27 with comment 'Administrative override' — production GxP data was changed outside a standard analyst role."
+GOOD example (Rule 1 — vague rationale): "jsmith updated RESULTS/RES-7201 at 09:15 with only 'ok' as the change reason, providing no traceable justification for why the result value was modified."
+
+BAD example: "analyst_x performed DELETE on RESULTS/RES-042 at 02:14; comment on file reads 'none'." [too bare — no risk context]
 
 EVENTS:
 {_json.dumps(events_payload, indent=2)}
@@ -8297,32 +8308,104 @@ Respond with JSON array only."""
 
     justifications = [""] * total
 
-    # ── Primary: batch LLM call ───────────────────────────────────────────────
+    # ── Primary: batch LLM call — bypass _call_ai_with_fallback ──────────────
+    # _call_ai_with_fallback has timeout=20s which kills a 2400-token batch.
+    # Call litellm directly with timeout=90 so the batch can complete.
+    import re as _re
+    def _extract_json_array(text: str):
+        """Robust extraction: handles fences, leading text, trailing text."""
+        text = text.strip()
+        text = _re.sub(r'^```[a-z]*\n?', '', text, flags=_re.MULTILINE)
+        text = _re.sub(r'\n?```$', '', text, flags=_re.MULTILINE)
+        text = text.strip()
+        try:
+            return _json.loads(text)
+        except Exception:
+            pass
+        m = _re.search(r'\[.*?\]', text, _re.DOTALL)
+        if m:
+            try:
+                return _json.loads(m.group(0))
+            except Exception:
+                pass
+        return None
+
+    _batch_success = False
     try:
-        candidate = _call_ai_with_fallback(
-            user_prompt=batch_prompt,
-            system_prompt=(
-                "You write one-sentence factual log summaries for pharmaceutical QA tables. "
-                "Respond only with a JSON array. No preamble. No markdown."),
-            max_tokens=min(80 * total, 2000),
-            temperature=0.05,
-        )
-        if candidate:
-            _clean = candidate.strip()
-            if _clean.startswith("```"):
-                _clean = "\n".join(_clean.split("\n")[1:])
-            if _clean.endswith("```"):
-                _clean = _clean[:_clean.rfind("```")]
-            parsed = _json.loads(_clean.strip())
-            if isinstance(parsed, list):
-                _by_id = {item["id"]: item["narrative"]
-                          for item in parsed
-                          if isinstance(item, dict) and "id" in item and "narrative" in item}
-                for rank in range(1, total + 1):
-                    if rank in _by_id and len(_by_id[rank]) > 20:
-                        justifications[rank - 1] = _by_id[rank]
+        from litellm import completion as _comp
+        for _model in _get_ai_cascade():
+            try:
+                resp = _comp(
+                    model=_model, stream=False,
+                    temperature=0.2,
+                    max_tokens=min(120 * total, 3000),
+                    timeout=90,    # batch needs time — 20s timeout was killing it
+                    messages=[
+                        {"role": "system", "content":
+                         "You are a GxP compliance analyst. Write contextually rich "
+                         "one-sentence summaries. Respond only with a JSON array. "
+                         "No preamble. No markdown."},
+                        {"role": "user", "content": batch_prompt},
+                    ]
+                )
+                raw = (resp.choices[0].message.content or "").strip()
+                parsed = _extract_json_array(raw)
+                if isinstance(parsed, list) and len(parsed) > 0:
+                    _by_id = {
+                        item["id"]: item["narrative"]
+                        for item in parsed
+                        if isinstance(item, dict)
+                        and "id" in item and "narrative" in item
+                        and len(str(item.get("narrative",""))) > 20
+                    }
+                    filled = sum(1 for rank in range(1, total+1) if rank in _by_id)
+                    if filled >= max(1, total // 2):
+                        for rank in range(1, total + 1):
+                            if rank in _by_id:
+                                justifications[rank - 1] = str(_by_id[rank])
+                        _batch_success = True
+                        break
+            except Exception:
+                continue
     except Exception:
-        pass   # fall through to deterministic for any that are still empty
+        pass
+
+    # ── Fallback A: individual calls for any still-empty (batch partial/failed) ─
+    if not _batch_success:
+        try:
+            from litellm import completion as _comp
+            for rank, (_, row) in enumerate(top_df.iterrows(), 1):
+                if justifications[rank - 1]:
+                    continue
+                _rule = str(row.get("Primary_Rule","")).replace("[CRITICAL]","").replace("[HIGH]","").replace("[MEDIUM]","").strip()
+                _single = (
+                    f"Write ONE sentence (max 35 words) for a QA Director:\n"
+                    f"User: {row.get('user_id','?')} | Action: {row.get('action_type','?')} | "
+                    f"Record: {row.get('record_type','')}/{row.get('record_id','')} | "
+                    f"Time: {row.get('timestamp','?')} | "
+                    f"Comment: \"{str(row.get('comments',''))[:60]}\" | "
+                    f"Rule: {_rule[:60]}\n"
+                    f"Explain what happened and what makes it suspicious. "
+                    f"No regulatory citations. No action instructions."
+                )
+                for _model in _get_ai_cascade():
+                    try:
+                        resp = _comp(
+                            model=_model, stream=False,
+                            temperature=0.2, max_tokens=100, timeout=25,
+                            messages=[
+                                {"role": "system", "content": "One-sentence GxP log summary."},
+                                {"role": "user",   "content": _single},
+                            ]
+                        )
+                        candidate = (resp.choices[0].message.content or "").strip()
+                        if candidate and len(candidate) > 20:
+                            justifications[rank - 1] = candidate
+                            break
+                    except Exception:
+                        continue
+        except Exception:
+            pass
 
     # ── Fallback: deterministic for any event that didn't get an AI narrative ──
     for rank, (_, row) in enumerate(top_df.iterrows(), 1):
