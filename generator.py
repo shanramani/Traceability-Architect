@@ -8541,6 +8541,8 @@ def at_build_excel(top_df, scored_df, system_name, r_start, r_end, fname) -> byt
     try:
         _r_s = pd.to_datetime(r_start, dayfirst=True, errors="coerce")
         _r_e = pd.to_datetime(r_end,   dayfirst=True, errors="coerce")
+        if not pd.isnull(_r_e):
+            _r_e = _r_e + pd.Timedelta(days=1) - pd.Timedelta(seconds=1)
         if not pd.isnull(_r_s) and not pd.isnull(_r_e) and "timestamp_parsed" in scored_df.columns:
             _ts      = scored_df["timestamp_parsed"].dropna()
             _before  = int((_ts < _r_s).sum())
@@ -11503,8 +11505,25 @@ def dim_score_periods(df: pd.DataFrame) -> dict:
     if not has_timestamp:
         rules_skipped.append("Timestamp-based off-hours trend — Event_Timestamp column not provided")
 
-    # ── Sort periods ──────────────────────────────────────────────────────────
-    periods = sorted(df["Review_Period"].dropna().unique().tolist())
+    # ── Sort periods chronologically by earliest event timestamp ─────────────
+    # Alphabetic sort breaks when users run periods out of order (e.g. Q2 before Q1).
+    # Parse the minimum Event_Timestamp per period to derive true chronological order.
+    _all_periods = df["Review_Period"].dropna().unique().tolist()
+    def _period_start(p):
+        _rows = df[df["Review_Period"] == p]
+        if "Event_Timestamp" in _rows.columns:
+            _ts = pd.to_datetime(_rows["Event_Timestamp"], errors="coerce").dropna()
+            if not _ts.empty:
+                return _ts.min()
+        import re as _re
+        _m = _re.search(r'\d{2}-[A-Za-z]{3}-\d{4}', str(p))
+        if _m:
+            try:
+                return pd.to_datetime(_m.group(0), dayfirst=True, errors="coerce")
+            except Exception:
+                pass
+        return pd.Timestamp.max
+    periods = sorted(_all_periods, key=_period_start)
     if len(periods) < 2:
         return {"error": "Minimum 2 review periods required. "
                          "Check the Review_Period column contains distinct period values."}
@@ -11794,8 +11813,11 @@ def dim_build_excel(result: dict, system_name: str, file_name: str,
     ws1.cell(row=2, column=1,
              value=f"System: {system_name or '(not entered)'}   |   "
                    f"Source: {file_name}   |   "
-                   f"Periods reviewed: {smry['first_period']} → {smry['last_period']}   |   "
-                   f"Generated: {datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}"
+                   + "   |   ".join(
+                       f"Period {i+1}: {p}"
+                       for i, p in enumerate(smry["periods"])
+                   )
+                   + f"   |   Generated: {datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}"
     ).font = Font(name="Calibri", size=9, color="5A6A7A")
     ws1.row_dimensions[2].height = 14
 
@@ -12317,6 +12339,15 @@ def show_dim(user: str, role: str, model_id: str):
     last_row = pdf.iloc[-1]
     posture  = smry["posture_last"]
 
+    # ── Build per-period filename lookup from banked rows ─────────────────────
+    _acc_rows_all = st.session_state.get("dim_accumulated_rows", [])
+    _period_files = {}
+    for _r in _acc_rows_all:
+        _p = _r.get("Review_Period", "")
+        _f = _r.get("Source_File", "")
+        if _p and _f and _p not in _period_files:
+            _period_files[_p] = _f
+
     # ── Posture banner ─────────────────────────────────────────────────────────
     _POS = {
         "Critical":     ("#7f1d1d","#fca5a5","#f87171","⬇️"),
@@ -12334,7 +12365,10 @@ def show_dim(user: str, role: str, model_id: str):
     _dir_color   = "#f87171" if _total_last > _total_first else "#4ade80" if _total_last < _total_first else "#94a3b8"
     _period_lines = "".join(
         f"<div style='color:{_fg_l};font-size:0.82rem;margin-top:3px;'>"
-        f"<b style='color:{_fg_m};'>Period {i+1}:</b> {p}</div>"
+        f"<b style='color:{_fg_m};'>Period {i+1}:</b> {p}"
+        + (f"<span style='color:{_fg_l};opacity:0.7;font-size:0.76rem;margin-left:8px;'>"
+           f"📄 {_period_files[p]}</span>" if p in _period_files and _period_files[p] else "")
+        + "</div>"
         for i, p in enumerate(smry["periods"])
     )
     st.markdown(
@@ -12351,7 +12385,7 @@ def show_dim(user: str, role: str, model_id: str):
         f"{_period_lines}"
         f"</div></div></div>", unsafe_allow_html=True)
 
-    # ── Period Comparison Table — the core output ──────────────────────────────
+    # ── Period Comparison Table — with source file column ─────────────────────
     st.markdown("<div class='dim-section-hdr'>📊 Period Comparison</div>", unsafe_allow_html=True)
     st.caption(
         "Each row is one review period. Subcategory counts overlap — "
@@ -12362,6 +12396,9 @@ def show_dim(user: str, role: str, model_id: str):
            "Failed_Login","Dormant_Findings","DI_Posture"]
     _cmp = pdf[[c for c in _sc if c in pdf.columns]].copy()
     _cmp = _cmp.iloc[::-1].reset_index(drop=True)
+    # Add source file column
+    _cmp.insert(1, "Source File", _cmp["Review_Period"].map(
+        lambda p: _period_files.get(p, "—")))
     _cmp.columns = [c.replace("_"," ") for c in _cmp.columns]
     st.dataframe(_cmp, use_container_width=True, hide_index=True)
     st.caption(
@@ -14530,6 +14567,12 @@ match your system's export column names to the fields above — rename nothing i
                     try:
                         _r_s = pd.to_datetime(_r_start_str, dayfirst=True, errors="coerce")
                         _r_e = pd.to_datetime(_r_end_str,   dayfirst=True, errors="coerce")
+                        # Extend _r_e to 23:59:59 so events on the final day are not
+                        # falsely flagged — "30-Mar-2025" parses to midnight 00:00:00
+                        # without this, any event timestamped after midnight on that
+                        # day (e.g. 22:25:59) is incorrectly treated as out-of-period.
+                        if pd.notna(_r_e):
+                            _r_e = _r_e + pd.Timedelta(days=1) - pd.Timedelta(seconds=1)
                         if pd.notna(_r_s) and pd.notna(_r_e):
                             _ts  = pd.to_datetime(scored["timestamp_parsed"], errors="coerce")
                             _oop_mask = _ts.notna() & ((_ts < _r_s) | (_ts > _r_e))
@@ -14626,13 +14669,17 @@ match your system's export column names to the fields above — rename nothing i
                 st.session_state["at_analysis_done"] = True
 
                 # ── Auto-feed DIM ──────────────────────────────────────────────
+                # Bank ALL High/Critical events — not just the top-20 UI cap.
+                # The top-20 cut is a display decision; DIM needs the full signal.
                 _at_period_label = (
                     f"{st.session_state.get('at_review_start','')} → "
                     f"{st.session_state.get('at_review_end','')}"
                 ).strip(" →") or f"Period {st.session_state.get('dim_periods_banked',0)+1}"
-                _at_sys = st.session_state.get("at_system_name", "System")
+                _at_sys  = st.session_state.get("at_system_name", "System")
+                _at_file = st.session_state.get("at_file_name", "")
+                _hc_scored = scored[scored["Risk_Tier"].isin(["High", "Critical"])]
                 _dim_rows = []
-                for _, _ev in top20.iterrows():
+                for _, _ev in _hc_scored.iterrows():
                     _dim_rows.append({
                         "Review_Period":  _at_period_label,
                         "Username":       str(_ev.get("user_id", _ev.get("User", "unknown"))),
@@ -14641,6 +14688,7 @@ match your system's export column names to the fields above — rename nothing i
                         "System_Name":    _at_sys,
                         "Event_Type":     str(_ev.get("action_type", _ev.get("Action", ""))),
                         "Event_Timestamp":str(_ev.get("timestamp",   _ev.get("Timestamp", ""))),
+                        "Source_File":    _at_file,
                     })
                 # Always bank the period even when 0 events are escalated
                 # (clean system is a valid DIM data point — no named rules fired)
@@ -14653,6 +14701,7 @@ match your system's export column names to the fields above — rename nothing i
                         "System_Name":    _at_sys,
                         "Event_Type":     "",
                         "Event_Timestamp":"",
+                        "Source_File":    _at_file,
                     })
                 _existing = [r for r in st.session_state.get("dim_accumulated_rows", [])
                              if r["Review_Period"] != _at_period_label]
@@ -14737,6 +14786,8 @@ match your system's export column names to the fields above — rename nothing i
                 import datetime as _dtp
                 _r_s = pd.to_datetime(_r_start_str, dayfirst=True, errors="coerce")
                 _r_e = pd.to_datetime(_r_end_str,   dayfirst=True, errors="coerce")
+                if not pd.isnull(_r_e):
+                    _r_e = _r_e + pd.Timedelta(days=1) - pd.Timedelta(seconds=1)
                 if not pd.isnull(_r_s) and not pd.isnull(_r_e):
                     _ts  = scored["timestamp_parsed"].dropna()
                     _before = int((_ts < _r_s).sum())
