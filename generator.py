@@ -11599,17 +11599,11 @@ def dim_score_periods(df: pd.DataFrame) -> dict:
     def _posture(row):
         if pd.isna(row.get("Total_Findings_pct_chg")):
             return "Baseline"
-        chg  = row["Total_Findings_pct_chg"]
-        hc   = row["High_Critical"]
-        # Primary posture from total findings change
-        if chg > 30 and hc > 0:  return "Critical"
-        if chg > 15:              return "Deteriorating"
-        if chg < -15:             return "Improving"
-        # Even if total is Stable, a severe sub-metric spike overrides
-        # (e.g. deletions +75% while total holds flat — still deteriorating pattern)
-        del_pct = row.get("Deletion_Findings_pct_chg", 0) or 0
-        if pd.notna(del_pct) and float(del_pct) > 50 and int(row.get("Deletion_Findings", 0)) > 0:
-            return "Deteriorating"
+        chg = row["Total_Findings_pct_chg"]
+        hc  = row["High_Critical"]
+        if chg > 30 and hc > 0: return "Critical"
+        if chg > 15:             return "Deteriorating"
+        if chg < -15:            return "Improving"
         return "Stable"
     period_df["DI_Posture"] = period_df.apply(_posture, axis=1)
 
@@ -11646,11 +11640,12 @@ def dim_score_periods(df: pd.DataFrame) -> dict:
     # ── Feature 3: Rule recurrence ───────────────────────────────────────────
     # Extract primary rule label (first token before " — " or full string)
     def _primary_rule(r: str) -> str:
+        # Keep full label e.g. "Rule 1 — Vague Rationale [HIGH]"
+        # Strip only the risk bracket at the end for cleaner display
         r = str(r).strip()
-        for sep in [" — ", " - ", ":"]:
-            if sep in r:
-                return r.split(sep)[0].strip()[:60]
-        return r[:60]
+        import re as _re2
+        r = _re2.sub(r'\s*\[(HIGH|MEDIUM|CRITICAL|LOW)\]\s*$', '', r, flags=_re2.IGNORECASE)
+        return r[:80]
 
     df["Primary_Rule"] = df["Rule_Triggered"].apply(_primary_rule)
     rule_grp = df[~df["_is_sentinel"]].groupby("Primary_Rule")   # exclude sentinels
@@ -12439,7 +12434,7 @@ def show_dim(user: str, role: str, model_id: str):
         "one event can be both High/Critical and a Deletion. "
         "Most recent period shown first."
     )
-    _sc = ["Review_Period","Total_Findings","High_Critical","Deletion_Findings",
+    _sc = ["Review_Period","Total_Findings","Deletion_Findings",
            "Failed_Login","Dormant_Findings","DI_Posture"]
     _cmp = pdf[[c for c in _sc if c in pdf.columns]].copy()
     _cmp = _cmp.iloc[::-1].reset_index(drop=True)
@@ -12449,10 +12444,13 @@ def show_dim(user: str, role: str, model_id: str):
     _cmp.columns = [c.replace("_"," ") for c in _cmp.columns]
     st.dataframe(_cmp, use_container_width=True, hide_index=True)
     st.caption(
+        "All findings shown are High or Critical tier — banked from AT analysis. "
+        "Subcategory counts (Deletions, Failed Logins) are subsets of Total Findings, not additions. "
+        "Most recent period shown first. "
         "DI Posture: **Improving** = total findings down >15% · "
         "**Stable** = within ±5% · "
         "**Deteriorating** = up >15% · "
-        "**Critical** = up >30% with High/Critical events present."
+        "**Critical** = up >30%."
     )
 
     # ── Repeat Users ────────────────────────────────────────────────────────────
@@ -12510,29 +12508,32 @@ def show_dim(user: str, role: str, model_id: str):
         else:
             st.caption(
                 "Rules that fired in more than one period, sorted by rule number. "
-                "'Stable' means the count changed ≤5% — the rule is consistently triggering but not worsening."
+                "Trend % compares latest period count vs first period. "
+                "'Stable' = ≤5% change — rule is consistently triggering but not worsening."
             )
             for _,row in ruledf.iterrows():
                 _tl  = str(row["Trend_Label"])
                 _def, _ac = _TREND_DEFS.get(_tl, ("No meaningful change.", "#94a3b8"))
-                _first = int(row.get("First_Period_Cnt", 0))
-                _last  = int(row.get("Last_Period_Cnt", 0))
-                _hc    = int(row.get("High_Crit_Count", 0))
-                _arrow_r = "▲" if _last > _first else "▼" if _last < _first else "→"
+                _last     = int(row.get("Last_Period_Cnt", 0))
+                _tpct     = row.get("Trend_pct", 0)
+                _pseen    = int(row.get("Periods_Seen", 1))
+                _arrow_r  = "▲" if _tpct > 0 else "▼" if _tpct < 0 else "→"
+                _pct_str  = f"{_arrow_r} {abs(_tpct):.1f}%" if _pseen > 1 else "Baseline"
+                # Concise one-line narrative: count in latest period + trend meaning
                 _rule_narrative = (
-                    f"Fired in <b>{row['Periods_Seen']} period(s)</b>: {row['Period_List']}. "
-                    f"Count: <b>{_first} {_arrow_r} {_last}</b> events. "
-                    + (f"High/Critical findings: <b style='color:#f87171;'>{_hc}</b>. " if _hc > 0 else "")
-                    + f"<span style='color:{_ac};'>{_def}</span>"
+                    f"<b>{_last}</b> event{'s' if _last != 1 else ''} in latest period"
+                    + (f" &nbsp;·&nbsp; <span style='color:{_ac};'>{_def}</span>" if _pseen > 1 else "")
                 )
                 st.markdown(
                     f"<div style='background:#1e293b;border-left:3px solid {_ac};"
                     f"border-radius:0 8px 8px 0;padding:10px 16px;margin-bottom:8px;'>"
                     f"<div style='display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;'>"
                     f"<span style='color:#e2e8f0;font-size:0.88rem;font-weight:600;'>{row['Rule']}</span>"
-                    f"<span style='color:{_ac};font-size:0.8rem;font-weight:700;border:1px solid {_ac}44;"
+                    f"<span style='display:flex;gap:10px;align-items:center;'>"
+                    f"<span style='color:{_ac};font-size:0.88rem;font-weight:700;'>{_pct_str}</span>"
+                    f"<span style='color:{_ac};font-size:0.78rem;font-weight:700;border:1px solid {_ac}44;"
                     f"border-radius:4px;padding:1px 8px;'>{_tl}</span>"
-                    f"</div>"
+                    f"</span></div>"
                     f"<div style='color:#94a3b8;font-size:0.79rem;line-height:1.5;'>{_rule_narrative}</div>"
                     f"</div>", unsafe_allow_html=True)
 
@@ -15007,12 +15008,20 @@ match your system's export column names to the fields above — rename nothing i
                 "This result has been auto-fed to the DI Monitor as a clean period."
             )
         else:
-            st.markdown(f"### {n_esc} Highest-Risk Event{'s' if n_esc != 1 else ''} "
-                        f"<span style='font-size:0.75rem;color:#64748b;font-weight:400;'>"
-                        f"(up to {_AT_TOP_N} displayed)</span>",
-                        unsafe_allow_html=True)
-            st.caption("Click any event to expand the full detail. "
-                       "All events are collapsed by default to keep the page clean.")
+            _n_crit_total = int((scored["Risk_Tier"] == "Critical").sum())
+            _n_high_total = int((scored["Risk_Tier"] == "High").sum())
+            _pool_desc = (
+                f"{_n_crit_total:,} Critical + {_n_high_total:,} High events in dataset"
+                if _n_high_total > 0 else f"{_n_crit_total:,} Critical events in dataset"
+            )
+            st.markdown(
+                f"### {n_esc} Escalated Event{'s' if n_esc != 1 else ''} "
+                f"<span style='font-size:0.75rem;color:#64748b;font-weight:400;'>"
+                f"(top {_AT_TOP_N} by risk score · {_pool_desc})</span>",
+                unsafe_allow_html=True)
+            st.caption("Sorted by risk score — highest first. "
+                       "Click any event to expand. "
+                       "Events not shown here are visible in the Full Audit Log sheet.")
 
         tier_colors = {
             "Critical":"#dc2626","High":"#ea580c",
