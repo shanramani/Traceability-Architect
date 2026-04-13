@@ -1,0 +1,1001 @@
+timestamp,user_id,action_type,record_type,role,record_id,comments,new_value
+2025-04-01 00:45:03,analyst_c,UPDATE,RESULTS,Analyst,RES-81151,Standard entry per SOP-01,6.78
+2025-04-01 03:45:09,analyst_a,UPDATE,RESULTS,Analyst,RES-D-3,Data update,500.0
+2025-04-01 06:26:18,analyst_a,UPDATE,RESULTS,Analyst,RES-71771,Standard entry per SOP-01,6.5
+2025-04-01 08:23:48,analyst_e,UPDATE,RESULTS,Analyst,RES-45728,Standard entry per SOP-01,6.92
+2025-04-01 08:44:24,analyst_c,UPDATE,RESULTS,Analyst,RES-85412,Standard entry per SOP-01,7.15
+2025-04-01 09:09:16,analyst_a,UPDATE,RESULTS,Analyst,RES-68263,Standard entry per SOP-01,6.99
+2025-04-01 14:54:56,analyst_d,UPDATE,RESULTS,Analyst,RES-21176,Standard entry per SOP-01,6.52
+2025-04-01 15:26:50,analyst_d,UPDATE,RESULTS,Analyst,RES-10588,Standard entry per SOP-01,6.52
+2025-04-01 18:14:13,analyst_new,UPDATE,RESULTS,Analyst,RES-5191,ok,7.0
+2025-04-01 22:05:55,analyst_e,UPDATE,RESULTS,Analyst,RES-18626,Standard entry per SOP-01,6.92
+2025-04-01 22:37:12,analyst_c,UPDATE,RESULTS,Analyst,RES-21262,Standard entry per SOP-01,7.2
+2025-04-02 02:36:20,analyst_b,UPDATE,RESULTS,Analyst,RES-10212,Standard entry per SOP-01,7.01
+2025-04-02 03:32:38,analyst_c,UPDATE,RESULTS,Analyst,RES-16300,Standard entry per SOP-01,6.65
+2025-04-02 03:53:51,analyst_c,UPDATE,RESULTS,Analyst,RES-19102,Standard entry per SOP-01,6.91
+2025-04-02 04:14:05,analyst_b,UPDATE,RESULTS,Analyst,RES-63121,Standard entry per SOP-01,7.31
+2025-04-02 05:23:44,analyst_a,UPDATE,RESULTS,Analyst,RES-28818,Standard entry per SOP-01,6.76
+2025-04-02 05:48:41,analyst_brown,UPDATE,RESULTS,Analyst,RES-6875,.,7.0
+2025-04-02 07:48:58,analyst_b,UPDATE,RESULTS,Analyst,RES-34784,Standard entry per SOP-01,6.91
+2025-04-02 10:31:01,analyst_b,UPDATE,RESULTS,Analyst,RES-30980,Standard entry per SOP-01,7.3
+2025-04-02 10:50:14,analyst_b,UPDATE,RESULTS,Analyst,RES-29312,Standard entry per SOP-01,6.73
+2025-04-02 12:45:09,analyst_c,UPDATE,RESULTS,Analyst,RES-42118,Standard entry per SOP-01,7.09
+2025-04-02 13:02:52,analyst_e,UPDATE,RESULTS,Analyst,RES-14972,Standard entry per SOP-01,7.2
+2025-04-02 17:23:02,analyst_d,UPDATE,RESULTS,Analyst,RES-46435,Standard entry per SOP-01,6.61
+2025-04-02 18:30:32,analyst_d,UPDATE,RESULTS,Analyst,RES-23338,Standard entry per SOP-01,6.75
+2025-04-02 18:37:10,analyst_c,UPDATE,RESULTS,Analyst,RES-28924,Standard entry per SOP-01,6.56
+2025-04-02 18:56:29,analyst_b,UPDATE,RESULTS,Analyst,RES-23031,Standard entry per SOP-01,6.88
+2025-04-02 22:19:17,analyst_b,UPDATE,RESULTS,Analyst,RES-31779,Standard entry per SOP-01,6.93
+2025-04-03 01:24:17,analyst_b,UPDATE,RESULTS,Analyst,RES-99273,Standard entry per SOP-01,6.66
+2025-04-03 04:04:17,analyst_b,UPDATE,RESULTS,Analyst,RES-97498,Standard entry per SOP-01,6.51
+2025-04-03 04:33:47,analyst_d,UPDATE,RESULTS,Analyst,RES-13608,Standard entry per SOP-01,7.33
+2025-04-03 05:39:50,analyst_b,UPDATE,RESULTS,Analyst,RES-2600,error,7.0
+2025-04-03 07:34:58,analyst_e,UPDATE,RESULTS,Analyst,RES-32758,Standard entry per SOP-01,6.89
+2025-04-03 08:38:31,analyst_e,UPDATE,RESULTS,Analyst,RES-78123,Standard entry per SOP-01,6.52
+2025-04-03 10:41:48,analyst_e,UPDATE,RESULTS,Analyst,RES-32820,Standard entry per SOP-01,7.47
+2025-04-03 11:04:37,analyst_a,UPDATE,RESULTS,Analyst,RES-69768,Standard entry per SOP-01,7.3
+2025-04-03 18:01:50,analyst_d,UPDATE,RESULTS,Analyst,RES-21766,Standard entry per SOP-01,6.87
+2025-04-04 01:03:08,analyst_e,UPDATE,RESULTS,Analyst,RES-14781,Standard entry per SOP-01,7.17
+2025-04-04 03:41:18,analyst_d,UPDATE,RESULTS,Analyst,RES-80731,Standard entry per SOP-01,7.47
+2025-04-04 04:21:52,analyst_a,UPDATE,RESULTS,Analyst,RES-11566,Standard entry,7.0
+2025-04-04 05:46:50,analyst_e,UPDATE,RESULTS,Analyst,RES-41853,Standard entry per SOP-01,7.21
+2025-04-04 07:51:58,analyst_a,UPDATE,RESULTS,Analyst,RES-72805,Standard entry per SOP-01,7.45
+2025-04-04 10:10:31,analyst_d,UPDATE,RESULTS,Analyst,RES-70294,Standard entry per SOP-01,7.07
+2025-04-04 18:06:51,analyst_a,UPDATE,RESULTS,Analyst,RES-37158,Standard entry per SOP-01,7.08
+2025-04-05 01:14:53,analyst_z,DELETE,RESULTS,Analyst,RES-DEL-56,Cleanup,
+2025-04-05 01:15:41,analyst_e,UPDATE,RESULTS,Analyst,RES-38410,Standard entry per SOP-01,7.0
+2025-04-05 01:38:16,analyst_b,UPDATE,RESULTS,Analyst,RES-14816,Standard entry per SOP-01,6.54
+2025-04-05 03:12:14,analyst_b,UPDATE,RESULTS,Analyst,RES-21205,Standard entry per SOP-01,7.38
+2025-04-05 03:30:44,analyst_b,UPDATE,RESULTS,Analyst,RES-28776,Standard entry per SOP-01,7.11
+2025-04-05 06:50:00,analyst_a,UPDATE,RESULTS,Analyst,RES-47293,Standard entry per SOP-01,7.27
+2025-04-05 07:11:27,analyst_a,UPDATE,RESULTS,Analyst,RES-84120,Standard entry per SOP-01,6.93
+2025-04-05 07:15:10,analyst_b,UPDATE,RESULTS,Analyst,RES-79586,Standard entry per SOP-01,7.27
+2025-04-05 09:28:42,analyst_b,UPDATE,RESULTS,Analyst,RES-44319,Standard entry per SOP-01,6.58
+2025-04-05 09:52:06,analyst_c,UPDATE,RESULTS,Analyst,RES-97665,Standard entry per SOP-01,7.11
+2025-04-05 09:57:55,analyst_d,UPDATE,RESULTS,Analyst,RES-17575,Standard entry per SOP-01,6.95
+2025-04-05 17:09:12,analyst_a,UPDATE,RESULTS,Analyst,RES-60140,Standard entry per SOP-01,7.36
+2025-04-05 21:49:27,analyst_a,UPDATE,RESULTS,Analyst,RES-16532,Standard entry per SOP-01,7.07
+2025-04-05 23:55:14,analyst_d,UPDATE,RESULTS,Analyst,RES-87902,Standard entry per SOP-01,7.28
+2025-04-06 00:07:09,analyst_d,UPDATE,RESULTS,Analyst,RES-98282,Standard entry per SOP-01,7.22
+2025-04-06 02:19:40,analyst_c,UPDATE,RESULTS,Analyst,RES-33073,Standard entry per SOP-01,7.14
+2025-04-06 03:10:02,analyst_d,UPDATE,RESULTS,Analyst,RES-21326,Standard entry per SOP-01,6.64
+2025-04-06 04:53:15,analyst_a,UPDATE,RESULTS,Analyst,RES-16279,Standard entry per SOP-01,7.17
+2025-04-06 04:58:01,analyst_b,UPDATE,RESULTS,Analyst,RES-28304,Standard entry per SOP-01,7.47
+2025-04-06 05:09:00,analyst_c,UPDATE,RESULTS,Analyst,RES-18830,Standard entry per SOP-01,6.59
+2025-04-06 06:09:10,analyst_e,UPDATE,RESULTS,Analyst,RES-44966,Standard entry per SOP-01,7.13
+2025-04-06 07:20:59,analyst_d,UPDATE,RESULTS,Analyst,RES-45091,Standard entry per SOP-01,6.53
+2025-04-06 07:32:30,analyst_c,UPDATE,RESULTS,Analyst,RES-89575,Standard entry per SOP-01,7.06
+2025-04-06 09:03:04,analyst_a,UPDATE,RESULTS,Analyst,RES-52821,Standard entry per SOP-01,6.92
+2025-04-06 14:09:51,analyst_b,UPDATE,RESULTS,Analyst,RES-59145,Standard entry per SOP-01,7.46
+2025-04-06 14:41:30,analyst_c,UPDATE,RESULTS,Analyst,RES-48769,Standard entry per SOP-01,7.09
+2025-04-06 19:01:46,analyst_a,UPDATE,RESULTS,Analyst,RES-24587,Standard entry per SOP-01,6.68
+2025-04-06 22:11:59,analyst_a,UPDATE,RESULTS,Analyst,RES-61904,Standard entry per SOP-01,7.28
+2025-04-07 05:15:18,analyst_e,UPDATE,RESULTS,Analyst,RES-68876,Standard entry per SOP-01,7.34
+2025-04-07 08:19:03,analyst_e,UPDATE,RESULTS,Analyst,RES-15960,Standard entry per SOP-01,6.85
+2025-04-07 10:03:54,analyst_d,UPDATE,RESULTS,Analyst,RES-70613,Standard entry per SOP-01,6.93
+2025-04-07 10:18:33,analyst_b,UPDATE,RESULTS,Analyst,RES-91881,Standard entry per SOP-01,7.23
+2025-04-07 12:26:09,analyst_c,UPDATE,RESULTS,Analyst,RES-98895,Standard entry per SOP-01,6.61
+2025-04-07 17:16:06,analyst_a,UPDATE,RESULTS,Analyst,RES-35943,Standard entry per SOP-01,6.6
+2025-04-07 19:35:41,analyst_e,UPDATE,RESULTS,Analyst,RES-28153,Standard entry per SOP-01,6.63
+2025-04-07 21:55:22,analyst_a,UPDATE,RESULTS,Analyst,RES-87821,Standard entry per SOP-01,7.12
+2025-04-07 23:21:24,analyst_e,UPDATE,RESULTS,Analyst,RES-81689,Standard entry per SOP-01,6.64
+2025-04-07 23:38:08,analyst_c,UPDATE,RESULTS,Analyst,RES-94059,Standard entry per SOP-01,6.94
+2025-04-08 02:28:10,analyst_c,UPDATE,RESULTS,Analyst,RES-15444,Standard entry per SOP-01,6.79
+2025-04-08 03:04:33,analyst_jones,UPDATE,RESULTS,Analyst,RES-2999,.,7.0
+2025-04-08 03:40:17,analyst_a,UPDATE,RESULTS,Analyst,RES-79863,Standard entry per SOP-01,6.53
+2025-04-08 04:09:58,analyst_e,UPDATE,RESULTS,Analyst,RES-95072,Standard entry per SOP-01,6.69
+2025-04-08 05:23:21,analyst_c,UPDATE,RESULTS,Analyst,RES-34846,Standard entry per SOP-01,6.55
+2025-04-08 05:35:58,analyst_c,UPDATE,RESULTS,Analyst,RES-96753,Standard entry per SOP-01,7.02
+2025-04-08 07:08:14,analyst_d,UPDATE,RESULTS,Analyst,RES-14480,Standard entry per SOP-01,7.4
+2025-04-08 10:03:01,analyst_a,UPDATE,RESULTS,Analyst,RES-78258,Standard entry per SOP-01,6.6
+2025-04-08 12:10:51,analyst_d,UPDATE,RESULTS,Analyst,RES-37657,Standard entry per SOP-01,7.3
+2025-04-08 12:13:49,analyst_c,UPDATE,RESULTS,Analyst,RES-34883,Standard entry per SOP-01,7.19
+2025-04-08 15:06:24,analyst_a,UPDATE,RESULTS,Analyst,RES-33435,Standard entry per SOP-01,7.03
+2025-04-08 16:53:51,old_timer,UPDATE,RESULTS,Analyst,RES-OLD-7,Back from leave,7.0
+2025-04-08 17:10:24,analyst_c,UPDATE,RESULTS,Analyst,RES-39281,Standard entry per SOP-01,6.81
+2025-04-08 21:07:07,old_timer,UPDATE,RESULTS,Analyst,RES-OLD-12,Back from leave,7.0
+2025-04-08 22:10:04,analyst_e,UPDATE,RESULTS,Analyst,RES-62118,Standard entry per SOP-01,7.32
+2025-04-08 23:30:26,analyst_e,UPDATE,RESULTS,Analyst,RES-84647,Standard entry per SOP-01,7.44
+2025-04-09 00:03:08,analyst_c,UPDATE,RESULTS,Analyst,RES-42662,Standard entry per SOP-01,7.36
+2025-04-09 00:29:29,analyst_a,UPDATE,RESULTS,Analyst,RES-86753,Standard entry per SOP-01,6.99
+2025-04-09 01:53:01,analyst_d,UPDATE,RESULTS,Analyst,RES-12360,Standard entry per SOP-01,6.58
+2025-04-09 03:44:12,analyst_d,UPDATE,RESULTS,Analyst,RES-49888,Standard entry per SOP-01,6.85
+2025-04-09 06:59:38,analyst_a,UPDATE,RESULTS,Analyst,RES-67383,Standard entry per SOP-01,7.26
+2025-04-09 12:52:44,analyst_c,UPDATE,RESULTS,Analyst,RES-53984,Standard entry per SOP-01,6.95
+2025-04-10 00:17:57,analyst_c,UPDATE,RESULTS,Analyst,RES-47567,Standard entry per SOP-01,6.79
+2025-04-10 00:46:32,analyst_e,UPDATE,RESULTS,Analyst,RES-52733,Standard entry per SOP-01,7.06
+2025-04-10 01:15:23,analyst_b,UPDATE,RESULTS,Analyst,RES-19143,Standard entry per SOP-01,7.02
+2025-04-10 02:29:45,analyst_brown,UPDATE,RESULTS,Analyst,RES-6394,.,7.0
+2025-04-10 07:44:00,analyst_c,UPDATE,RESULTS,Analyst,RES-74579,Standard entry per SOP-01,7.17
+2025-04-10 21:52:27,analyst_b,UPDATE,RESULTS,Analyst,RES-57110,Standard entry per SOP-01,6.58
+2025-04-10 23:28:31,analyst_c,UPDATE,RESULTS,Analyst,RES-32354,Standard entry per SOP-01,6.54
+2025-04-10 23:57:22,analyst_e,UPDATE,RESULTS,Analyst,RES-61109,Standard entry per SOP-01,7.31
+2025-04-11 02:45:53,analyst_d,UPDATE,RESULTS,Analyst,RES-89363,Standard entry per SOP-01,6.54
+2025-04-11 05:06:05,analyst_a,UPDATE,RESULTS,Analyst,RES-16714,Standard entry per SOP-01,6.98
+2025-04-11 06:35:44,analyst_a,UPDATE,RESULTS,Analyst,RES-42298,Standard entry per SOP-01,7.23
+2025-04-11 09:31:38,analyst_e,UPDATE,RESULTS,Analyst,RES-30074,Standard entry per SOP-01,7.21
+2025-04-11 17:49:43,analyst_a,UPDATE,RESULTS,Analyst,RES-67979,Standard entry per SOP-01,6.61
+2025-04-11 18:08:35,analyst_a,UPDATE,RESULTS,Analyst,RES-D-6,Data update,500.0
+2025-04-11 18:19:57,analyst_e,UPDATE,RESULTS,Analyst,RES-93032,Standard entry per SOP-01,6.6
+2025-04-11 22:05:07,analyst_a,UPDATE,RESULTS,Analyst,RES-54194,Standard entry per SOP-01,6.72
+2025-04-12 00:34:54,analyst_d,UPDATE,RESULTS,Analyst,RES-42961,Standard entry per SOP-01,6.57
+2025-04-12 02:47:14,analyst_e,UPDATE,RESULTS,Analyst,RES-69064,Standard entry per SOP-01,7.18
+2025-04-12 03:37:55,analyst_d,UPDATE,RESULTS,Analyst,RES-11093,Standard entry per SOP-01,6.73
+2025-04-12 04:40:34,analyst_e,UPDATE,RESULTS,Analyst,RES-69447,Standard entry per SOP-01,7.26
+2025-04-12 10:38:49,analyst_c,UPDATE,RESULTS,Analyst,RES-42322,Standard entry per SOP-01,6.57
+2025-04-12 16:19:12,analyst_a,UPDATE,RESULTS,Analyst,RES-90884,Standard entry per SOP-01,7.12
+2025-04-12 18:32:25,analyst_e,UPDATE,RESULTS,Analyst,RES-9536,ok,7.0
+2025-04-12 18:35:40,analyst_d,UPDATE,RESULTS,Analyst,RES-66654,Standard entry per SOP-01,7.3
+2025-04-12 19:15:54,analyst_d,UPDATE,RESULTS,Analyst,RES-60384,Standard entry per SOP-01,6.56
+2025-04-12 23:30:10,analyst_e,UPDATE,RESULTS,Analyst,RES-19063,Standard entry per SOP-01,7.24
+2025-04-13 03:08:00,analyst_d,UPDATE,RESULTS,Analyst,RES-91165,Standard entry per SOP-01,6.99
+2025-04-13 03:57:33,analyst_a,UPDATE,RESULTS,Analyst,RES-25916,Standard entry per SOP-01,6.89
+2025-04-13 05:25:21,analyst_b,UPDATE,RESULTS,Analyst,RES-76965,Standard entry per SOP-01,6.73
+2025-04-13 05:45:45,analyst_d,UPDATE,RESULTS,Analyst,RES-37819,Standard entry per SOP-01,7.21
+2025-04-13 05:49:17,old_timer,UPDATE,RESULTS,Analyst,RES-7452,correction,7.0
+2025-04-13 05:56:05,analyst_e,UPDATE,RESULTS,Analyst,RES-94993,Standard entry per SOP-01,6.55
+2025-04-13 08:51:04,analyst_b,UPDATE,RESULTS,Analyst,RES-14896,Standard entry per SOP-01,6.63
+2025-04-13 08:58:04,analyst_c,UPDATE,RESULTS,Analyst,RES-31992,Standard entry per SOP-01,6.91
+2025-04-13 15:03:53,analyst_b,UPDATE,RESULTS,Analyst,RES-26035,Standard entry per SOP-01,6.75
+2025-04-13 16:32:35,analyst_a,UPDATE,RESULTS,Analyst,RES-25618,Standard entry per SOP-01,7.35
+2025-04-13 18:14:18,analyst_a,UPDATE,RESULTS,Analyst,RES-10101,Standard entry per SOP-01,6.96
+2025-04-13 20:05:14,analyst_d,UPDATE,RESULTS,Analyst,RES-81809,Standard entry per SOP-01,6.98
+2025-04-13 21:32:17,analyst_e,UPDATE,RESULTS,Analyst,RES-80560,Standard entry per SOP-01,6.71
+2025-04-14 00:32:26,analyst_a,UPDATE,RESULTS,Analyst,RES-97995,Standard entry per SOP-01,7.17
+2025-04-14 05:40:26,analyst_e,UPDATE,RESULTS,Analyst,RES-29218,Standard entry per SOP-01,7.39
+2025-04-14 08:03:30,analyst_c,UPDATE,RESULTS,Analyst,RES-74365,Standard entry per SOP-01,6.91
+2025-04-14 10:07:59,analyst_d,UPDATE,RESULTS,Analyst,RES-51295,Standard entry per SOP-01,6.7
+2025-04-14 17:52:09,analyst_e,UPDATE,RESULTS,Analyst,RES-40396,Standard entry per SOP-01,6.7
+2025-04-14 19:41:20,analyst_c,UPDATE,RESULTS,Analyst,RES-35885,Standard entry per SOP-01,7.5
+2025-04-14 20:31:05,analyst_e,UPDATE,RESULTS,Analyst,RES-64116,Standard entry per SOP-01,7.33
+2025-04-14 21:14:53,analyst_c,UPDATE,RESULTS,Analyst,RES-73727,Standard entry per SOP-01,6.91
+2025-04-14 22:37:53,analyst_a,UPDATE,RESULTS,Analyst,RES-66736,Standard entry per SOP-01,6.94
+2025-04-15 00:20:55,analyst_d,UPDATE,RESULTS,Analyst,RES-86366,Standard entry per SOP-01,7.02
+2025-04-15 02:33:28,analyst_a,UPDATE,RESULTS,Analyst,RES-62458,Standard entry per SOP-01,6.69
+2025-04-15 05:29:07,analyst_a,UPDATE,RESULTS,Analyst,RES-14243,Standard entry per SOP-01,6.63
+2025-04-15 05:30:28,old_timer,UPDATE,RESULTS,Analyst,RES-OLD-6,Back from leave,7.0
+2025-04-15 05:56:40,analyst_c,UPDATE,RESULTS,Analyst,RES-91093,Standard entry per SOP-01,7.37
+2025-04-15 07:38:29,analyst_d,UPDATE,RESULTS,Analyst,RES-98735,Standard entry per SOP-01,7.23
+2025-04-15 09:35:01,analyst_d,UPDATE,RESULTS,Analyst,RES-41683,Standard entry per SOP-01,6.61
+2025-04-15 17:24:28,analyst_c,UPDATE,RESULTS,Analyst,RES-64038,Standard entry per SOP-01,6.58
+2025-04-15 19:20:59,analyst_d,UPDATE,RESULTS,Analyst,RES-99003,Standard entry per SOP-01,6.88
+2025-04-15 23:27:26,analyst_a,UPDATE,RESULTS,Analyst,RES-D-9,Data update,500.0
+2025-04-16 00:33:51,analyst_e,UPDATE,RESULTS,Analyst,RES-56246,Standard entry per SOP-01,6.63
+2025-04-16 01:43:15,analyst_b,UPDATE,RESULTS,Analyst,RES-46802,Standard entry per SOP-01,6.64
+2025-04-16 04:38:55,analyst_d,UPDATE,RESULTS,Analyst,RES-68164,Standard entry per SOP-01,6.82
+2025-04-16 09:49:56,analyst_d,UPDATE,RESULTS,Analyst,RES-33906,Standard entry per SOP-01,6.92
+2025-04-16 09:58:58,analyst_e,UPDATE,RESULTS,Analyst,RES-13380,Standard entry per SOP-01,7.46
+2025-04-16 13:33:20,analyst_c,UPDATE,RESULTS,Analyst,RES-82825,Standard entry per SOP-01,6.79
+2025-04-16 16:22:52,analyst_e,UPDATE,RESULTS,Analyst,RES-23518,Standard entry per SOP-01,6.84
+2025-04-16 16:55:29,analyst_b,UPDATE,RESULTS,Analyst,RES-84389,Standard entry per SOP-01,7.49
+2025-04-16 18:29:10,analyst_c,UPDATE,RESULTS,Analyst,RES-58821,Standard entry per SOP-01,6.66
+2025-04-16 19:38:28,analyst_a,UPDATE,RESULTS,Analyst,RES-49879,Standard entry per SOP-01,6.55
+2025-04-16 21:11:30,analyst_a,UPDATE,RESULTS,Analyst,RES-60120,Standard entry per SOP-01,6.68
+2025-04-17 00:11:00,analyst_a,UPDATE,RESULTS,Analyst,RES-71164,Standard entry per SOP-01,6.83
+2025-04-17 03:23:00,analyst_a,UPDATE,RESULTS,Analyst,RES-44583,Standard entry per SOP-01,7.13
+2025-04-17 03:43:11,analyst_c,UPDATE,RESULTS,Analyst,RES-30849,Standard entry per SOP-01,7.31
+2025-04-17 06:05:45,analyst_d,UPDATE,RESULTS,Analyst,RES-85618,Standard entry per SOP-01,7.05
+2025-04-17 08:36:23,analyst_jones,UPDATE,RESULTS,Analyst,RES-5748,.,7.0
+2025-04-17 09:28:19,analyst_b,UPDATE,RESULTS,Analyst,RES-80912,Standard entry per SOP-01,7.15
+2025-04-17 09:45:40,analyst_e,UPDATE,RESULTS,Analyst,RES-37139,Standard entry per SOP-01,7.41
+2025-04-17 12:01:37,analyst_e,UPDATE,RESULTS,Analyst,RES-10470,Standard entry per SOP-01,7.09
+2025-04-17 14:00:59,analyst_a,UPDATE,RESULTS,Analyst,RES-40121,Standard entry per SOP-01,7.37
+2025-04-17 16:14:27,analyst_d,UPDATE,RESULTS,Analyst,RES-40084,Standard entry per SOP-01,7.22
+2025-04-17 18:55:43,analyst_b,UPDATE,RESULTS,Analyst,RES-16246,Standard entry per SOP-01,6.51
+2025-04-17 18:59:59,analyst_c,UPDATE,RESULTS,Analyst,RES-57878,Standard entry per SOP-01,6.97
+2025-04-17 20:41:53,analyst_e,UPDATE,RESULTS,Analyst,RES-92811,Standard entry per SOP-01,7.15
+2025-04-17 23:19:29,analyst_d,UPDATE,RESULTS,Analyst,RES-88971,Standard entry per SOP-01,6.74
+2025-04-18 00:16:00,analyst_e,UPDATE,RESULTS,Analyst,RES-51874,Standard entry per SOP-01,6.84
+2025-04-18 04:32:58,analyst_c,UPDATE,RESULTS,Analyst,RES-86040,Standard entry per SOP-01,7.29
+2025-04-18 06:20:39,analyst_c,UPDATE,RESULTS,Analyst,RES-95607,Standard entry per SOP-01,7.08
+2025-04-18 08:25:56,analyst_b,UPDATE,RESULTS,Analyst,RES-48419,Standard entry per SOP-01,7.26
+2025-04-18 12:25:25,analyst_a,UPDATE,RESULTS,Analyst,RES-39974,Standard entry per SOP-01,7.22
+2025-04-18 16:44:28,analyst_d,UPDATE,RESULTS,Analyst,RES-50729,Standard entry per SOP-01,7.41
+2025-04-18 18:56:40,analyst_c,UPDATE,RESULTS,Analyst,RES-32874,Standard entry per SOP-01,7.01
+2025-04-18 20:11:43,analyst_b,UPDATE,RESULTS,Analyst,RES-18135,Standard entry per SOP-01,7.06
+2025-04-18 20:29:57,analyst_a,UPDATE,RESULTS,Analyst,RES-71857,Standard entry per SOP-01,6.63
+2025-04-19 00:20:37,analyst_a,UPDATE,RESULTS,Analyst,RES-75403,Standard entry per SOP-01,6.65
+2025-04-19 00:59:48,analyst_d,UPDATE,RESULTS,Analyst,RES-49381,Standard entry per SOP-01,6.57
+2025-04-19 09:02:26,analyst_c,UPDATE,RESULTS,Analyst,RES-92008,Standard entry per SOP-01,7.11
+2025-04-19 12:28:24,analyst_b,UPDATE,RESULTS,Analyst,RES-75673,Standard entry per SOP-01,6.82
+2025-04-19 18:05:05,analyst_d,UPDATE,RESULTS,Analyst,RES-37627,Standard entry per SOP-01,6.85
+2025-04-19 18:26:01,analyst_c,UPDATE,RESULTS,Analyst,RES-96191,Standard entry per SOP-01,6.53
+2025-04-20 01:46:06,analyst_c,UPDATE,RESULTS,Analyst,RES-40303,Standard entry per SOP-01,7.18
+2025-04-20 02:12:33,analyst_b,UPDATE,RESULTS,Analyst,RES-19643,Standard entry per SOP-01,6.56
+2025-04-20 04:41:02,analyst_d,UPDATE,RESULTS,Analyst,RES-86741,Standard entry per SOP-01,6.84
+2025-04-20 06:08:01,analyst_b,UPDATE,RESULTS,Analyst,RES-52420,Standard entry per SOP-01,6.77
+2025-04-20 11:35:09,old_timer,UPDATE,RESULTS,Analyst,RES-OLD-11,Back from leave,7.0
+2025-04-20 11:48:01,analyst_a,UPDATE,RESULTS,Analyst,RES-73124,Standard entry per SOP-01,7.42
+2025-04-20 14:40:05,analyst_a,UPDATE,RESULTS,Analyst,RES-68215,Standard entry per SOP-01,7.03
+2025-04-20 15:09:18,analyst_c,UPDATE,RESULTS,Analyst,RES-42601,Standard entry per SOP-01,7.03
+2025-04-20 17:31:52,analyst_e,UPDATE,RESULTS,Analyst,RES-11365,Standard entry per SOP-01,7.11
+2025-04-20 21:55:54,analyst_b,UPDATE,RESULTS,Analyst,RES-59665,Standard entry per SOP-01,7.21
+2025-04-21 00:01:23,analyst_brown,UPDATE,RESULTS,Analyst,RES-1859,correction,7.0
+2025-04-21 01:17:04,analyst_c,UPDATE,RESULTS,Analyst,RES-76101,Standard entry per SOP-01,7.32
+2025-04-21 06:30:16,analyst_c,UPDATE,RESULTS,Analyst,RES-50545,Standard entry per SOP-01,7.11
+2025-04-21 08:33:47,dba_prod,UPDATE,AUDIT_TRAIL,DBA,AT-001,System maintenance,
+2025-04-21 18:38:54,analyst_e,UPDATE,RESULTS,Analyst,RES-97187,Standard entry per SOP-01,6.81
+2025-04-21 20:30:27,analyst_d,UPDATE,RESULTS,Analyst,RES-44802,Standard entry per SOP-01,6.76
+2025-04-21 20:54:29,analyst_c,UPDATE,RESULTS,Analyst,RES-96876,Standard entry per SOP-01,7.1
+2025-04-22 00:09:53,analyst_b,UPDATE,RESULTS,Analyst,RES-34937,Standard entry per SOP-01,6.82
+2025-04-22 00:13:12,analyst_d,UPDATE,RESULTS,Analyst,RES-66208,Standard entry per SOP-01,7.01
+2025-04-22 02:49:49,analyst_e,UPDATE,RESULTS,Analyst,RES-42230,Standard entry per SOP-01,7.36
+2025-04-22 02:54:52,analyst_e,UPDATE,RESULTS,Analyst,RES-58598,Standard entry per SOP-01,6.9
+2025-04-22 03:46:18,analyst_d,UPDATE,RESULTS,Analyst,RES-86528,Standard entry per SOP-01,6.66
+2025-04-22 04:45:16,analyst_a,UPDATE,RESULTS,Analyst,RES-D-8,Data update,500.0
+2025-04-22 09:54:42,analyst_c,UPDATE,RESULTS,Analyst,RES-89023,Standard entry per SOP-01,6.95
+2025-04-22 14:09:37,analyst_a,UPDATE,RESULTS,Analyst,RES-39646,Standard entry per SOP-01,7.39
+2025-04-22 14:36:32,analyst_b,UPDATE,RESULTS,Analyst,RES-16072,Standard entry per SOP-01,6.93
+2025-04-22 14:49:26,analyst_d,UPDATE,RESULTS,Analyst,RES-80391,Standard entry per SOP-01,6.97
+2025-04-22 15:33:13,analyst_d,UPDATE,RESULTS,Analyst,RES-53236,Standard entry per SOP-01,6.92
+2025-04-22 16:12:43,analyst_c,UPDATE,RESULTS,Analyst,RES-45437,Standard entry per SOP-01,7.15
+2025-04-22 16:47:31,analyst_a,UPDATE,RESULTS,Analyst,RES-50035,Standard entry per SOP-01,7.26
+2025-04-22 18:59:04,analyst_c,UPDATE,RESULTS,Analyst,RES-52545,Standard entry per SOP-01,7.44
+2025-04-22 22:17:26,analyst_d,UPDATE,RESULTS,Analyst,RES-14908,Standard entry per SOP-01,6.89
+2025-04-23 00:35:11,analyst_b,UPDATE,RESULTS,Analyst,RES-84069,Standard entry per SOP-01,6.95
+2025-04-23 05:02:52,analyst_d,UPDATE,RESULTS,Analyst,RES-90592,Standard entry per SOP-01,6.79
+2025-04-23 07:10:15,analyst_b,UPDATE,RESULTS,Analyst,RES-89751,Standard entry per SOP-01,6.61
+2025-04-23 07:56:43,analyst_d,UPDATE,RESULTS,Analyst,RES-50661,Standard entry per SOP-01,6.6
+2025-04-23 08:05:51,analyst_e,UPDATE,RESULTS,Analyst,RES-65346,Standard entry,7.0
+2025-04-23 10:23:16,old_timer,UPDATE,RESULTS,Analyst,RES-OLD-8,Back from leave,7.0
+2025-04-23 11:19:52,analyst_b,UPDATE,RESULTS,Analyst,RES-51269,Standard entry per SOP-01,7.14
+2025-04-23 12:11:56,analyst_b,UPDATE,RESULTS,Analyst,RES-99707,Standard entry per SOP-01,7.44
+2025-04-23 13:55:40,analyst_e,UPDATE,RESULTS,Analyst,RES-14665,Standard entry per SOP-01,7.44
+2025-04-23 15:36:47,analyst_e,UPDATE,RESULTS,Analyst,RES-49719,Standard entry per SOP-01,7.16
+2025-04-23 15:45:52,analyst_e,UPDATE,RESULTS,Analyst,RES-8217,error,7.0
+2025-04-24 01:48:46,analyst_b,UPDATE,RESULTS,Analyst,RES-87092,Standard entry per SOP-01,7.23
+2025-04-24 02:05:04,analyst_b,UPDATE,RESULTS,Analyst,RES-80307,Standard entry per SOP-01,6.87
+2025-04-24 02:21:54,analyst_e,UPDATE,RESULTS,Analyst,RES-38333,Standard entry per SOP-01,6.9
+2025-04-24 02:29:11,analyst_a,UPDATE,RESULTS,Analyst,RES-43387,Standard entry per SOP-01,7.41
+2025-04-24 03:05:54,analyst_c,UPDATE,RESULTS,Analyst,RES-98113,Standard entry per SOP-01,7.19
+2025-04-24 03:21:48,analyst_b,UPDATE,RESULTS,Analyst,RES-95878,Standard entry per SOP-01,7.29
+2025-04-24 05:04:06,analyst_d,UPDATE,RESULTS,Analyst,RES-60486,Standard entry per SOP-01,7.06
+2025-04-24 08:42:06,analyst_c,UPDATE,RESULTS,Analyst,RES-15018,Standard entry per SOP-01,6.65
+2025-04-24 11:15:57,analyst_b,UPDATE,RESULTS,Analyst,RES-55461,Standard entry per SOP-01,6.54
+2025-04-24 11:33:58,analyst_a,UPDATE,RESULTS,Analyst,RES-28756,Standard entry per SOP-01,6.72
+2025-04-24 14:24:04,analyst_e,UPDATE,RESULTS,Analyst,RES-78551,Standard entry per SOP-01,6.61
+2025-04-24 17:17:54,analyst_d,UPDATE,RESULTS,Analyst,RES-40763,Standard entry per SOP-01,6.96
+2025-04-24 17:49:29,analyst_b,UPDATE,RESULTS,Analyst,RES-27453,Standard entry per SOP-01,7.16
+2025-04-24 17:49:39,analyst_b,UPDATE,RESULTS,Analyst,RES-21374,Standard entry per SOP-01,7.07
+2025-04-24 19:59:06,jsmith,LOGIN_FAILED,SYSTEM,Analyst,N/A,,
+2025-04-24 20:00:06,jsmith,LOGIN_FAILED,SYSTEM,Analyst,N/A,,
+2025-04-24 20:01:06,jsmith,LOGIN_FAILED,SYSTEM,Analyst,N/A,,
+2025-04-24 20:03:06,jsmith,LOGIN,SYSTEM,Analyst,N/A,,
+2025-04-24 20:05:06,jsmith,UPDATE,RESULTS,Analyst,RES-LOGIN,Update after login,7.2
+2025-04-24 20:26:44,analyst_c,UPDATE,RESULTS,Analyst,RES-73186,Standard entry per SOP-01,6.99
+2025-04-24 21:51:30,analyst_a,UPDATE,RESULTS,Analyst,RES-73098,Standard entry per SOP-01,6.73
+2025-04-25 02:09:41,analyst_e,UPDATE,RESULTS,Analyst,RES-22924,Standard entry per SOP-01,7.39
+2025-04-25 02:39:22,analyst_a,UPDATE,RESULTS,Analyst,RES-43642,Standard entry per SOP-01,6.87
+2025-04-25 03:08:08,analyst_b,UPDATE,RESULTS,Analyst,RES-52815,Standard entry per SOP-01,6.6
+2025-04-25 03:34:52,analyst_b,UPDATE,RESULTS,Analyst,RES-10188,Standard entry per SOP-01,6.75
+2025-04-25 04:04:51,analyst_a,UPDATE,RESULTS,Analyst,RES-76031,Standard entry per SOP-01,6.55
+2025-04-25 04:08:16,analyst_d,UPDATE,RESULTS,Analyst,RES-28159,Standard entry per SOP-01,7.28
+2025-04-25 06:48:29,analyst_c,UPDATE,RESULTS,Analyst,RES-99499,Standard entry per SOP-01,6.6
+2025-04-25 07:47:40,analyst_b,UPDATE,RESULTS,Analyst,RES-72316,Standard entry per SOP-01,7.2
+2025-04-25 14:25:41,analyst_a,UPDATE,RESULTS,Analyst,RES-67259,Standard entry per SOP-01,7.18
+2025-04-25 14:41:36,analyst_a,UPDATE,RESULTS,Analyst,RES-93039,Standard entry per SOP-01,7.07
+2025-04-25 15:02:43,analyst_d,UPDATE,RESULTS,Analyst,RES-10630,Standard entry per SOP-01,6.83
+2025-04-25 15:41:45,analyst_a,UPDATE,RESULTS,Analyst,RES-90802,Standard entry per SOP-01,7.21
+2025-04-25 23:13:13,analyst_a,UPDATE,RESULTS,Analyst,RES-67350,Standard entry per SOP-01,6.53
+2025-04-25 23:27:58,analyst_c,UPDATE,RESULTS,Analyst,RES-49489,Standard entry per SOP-01,7.18
+2025-04-26 00:46:00,analyst_d,UPDATE,RESULTS,Analyst,RES-79261,Standard entry per SOP-01,7.36
+2025-04-26 01:39:20,analyst_b,UPDATE,RESULTS,Analyst,RES-85416,Standard entry per SOP-01,6.97
+2025-04-26 02:38:20,analyst_d,UPDATE,RESULTS,Analyst,RES-53025,Standard entry per SOP-01,6.92
+2025-04-26 04:43:45,analyst_e,UPDATE,RESULTS,Analyst,RES-29552,Standard entry per SOP-01,6.75
+2025-04-26 07:38:55,analyst_a,UPDATE,RESULTS,Analyst,RES-41644,Standard entry per SOP-01,6.77
+2025-04-26 09:47:05,analyst_e,UPDATE,RESULTS,Analyst,RES-12584,Standard entry per SOP-01,7.02
+2025-04-26 11:38:57,analyst_a,UPDATE,RESULTS,Analyst,RES-35351,Standard entry per SOP-01,6.91
+2025-04-26 11:41:21,analyst_b,UPDATE,RESULTS,Analyst,RES-82960,Standard entry per SOP-01,7.18
+2025-04-26 13:35:21,analyst_b,UPDATE,RESULTS,Analyst,RES-93708,Standard entry per SOP-01,7.34
+2025-04-26 17:15:51,analyst_c,UPDATE,RESULTS,Analyst,RES-79607,Standard entry per SOP-01,7.39
+2025-04-27 02:57:20,analyst_d,UPDATE,RESULTS,Analyst,RES-64401,Standard entry per SOP-01,6.63
+2025-04-27 03:49:22,analyst_a,UPDATE,RESULTS,Analyst,RES-19632,Standard entry per SOP-01,6.56
+2025-04-27 07:30:24,analyst_a,UPDATE,RESULTS,Analyst,RES-50116,Standard entry per SOP-01,7.0
+2025-04-27 08:34:14,analyst_d,UPDATE,RESULTS,Analyst,RES-60788,Standard entry per SOP-01,6.65
+2025-04-27 08:51:10,analyst_a,UPDATE,RESULTS,Analyst,RES-62212,Standard entry per SOP-01,6.78
+2025-04-27 17:45:14,analyst_d,UPDATE,RESULTS,Analyst,RES-93215,Standard entry per SOP-01,7.11
+2025-04-27 23:00:40,analyst_d,UPDATE,RESULTS,Analyst,RES-42247,Standard entry per SOP-01,6.52
+2025-04-27 23:51:41,analyst_e,UPDATE,RESULTS,Analyst,RES-13096,Standard entry per SOP-01,6.67
+2025-04-28 00:46:05,analyst_b,UPDATE,RESULTS,Analyst,RES-92548,Standard entry per SOP-01,6.93
+2025-04-28 00:49:52,analyst_c,UPDATE,RESULTS,Analyst,RES-18424,Standard entry per SOP-01,7.44
+2025-04-28 01:02:58,shared_qc_lab,INSERT,RESULTS,Service,RES-SVC-6,Automated entry,7.0
+2025-04-28 03:11:06,analyst_d,UPDATE,RESULTS,Analyst,RES-20521,Standard entry per SOP-01,6.76
+2025-04-28 08:57:55,analyst_e,UPDATE,RESULTS,Analyst,RES-78623,Standard entry per SOP-01,7.35
+2025-04-28 10:46:49,analyst_a,UPDATE,RESULTS,Analyst,RES-71093,Standard entry per SOP-01,7.02
+2025-04-28 11:50:13,analyst_e,UPDATE,RESULTS,Analyst,RES-72978,Standard entry per SOP-01,7.17
+2025-04-28 12:05:53,analyst_d,UPDATE,RESULTS,Analyst,RES-83067,Standard entry per SOP-01,7.19
+2025-04-28 12:22:21,analyst_c,UPDATE,RESULTS,Analyst,RES-62746,Standard entry per SOP-01,6.54
+2025-04-28 16:38:18,analyst_a,UPDATE,RESULTS,Analyst,RES-47353,Standard entry per SOP-01,6.73
+2025-04-29 00:32:03,analyst_a,UPDATE,RESULTS,Analyst,RES-18052,Standard entry per SOP-01,6.78
+2025-04-29 03:55:03,analyst_c,UPDATE,RESULTS,Analyst,RES-52106,Standard entry per SOP-01,6.52
+2025-04-29 05:07:51,analyst_e,UPDATE,RESULTS,Analyst,RES-62429,Standard entry per SOP-01,6.96
+2025-04-29 08:27:14,analyst_d,UPDATE,RESULTS,Analyst,RES-90265,Standard entry per SOP-01,6.83
+2025-04-29 10:45:58,analyst_d,UPDATE,RESULTS,Analyst,RES-86176,Standard entry per SOP-01,7.36
+2025-04-29 16:09:06,analyst_d,UPDATE,RESULTS,Analyst,RES-22402,Standard entry per SOP-01,6.67
+2025-04-29 17:04:23,analyst_a,UPDATE,RESULTS,Analyst,RES-25599,Standard entry per SOP-01,6.86
+2025-04-29 17:31:31,analyst_e,UPDATE,RESULTS,Analyst,RES-70132,Standard entry per SOP-01,7.03
+2025-04-29 17:39:41,analyst_c,UPDATE,RESULTS,Analyst,RES-57267,Standard entry per SOP-01,6.99
+2025-04-29 19:57:33,analyst_a,UPDATE,RESULTS,Analyst,RES-80148,Standard entry per SOP-01,7.3
+2025-04-29 21:44:01,analyst_d,UPDATE,RESULTS,Analyst,RES-56485,Standard entry per SOP-01,7.49
+2025-04-29 23:14:50,analyst_b,UPDATE,RESULTS,Analyst,RES-54078,Standard entry per SOP-01,7.31
+2025-04-30 00:28:40,analyst_d,UPDATE,RESULTS,Analyst,RES-64205,Standard entry per SOP-01,7.33
+2025-04-30 03:31:28,analyst_c,UPDATE,RESULTS,Analyst,RES-15446,Standard entry per SOP-01,6.73
+2025-04-30 03:46:53,analyst_e,UPDATE,RESULTS,Analyst,RES-59620,Standard entry per SOP-01,7.27
+2025-04-30 16:22:16,analyst_b,UPDATE,RESULTS,Analyst,RES-92531,Standard entry per SOP-01,7.38
+2025-04-30 17:26:20,analyst_b,UPDATE,RESULTS,Analyst,RES-30698,Standard entry per SOP-01,7.08
+2025-04-30 18:56:23,analyst_e,UPDATE,RESULTS,Analyst,RES-31654,Standard entry per SOP-01,6.84
+2025-05-01 01:47:01,analyst_e,UPDATE,RESULTS,Analyst,RES-39715,Standard entry per SOP-01,6.93
+2025-05-01 01:49:24,analyst_b,UPDATE,RESULTS,Analyst,RES-49194,Standard entry per SOP-01,7.06
+2025-05-01 06:06:42,analyst_b,UPDATE,RESULTS,Analyst,RES-40420,Standard entry per SOP-01,7.15
+2025-05-01 06:35:28,analyst_d,UPDATE,RESULTS,Analyst,RES-15053,Standard entry per SOP-01,7.0
+2025-05-01 07:31:26,analyst_c,UPDATE,RESULTS,Analyst,RES-99754,Standard entry per SOP-01,6.58
+2025-05-01 09:23:33,analyst_b,UPDATE,RESULTS,Analyst,RES-90596,Standard entry per SOP-01,6.91
+2025-05-01 11:35:15,analyst_c,UPDATE,RESULTS,Analyst,RES-55177,Standard entry per SOP-01,7.19
+2025-05-01 20:38:48,analyst_a,UPDATE,RESULTS,Analyst,RES-95746,Standard entry per SOP-01,7.11
+2025-05-01 23:52:53,analyst_e,UPDATE,RESULTS,Analyst,RES-14810,Standard entry per SOP-01,6.98
+2025-05-02 01:42:49,analyst_e,UPDATE,RESULTS,Analyst,RES-28187,Standard entry per SOP-01,6.59
+2025-05-02 04:23:32,analyst_d,UPDATE,RESULTS,Analyst,RES-75001,Standard entry per SOP-01,7.1
+2025-05-02 04:39:45,analyst_e,UPDATE,RESULTS,Analyst,RES-69153,Standard entry,7.0
+2025-05-02 07:11:36,old_timer,UPDATE,RESULTS,Analyst,RES-OLD-14,Back from leave,7.0
+2025-05-02 10:36:23,analyst_c,UPDATE,RESULTS,Analyst,RES-86104,Standard entry per SOP-01,6.83
+2025-05-02 14:21:44,old_timer,UPDATE,RESULTS,Analyst,RES-OLD-1,Back from leave,7.0
+2025-05-02 16:19:29,analyst_c,UPDATE,RESULTS,Analyst,RES-45725,Standard entry per SOP-01,6.92
+2025-05-02 18:31:09,analyst_c,UPDATE,RESULTS,Analyst,RES-53518,Standard entry per SOP-01,6.59
+2025-05-02 18:37:12,analyst_e,UPDATE,RESULTS,Analyst,RES-72311,Standard entry per SOP-01,7.15
+2025-05-02 21:24:22,analyst_c,UPDATE,RESULTS,Analyst,RES-96605,Standard entry per SOP-01,7.23
+2025-05-03 00:03:06,analyst_b,UPDATE,RESULTS,Analyst,RES-52549,Standard entry per SOP-01,6.82
+2025-05-03 03:02:20,analyst_b,UPDATE,RESULTS,Analyst,RES-85276,Standard entry per SOP-01,6.61
+2025-05-03 03:57:23,analyst_e,UPDATE,RESULTS,Analyst,RES-13600,Standard entry per SOP-01,6.6
+2025-05-03 09:26:47,analyst_b,UPDATE,RESULTS,Analyst,RES-67492,Standard entry per SOP-01,7.25
+2025-05-03 10:08:42,analyst_c,UPDATE,RESULTS,Analyst,RES-55576,Standard entry per SOP-01,7.09
+2025-05-03 10:26:33,analyst_d,UPDATE,RESULTS,Analyst,RES-82981,Standard entry per SOP-01,7.04
+2025-05-03 11:57:39,old_timer,UPDATE,RESULTS,Analyst,RES-OLD-5,Back from leave,7.0
+2025-05-03 15:44:18,analyst_e,UPDATE,RESULTS,Analyst,RES-72373,Standard entry per SOP-01,6.77
+2025-05-03 16:51:22,analyst_b,UPDATE,RESULTS,Analyst,RES-69289,Standard entry per SOP-01,7.28
+2025-05-03 18:34:05,analyst_d,UPDATE,RESULTS,Analyst,RES-50289,Standard entry per SOP-01,6.72
+2025-05-03 19:15:19,analyst_c,UPDATE,RESULTS,Analyst,RES-99168,Standard entry per SOP-01,6.52
+2025-05-03 21:55:48,analyst_a,UPDATE,RESULTS,Analyst,RES-61537,Standard entry per SOP-01,7.2
+2025-05-04 01:09:32,analyst_b,UPDATE,RESULTS,Analyst,RES-92453,Standard entry per SOP-01,7.4
+2025-05-04 02:25:12,analyst_b,UPDATE,RESULTS,Analyst,RES-62629,Standard entry per SOP-01,7.3
+2025-05-04 03:59:09,analyst_b,UPDATE,RESULTS,Analyst,RES-74578,Standard entry per SOP-01,6.57
+2025-05-04 06:33:39,analyst_b,UPDATE,RESULTS,Analyst,RES-97738,Standard entry per SOP-01,6.92
+2025-05-04 06:53:37,analyst_b,APPROVE,RESULTS,Supervisor,RES-REV-2,Approved,
+2025-05-04 07:53:37,analyst_b,INSERT,RESULTS,Analyst,RES-REV-2,Created,7.0
+2025-05-04 08:43:35,analyst_b,UPDATE,RESULTS,Analyst,RES-73228,Standard entry per SOP-01,7.22
+2025-05-04 11:00:22,analyst_c,UPDATE,RESULTS,Analyst,RES-88603,Standard entry per SOP-01,7.13
+2025-05-04 12:51:15,analyst_a,UPDATE,RESULTS,Analyst,RES-35408,Standard entry per SOP-01,7.11
+2025-05-04 13:42:44,analyst_b,UPDATE,RESULTS,Analyst,RES-57178,Standard entry per SOP-01,7.09
+2025-05-04 14:50:11,analyst_a,UPDATE,RESULTS,Analyst,RES-83967,Standard entry per SOP-01,7.46
+2025-05-04 15:49:17,analyst_c,UPDATE,RESULTS,Analyst,RES-89634,Standard entry per SOP-01,7.05
+2025-05-04 17:57:15,analyst_brown,UPDATE,RESULTS,Analyst,RES-4893,fixed,7.0
+2025-05-04 18:44:47,analyst_e,UPDATE,RESULTS,Analyst,RES-98841,Standard entry per SOP-01,6.53
+2025-05-04 21:55:11,analyst_b,UPDATE,RESULTS,Analyst,RES-50640,Standard entry per SOP-01,7.11
+2025-05-04 21:55:36,analyst_c,UPDATE,RESULTS,Analyst,RES-84960,Standard entry per SOP-01,6.84
+2025-05-05 02:06:24,analyst_d,UPDATE,RESULTS,Analyst,RES-54750,Standard entry per SOP-01,6.96
+2025-05-05 06:52:48,analyst_c,UPDATE,RESULTS,Analyst,RES-81403,Standard entry per SOP-01,6.85
+2025-05-05 09:39:51,analyst_d,UPDATE,RESULTS,Analyst,RES-39891,Standard entry per SOP-01,6.98
+2025-05-05 14:41:34,analyst_c,UPDATE,RESULTS,Analyst,RES-80034,Standard entry per SOP-01,7.36
+2025-05-05 16:50:07,old_timer,UPDATE,RESULTS,Analyst,RES-OLD-9,Back from leave,7.0
+2025-05-05 16:50:29,analyst_c,UPDATE,RESULTS,Analyst,RES-95066,Standard entry per SOP-01,7.34
+2025-05-05 17:14:45,analyst_a,UPDATE,RESULTS,Analyst,RES-27041,Standard entry per SOP-01,7.05
+2025-05-05 19:56:06,analyst_e,UPDATE,RESULTS,Analyst,RES-76518,Standard entry per SOP-01,6.51
+2025-05-05 20:32:15,analyst_d,UPDATE,RESULTS,Analyst,RES-85873,Standard entry per SOP-01,6.82
+2025-05-05 23:18:38,analyst_b,UPDATE,RESULTS,Analyst,RES-10165,Standard entry per SOP-01,7.38
+2025-05-06 02:41:36,analyst_c,UPDATE,RESULTS,Analyst,RES-49713,Standard entry per SOP-01,7.23
+2025-05-06 03:46:38,analyst_c,UPDATE,RESULTS,Analyst,RES-50765,Standard entry per SOP-01,7.4
+2025-05-06 07:26:48,analyst_c,UPDATE,RESULTS,Analyst,RES-84829,Standard entry per SOP-01,6.72
+2025-05-06 09:56:47,analyst_e,UPDATE,RESULTS,Analyst,RES-30102,Standard entry per SOP-01,6.89
+2025-05-06 10:53:33,analyst_c,UPDATE,RESULTS,Analyst,RES-13914,Standard entry per SOP-01,6.98
+2025-05-06 10:53:48,analyst_e,UPDATE,RESULTS,Analyst,RES-40978,Standard entry per SOP-01,7.16
+2025-05-06 11:11:25,analyst_c,UPDATE,RESULTS,Analyst,RES-83297,Standard entry per SOP-01,7.14
+2025-05-06 11:32:37,analyst_d,UPDATE,RESULTS,Analyst,RES-37161,Standard entry per SOP-01,7.5
+2025-05-06 16:28:36,admin_sys,UPDATE,RESULTS,Admin,RES-9762,Administrative adjustment,1.0
+2025-05-06 16:40:15,analyst_e,UPDATE,RESULTS,Analyst,RES-93202,Standard entry per SOP-01,7.08
+2025-05-06 17:32:08,analyst_c,UPDATE,RESULTS,Analyst,RES-79099,Standard entry per SOP-01,7.09
+2025-05-06 17:38:07,analyst_e,UPDATE,RESULTS,Analyst,RES-40250,Standard entry per SOP-01,7.26
+2025-05-06 19:44:42,analyst_e,UPDATE,RESULTS,Analyst,RES-83906,Standard entry per SOP-01,7.24
+2025-05-07 01:16:29,analyst_c,UPDATE,RESULTS,Analyst,RES-21482,Standard entry per SOP-01,6.63
+2025-05-07 03:54:06,analyst_e,UPDATE,RESULTS,Analyst,RES-74672,Standard entry per SOP-01,6.64
+2025-05-07 04:52:18,analyst_c,UPDATE,RESULTS,Analyst,RES-82441,Standard entry per SOP-01,6.52
+2025-05-07 06:21:24,analyst_new,DELETE,RESULTS,Analyst,RES-RECON-2,Mistake,
+2025-05-07 06:26:24,analyst_new,INSERT,RESULTS,Analyst,RES-RECON-2,Re-entry,7.5
+2025-05-07 06:55:57,analyst_e,UPDATE,RESULTS,Analyst,RES-85218,Standard entry per SOP-01,6.6
+2025-05-07 08:12:04,analyst_b,UPDATE,RESULTS,Analyst,RES-70114,Standard entry per SOP-01,6.66
+2025-05-07 08:42:21,analyst_c,UPDATE,RESULTS,Analyst,RES-98674,Standard entry per SOP-01,6.52
+2025-05-07 08:59:04,analyst_c,UPDATE,RESULTS,Analyst,RES-18981,Standard entry per SOP-01,6.65
+2025-05-07 09:10:45,analyst_e,UPDATE,RESULTS,Analyst,RES-62315,Standard entry per SOP-01,6.9
+2025-05-07 12:24:47,analyst_c,UPDATE,RESULTS,Analyst,RES-96671,Standard entry per SOP-01,6.74
+2025-05-07 15:21:47,analyst_e,UPDATE,RESULTS,Analyst,RES-38530,Standard entry per SOP-01,7.27
+2025-05-07 15:39:14,analyst_a,UPDATE,RESULTS,Analyst,RES-61344,Standard entry per SOP-01,6.71
+2025-05-07 16:26:40,analyst_e,UPDATE,RESULTS,Analyst,RES-43893,Standard entry per SOP-01,7.21
+2025-05-07 19:01:54,analyst_e,UPDATE,RESULTS,Analyst,RES-88310,Standard entry per SOP-01,6.68
+2025-05-07 21:27:32,admin_sys,UPDATE,RESULTS,Admin,RES-3445,Administrative adjustment,1.0
+2025-05-08 10:04:32,analyst_e,UPDATE,RESULTS,Analyst,RES-56989,Standard entry per SOP-01,7.17
+2025-05-08 10:13:50,analyst_b,UPDATE,RESULTS,Analyst,RES-55328,Standard entry per SOP-01,7.1
+2025-05-08 11:15:04,analyst_a,UPDATE,RESULTS,Analyst,RES-90402,Standard entry per SOP-01,6.98
+2025-05-08 13:33:03,analyst_c,UPDATE,RESULTS,Analyst,RES-84596,Standard entry per SOP-01,6.53
+2025-05-08 14:42:36,analyst_e,UPDATE,RESULTS,Analyst,RES-37536,Standard entry per SOP-01,6.8
+2025-05-08 15:56:28,analyst_a,UPDATE,RESULTS,Analyst,RES-99926,Standard entry per SOP-01,7.14
+2025-05-08 16:09:10,analyst_e,UPDATE,RESULTS,Analyst,RES-69406,Standard entry per SOP-01,7.16
+2025-05-08 16:48:49,analyst_a,UPDATE,RESULTS,Analyst,RES-12529,Standard entry per SOP-01,6.58
+2025-05-08 18:33:46,analyst_a,UPDATE,RESULTS,Analyst,RES-82023,Standard entry per SOP-01,7.07
+2025-05-08 19:40:54,analyst_a,UPDATE,RESULTS,Analyst,RES-67133,Standard entry per SOP-01,6.89
+2025-05-08 21:58:13,analyst_d,UPDATE,RESULTS,Analyst,RES-14374,Standard entry per SOP-01,6.93
+2025-05-08 22:52:54,analyst_e,UPDATE,RESULTS,Analyst,RES-52330,Standard entry per SOP-01,7.33
+2025-05-09 01:47:59,analyst_c,UPDATE,RESULTS,Analyst,RES-80892,Standard entry per SOP-01,7.31
+2025-05-09 06:49:09,analyst_c,UPDATE,RESULTS,Analyst,RES-69179,Standard entry per SOP-01,7.46
+2025-05-09 07:50:18,analyst_e,UPDATE,RESULTS,Analyst,RES-16465,Standard entry per SOP-01,7.16
+2025-05-09 09:24:16,analyst_a,UPDATE,RESULTS,Analyst,RES-68433,Standard entry per SOP-01,7.06
+2025-05-09 13:19:26,analyst_e,UPDATE,RESULTS,Analyst,RES-28638,Standard entry per SOP-01,7.08
+2025-05-09 15:06:02,analyst_b,UPDATE,RESULTS,Analyst,RES-24397,Standard entry per SOP-01,7.25
+2025-05-09 15:13:37,analyst_b,UPDATE,RESULTS,Analyst,RES-14203,Standard entry per SOP-01,7.24
+2025-05-09 15:58:24,analyst_a,UPDATE,RESULTS,Analyst,RES-73082,Standard entry per SOP-01,7.03
+2025-05-09 17:28:14,analyst_e,UPDATE,RESULTS,Analyst,RES-18034,Standard entry per SOP-01,7.3
+2025-05-09 20:38:22,analyst_e,UPDATE,RESULTS,Analyst,RES-12519,Standard entry per SOP-01,6.78
+2025-05-09 21:34:06,analyst_b,UPDATE,RESULTS,Analyst,RES-87664,Standard entry per SOP-01,7.04
+2025-05-10 00:24:55,analyst_a,UPDATE,RESULTS,Analyst,RES-38973,Standard entry per SOP-01,6.58
+2025-05-10 04:43:00,analyst_d,UPDATE,RESULTS,Analyst,RES-70920,Standard entry per SOP-01,7.37
+2025-05-10 06:46:02,analyst_b,UPDATE,RESULTS,Analyst,RES-54546,Standard entry per SOP-01,7.25
+2025-05-10 16:19:15,analyst_b,UPDATE,RESULTS,Analyst,RES-85533,Standard entry per SOP-01,7.32
+2025-05-10 21:14:46,analyst_e,UPDATE,RESULTS,Analyst,RES-69231,Standard entry per SOP-01,7.41
+2025-05-10 21:50:20,analyst_a,UPDATE,RESULTS,Analyst,RES-13831,Standard entry per SOP-01,7.02
+2025-05-10 23:13:41,analyst_d,UPDATE,RESULTS,Analyst,RES-20411,Standard entry per SOP-01,6.76
+2025-05-11 01:38:30,analyst_c,UPDATE,RESULTS,Analyst,RES-51551,Standard entry per SOP-01,7.22
+2025-05-11 03:25:53,analyst_c,UPDATE,RESULTS,Analyst,RES-25252,Standard entry per SOP-01,7.19
+2025-05-11 04:51:15,analyst_a,UPDATE,RESULTS,Analyst,RES-85041,Standard entry per SOP-01,7.24
+2025-05-11 06:20:03,analyst_b,UPDATE,RESULTS,Analyst,RES-87577,Standard entry per SOP-01,7.28
+2025-05-11 07:40:05,analyst_a,UPDATE,RESULTS,Analyst,RES-86732,Standard entry per SOP-01,6.96
+2025-05-11 08:17:06,analyst_d,UPDATE,RESULTS,Analyst,RES-38981,Standard entry per SOP-01,6.62
+2025-05-11 10:00:44,analyst_a,UPDATE,RESULTS,Analyst,RES-52779,Standard entry per SOP-01,6.64
+2025-05-11 13:04:24,analyst_a,UPDATE,RESULTS,Analyst,RES-16560,Standard entry per SOP-01,7.23
+2025-05-11 13:40:32,analyst_d,UPDATE,RESULTS,Analyst,RES-58834,Standard entry per SOP-01,6.57
+2025-05-11 13:47:04,analyst_a,UPDATE,RESULTS,Analyst,RES-17294,Standard entry per SOP-01,7.4
+2025-05-11 14:14:08,analyst_c,UPDATE,RESULTS,Analyst,RES-44795,Standard entry per SOP-01,7.44
+2025-05-11 14:48:23,analyst_a,UPDATE,RESULTS,Analyst,RES-69217,Standard entry per SOP-01,6.63
+2025-05-11 16:32:30,analyst_c,UPDATE,RESULTS,Analyst,RES-75964,Standard entry per SOP-01,7.08
+2025-05-11 17:22:22,analyst_b,UPDATE,RESULTS,Analyst,RES-34567,Standard entry per SOP-01,7.16
+2025-05-11 18:44:01,analyst_e,UPDATE,RESULTS,Analyst,RES-68378,Standard entry per SOP-01,6.96
+2025-05-11 19:45:08,analyst_e,UPDATE,RESULTS,Analyst,RES-15996,Standard entry per SOP-01,7.49
+2025-05-11 21:09:32,analyst_d,UPDATE,RESULTS,Analyst,RES-18608,Standard entry per SOP-01,7.14
+2025-05-11 22:50:13,analyst_d,UPDATE,RESULTS,Analyst,RES-67080,Standard entry per SOP-01,6.61
+2025-05-12 01:22:04,analyst_d,UPDATE,RESULTS,Analyst,RES-46610,Standard entry per SOP-01,6.73
+2025-05-12 04:55:31,analyst_c,UPDATE,RESULTS,Analyst,RES-53862,Standard entry per SOP-01,6.72
+2025-05-12 05:30:12,analyst_e,UPDATE,RESULTS,Analyst,RES-85888,Standard entry per SOP-01,6.87
+2025-05-12 07:56:41,analyst_b,UPDATE,RESULTS,Analyst,RES-56549,Standard entry per SOP-01,6.89
+2025-05-12 10:06:49,analyst_d,UPDATE,RESULTS,Analyst,RES-55952,Standard entry per SOP-01,6.73
+2025-05-12 11:12:03,shared_qc_lab,INSERT,RESULTS,Service,RES-SVC-0,Automated entry,7.0
+2025-05-12 14:57:09,analyst_a,UPDATE,RESULTS,Analyst,RES-75499,Standard entry per SOP-01,7.0
+2025-05-12 16:34:25,analyst_d,UPDATE,RESULTS,Analyst,RES-49126,Standard entry per SOP-01,6.61
+2025-05-12 21:08:00,analyst_a,UPDATE,RESULTS,Analyst,RES-81075,Standard entry per SOP-01,7.3
+2025-05-12 21:16:12,analyst_c,UPDATE,RESULTS,Analyst,RES-4613,ok,7.0
+2025-05-13 05:00:55,analyst_e,UPDATE,RESULTS,Analyst,RES-28552,Standard entry per SOP-01,7.35
+2025-05-13 05:06:51,analyst_d,UPDATE,RESULTS,Analyst,RES-79055,Standard entry per SOP-01,7.02
+2025-05-13 06:58:56,analyst_a,UPDATE,RESULTS,Analyst,RES-11230,Standard entry per SOP-01,6.89
+2025-05-13 08:47:49,analyst_e,UPDATE,RESULTS,Analyst,RES-41291,Standard entry per SOP-01,6.92
+2025-05-13 11:15:31,analyst_d,UPDATE,RESULTS,Analyst,RES-45038,Standard entry per SOP-01,7.43
+2025-05-13 11:40:50,analyst_d,UPDATE,RESULTS,Analyst,RES-23548,Standard entry per SOP-01,7.41
+2025-05-13 15:01:14,analyst_e,UPDATE,RESULTS,Analyst,RES-59097,Standard entry per SOP-01,6.97
+2025-05-13 23:24:47,analyst_e,UPDATE,RESULTS,Analyst,RES-59716,Standard entry per SOP-01,6.95
+2025-05-14 02:44:58,analyst_d,UPDATE,RESULTS,Analyst,RES-49673,Standard entry per SOP-01,7.47
+2025-05-14 04:46:19,analyst_e,UPDATE,RESULTS,Analyst,RES-97623,Standard entry per SOP-01,6.5
+2025-05-14 04:47:18,analyst_d,UPDATE,RESULTS,Analyst,RES-55941,Standard entry per SOP-01,6.88
+2025-05-14 05:15:23,analyst_c,UPDATE,RESULTS,Analyst,RES-79667,Standard entry per SOP-01,7.09
+2025-05-14 08:43:25,analyst_e,UPDATE,RESULTS,Analyst,RES-62020,Standard entry per SOP-01,6.53
+2025-05-14 13:23:39,analyst_b,UPDATE,RESULTS,Analyst,RES-52765,Standard entry per SOP-01,7.35
+2025-05-14 15:35:08,analyst_c,UPDATE,RESULTS,Analyst,RES-48001,Standard entry per SOP-01,7.17
+2025-05-14 17:43:06,analyst_b,UPDATE,RESULTS,Analyst,RES-44404,Standard entry per SOP-01,7.09
+2025-05-15 00:13:30,analyst_d,UPDATE,RESULTS,Analyst,RES-18854,Standard entry per SOP-01,7.36
+2025-05-15 02:21:46,analyst_a,UPDATE,RESULTS,Analyst,RES-75714,Standard entry per SOP-01,7.07
+2025-05-15 02:53:54,analyst_b,UPDATE,RESULTS,Analyst,RES-84439,Standard entry per SOP-01,7.37
+2025-05-15 05:22:53,analyst_c,UPDATE,RESULTS,Analyst,RES-46221,Standard entry per SOP-01,7.01
+2025-05-15 06:40:21,analyst_a,UPDATE,RESULTS,Analyst,RES-38628,Standard entry per SOP-01,7.21
+2025-05-15 09:06:37,analyst_d,UPDATE,RESULTS,Analyst,RES-88529,Standard entry per SOP-01,6.98
+2025-05-15 12:37:01,analyst_b,UPDATE,RESULTS,Analyst,RES-51099,Standard entry per SOP-01,7.19
+2025-05-15 14:41:25,analyst_c,UPDATE,RESULTS,Analyst,RES-24509,Standard entry per SOP-01,7.49
+2025-05-15 14:56:56,analyst_jones,UPDATE,RESULTS,Analyst,RES-1782,.,7.0
+2025-05-15 17:32:15,analyst_c,UPDATE,RESULTS,Analyst,RES-93886,Standard entry,7.0
+2025-05-15 18:16:56,analyst_b,UPDATE,RESULTS,Analyst,RES-69381,Standard entry per SOP-01,7.05
+2025-05-15 19:19:30,analyst_a,UPDATE,RESULTS,Analyst,RES-35029,Standard entry per SOP-01,7.11
+2025-05-15 21:20:19,analyst_d,UPDATE,RESULTS,Analyst,RES-39978,Standard entry per SOP-01,7.27
+2025-05-15 23:34:10,analyst_d,UPDATE,RESULTS,Analyst,RES-46664,Standard entry per SOP-01,6.68
+2025-05-16 02:28:21,analyst_a,UPDATE,RESULTS,Analyst,RES-70603,Standard entry per SOP-01,6.78
+2025-05-16 06:56:53,analyst_c,UPDATE,RESULTS,Analyst,RES-95227,Standard entry per SOP-01,7.24
+2025-05-16 07:18:22,analyst_a,UPDATE,RESULTS,Analyst,RES-16678,Standard entry per SOP-01,7.16
+2025-05-16 08:58:46,analyst_a,UPDATE,RESULTS,Analyst,RES-17184,Standard entry per SOP-01,6.97
+2025-05-16 09:54:13,analyst_d,UPDATE,RESULTS,Analyst,RES-28716,Standard entry per SOP-01,6.94
+2025-05-16 09:55:21,analyst_b,UPDATE,RESULTS,Analyst,RES-86391,Standard entry per SOP-01,6.91
+2025-05-16 10:25:50,analyst_b,UPDATE,RESULTS,Analyst,RES-25234,Standard entry per SOP-01,6.91
+2025-05-16 10:44:29,analyst_c,UPDATE,RESULTS,Analyst,RES-31622,Standard entry per SOP-01,6.99
+2025-05-16 11:28:03,analyst_b,UPDATE,RESULTS,Analyst,RES-69686,Standard entry per SOP-01,7.47
+2025-05-16 12:48:24,analyst_a,UPDATE,RESULTS,Analyst,RES-23911,Standard entry per SOP-01,7.0
+2025-05-16 15:25:45,analyst_d,UPDATE,RESULTS,Analyst,RES-24569,Standard entry per SOP-01,7.27
+2025-05-16 15:47:40,analyst_b,UPDATE,RESULTS,Analyst,RES-75069,Standard entry per SOP-01,7.09
+2025-05-16 16:13:08,analyst_a,UPDATE,RESULTS,Analyst,RES-53670,Standard entry per SOP-01,7.19
+2025-05-16 19:08:53,analyst_e,UPDATE,RESULTS,Analyst,RES-78781,Standard entry per SOP-01,6.7
+2025-05-16 19:43:23,analyst_e,UPDATE,RESULTS,Analyst,RES-58192,Standard entry per SOP-01,7.14
+2025-05-16 20:48:58,analyst_b,UPDATE,RESULTS,Analyst,RES-15846,Standard entry per SOP-01,6.73
+2025-05-16 23:02:03,analyst_c,UPDATE,RESULTS,Analyst,RES-94989,Standard entry,7.0
+2025-05-17 00:02:13,analyst_b,UPDATE,RESULTS,Analyst,RES-29984,Standard entry per SOP-01,6.96
+2025-05-17 00:14:32,analyst_e,UPDATE,RESULTS,Analyst,RES-61419,Standard entry per SOP-01,6.81
+2025-05-17 02:41:58,old_timer,UPDATE,RESULTS,Analyst,RES-OLD-4,Back from leave,7.0
+2025-05-17 08:49:57,old_timer,UPDATE,RESULTS,Analyst,RES-OLD-13,Back from leave,7.0
+2025-05-17 09:06:02,analyst_b,UPDATE,RESULTS,Analyst,RES-51868,Standard entry per SOP-01,6.96
+2025-05-17 11:06:19,analyst_d,UPDATE,RESULTS,Analyst,RES-70050,Standard entry per SOP-01,7.28
+2025-05-17 13:32:34,analyst_d,UPDATE,RESULTS,Analyst,RES-63767,Standard entry per SOP-01,7.05
+2025-05-17 13:37:08,shared_qc_lab,INSERT,RESULTS,Service,RES-SVC-8,Automated entry,7.0
+2025-05-17 14:31:22,analyst_c,UPDATE,RESULTS,Analyst,RES-54311,Standard entry per SOP-01,7.42
+2025-05-17 14:35:08,analyst_a,UPDATE,RESULTS,Analyst,RES-37671,Standard entry per SOP-01,7.23
+2025-05-17 15:22:32,analyst_a,UPDATE,RESULTS,Analyst,RES-30921,Standard entry per SOP-01,6.67
+2025-05-17 16:21:32,analyst_c,UPDATE,RESULTS,Analyst,RES-83963,Standard entry per SOP-01,6.54
+2025-05-17 19:07:42,analyst_jones,UPDATE,RESULTS,Analyst,RES-5539,correction,7.0
+2025-05-17 19:35:11,analyst_e,UPDATE,RESULTS,Analyst,RES-85784,Standard entry per SOP-01,6.51
+2025-05-17 21:14:57,analyst_a,UPDATE,RESULTS,Analyst,RES-85105,Standard entry per SOP-01,6.51
+2025-05-18 02:02:06,shared_qc_lab,INSERT,RESULTS,Service,RES-SVC-2,Automated entry,7.0
+2025-05-18 03:07:33,analyst_a,UPDATE,RESULTS,Analyst,RES-45113,Standard entry per SOP-01,7.24
+2025-05-18 03:52:46,analyst_e,UPDATE,RESULTS,Analyst,RES-78032,Standard entry per SOP-01,7.18
+2025-05-18 08:38:54,analyst_e,UPDATE,RESULTS,Analyst,RES-82525,Standard entry per SOP-01,6.79
+2025-05-18 09:29:31,analyst_d,UPDATE,RESULTS,Analyst,RES-35124,Standard entry per SOP-01,7.08
+2025-05-18 11:40:54,analyst_c,UPDATE,RESULTS,Analyst,RES-49001,Standard entry per SOP-01,6.87
+2025-05-18 11:46:41,analyst_b,UPDATE,RESULTS,Analyst,RES-48121,Standard entry per SOP-01,6.62
+2025-05-18 19:54:33,analyst_a,UPDATE,RESULTS,Analyst,RES-54077,Standard entry per SOP-01,7.36
+2025-05-18 20:15:54,analyst_d,UPDATE,RESULTS,Analyst,RES-20675,Standard entry per SOP-01,7.36
+2025-05-19 02:09:20,analyst_b,UPDATE,RESULTS,Analyst,RES-35700,Standard entry per SOP-01,7.29
+2025-05-19 03:14:02,analyst_b,UPDATE,RESULTS,Analyst,RES-16301,Standard entry per SOP-01,7.13
+2025-05-19 03:42:23,analyst_d,UPDATE,RESULTS,Analyst,RES-92719,Standard entry per SOP-01,6.96
+2025-05-19 06:05:58,analyst_d,UPDATE,RESULTS,Analyst,RES-87235,Standard entry per SOP-01,6.68
+2025-05-19 09:05:52,analyst_e,UPDATE,RESULTS,Analyst,RES-28020,Standard entry per SOP-01,7.16
+2025-05-19 12:47:14,analyst_c,UPDATE,RESULTS,Analyst,RES-54601,Standard entry per SOP-01,6.62
+2025-05-19 14:12:23,analyst_c,UPDATE,RESULTS,Analyst,RES-62597,Standard entry per SOP-01,6.75
+2025-05-19 16:46:40,analyst_a,UPDATE,RESULTS,Analyst,RES-95671,Standard entry per SOP-01,6.91
+2025-05-19 18:38:04,svc_lims_batch,INSERT,RESULTS,Service,RES-SVC-4,Automated entry,7.0
+2025-05-19 20:37:47,analyst_d,UPDATE,RESULTS,Analyst,RES-42691,Standard entry per SOP-01,7.34
+2025-05-20 00:52:25,analyst_z,UPDATE,RESULTS,Analyst,RES-8137,correction,7.0
+2025-05-20 01:10:10,analyst_a,UPDATE,RESULTS,Analyst,RES-87707,Standard entry per SOP-01,6.54
+2025-05-20 04:16:37,analyst_brown,UPDATE,RESULTS,Analyst,RES-NIGHT,Late work,6.8
+2025-05-20 08:06:24,analyst_b,UPDATE,RESULTS,Analyst,RES-85764,Standard entry per SOP-01,7.46
+2025-05-20 08:19:21,analyst_d,UPDATE,RESULTS,Analyst,RES-80209,Standard entry per SOP-01,7.23
+2025-05-20 09:30:35,analyst_c,UPDATE,RESULTS,Analyst,RES-77733,Standard entry per SOP-01,6.57
+2025-05-20 09:54:55,analyst_a,UPDATE,RESULTS,Analyst,RES-4396,.,7.0
+2025-05-20 15:21:36,analyst_d,UPDATE,RESULTS,Analyst,RES-39251,Standard entry per SOP-01,7.46
+2025-05-20 16:25:53,analyst_e,UPDATE,RESULTS,Analyst,RES-69757,Standard entry per SOP-01,6.65
+2025-05-20 18:16:49,analyst_a,UPDATE,RESULTS,Analyst,RES-81578,Standard entry per SOP-01,7.27
+2025-05-20 21:44:54,analyst_b,UPDATE,RESULTS,Analyst,RES-45690,Standard entry per SOP-01,6.96
+2025-05-20 22:43:25,analyst_d,UPDATE,RESULTS,Analyst,RES-73687,Standard entry per SOP-01,7.37
+2025-05-21 01:43:32,analyst_c,UPDATE,RESULTS,Analyst,RES-92139,Standard entry per SOP-01,7.14
+2025-05-21 02:14:28,analyst_d,UPDATE,RESULTS,Analyst,RES-14361,Standard entry per SOP-01,6.83
+2025-05-21 04:51:19,admin_sys,UPDATE,RESULTS,Admin,RES-7619,Administrative adjustment,1.0
+2025-05-21 05:00:13,analyst_e,UPDATE,RESULTS,Analyst,RES-41160,Standard entry per SOP-01,7.19
+2025-05-21 08:15:22,analyst_a,UPDATE,RESULTS,Analyst,RES-30537,Standard entry per SOP-01,7.11
+2025-05-21 09:06:21,analyst_d,UPDATE,RESULTS,Analyst,RES-31599,Standard entry per SOP-01,7.1
+2025-05-21 12:41:09,analyst_e,UPDATE,RESULTS,Analyst,RES-72693,Standard entry per SOP-01,6.64
+2025-05-21 15:39:24,analyst_c,UPDATE,RESULTS,Analyst,RES-26498,Standard entry per SOP-01,7.42
+2025-05-21 16:02:34,analyst_e,UPDATE,RESULTS,Analyst,RES-59491,Standard entry per SOP-01,6.66
+2025-05-21 21:46:01,analyst_c,UPDATE,RESULTS,Analyst,RES-80968,Standard entry per SOP-01,7.29
+2025-05-21 22:02:43,analyst_e,UPDATE,RESULTS,Analyst,RES-83042,Standard entry per SOP-01,6.6
+2025-05-21 23:57:03,analyst_d,UPDATE,RESULTS,Analyst,RES-10486,Standard entry per SOP-01,7.1
+2025-05-22 00:35:25,admin_sys,UPDATE,RESULTS,Admin,RES-3699,Administrative adjustment,1.0
+2025-05-22 02:14:45,analyst_c,UPDATE,RESULTS,Analyst,RES-38584,Standard entry per SOP-01,7.49
+2025-05-22 02:58:53,analyst_d,UPDATE,RESULTS,Analyst,RES-99640,Standard entry per SOP-01,7.39
+2025-05-22 03:51:52,analyst_a,UPDATE,RESULTS,Analyst,RES-D-7,Data update,500.0
+2025-05-22 08:39:51,analyst_c,UPDATE,RESULTS,Analyst,RES-51132,Standard entry per SOP-01,7.18
+2025-05-22 09:15:20,analyst_c,UPDATE,RESULTS,Analyst,RES-66167,Standard entry per SOP-01,6.83
+2025-05-22 09:33:51,analyst_e,UPDATE,RESULTS,Analyst,RES-65937,Standard entry per SOP-01,6.74
+2025-05-22 09:36:30,analyst_a,UPDATE,RESULTS,Analyst,RES-52465,Standard entry per SOP-01,6.75
+2025-05-22 14:32:34,analyst_c,UPDATE,RESULTS,Analyst,RES-75557,Standard entry per SOP-01,7.2
+2025-05-22 18:44:50,analyst_a,UPDATE,RESULTS,Analyst,RES-86893,Standard entry per SOP-01,6.8
+2025-05-22 19:52:48,analyst_e,UPDATE,RESULTS,Analyst,RES-63221,Standard entry per SOP-01,7.14
+2025-05-22 20:10:21,analyst_a,UPDATE,RESULTS,Analyst,RES-93978,Standard entry per SOP-01,6.8
+2025-05-22 20:14:01,analyst_c,UPDATE,RESULTS,Analyst,RES-95026,Standard entry per SOP-01,6.87
+2025-05-22 23:41:02,analyst_d,UPDATE,RESULTS,Analyst,RES-31825,Standard entry per SOP-01,7.39
+2025-05-23 02:00:41,analyst_c,UPDATE,RESULTS,Analyst,RES-66698,Standard entry per SOP-01,6.74
+2025-05-23 02:11:07,analyst_a,UPDATE,RESULTS,Analyst,RES-D-1,Data update,500.0
+2025-05-23 04:20:49,analyst_d,UPDATE,RESULTS,Analyst,RES-46232,Standard entry per SOP-01,6.59
+2025-05-23 04:53:54,analyst_d,UPDATE,RESULTS,Analyst,RES-52351,Standard entry per SOP-01,7.28
+2025-05-23 13:33:23,analyst_a,UPDATE,RESULTS,Analyst,RES-55146,Standard entry per SOP-01,6.89
+2025-05-23 17:16:20,analyst_d,UPDATE,RESULTS,Analyst,RES-88300,Standard entry per SOP-01,6.68
+2025-05-23 18:21:38,analyst_b,UPDATE,RESULTS,Analyst,RES-70952,Standard entry per SOP-01,6.88
+2025-05-23 18:36:23,analyst_d,UPDATE,RESULTS,Analyst,RES-18835,Standard entry per SOP-01,7.3
+2025-05-23 20:07:26,analyst_d,UPDATE,RESULTS,Analyst,RES-35086,Standard entry per SOP-01,7.22
+2025-05-24 01:39:35,analyst_c,UPDATE,RESULTS,Analyst,RES-48030,Standard entry per SOP-01,7.29
+2025-05-24 05:30:38,analyst_b,UPDATE,RESULTS,Analyst,RES-69772,Standard entry per SOP-01,7.15
+2025-05-24 10:33:20,analyst_c,UPDATE,RESULTS,Analyst,RES-28052,Standard entry per SOP-01,7.04
+2025-05-24 14:44:46,analyst_b,UPDATE,RESULTS,Analyst,RES-47940,Standard entry per SOP-01,6.56
+2025-05-24 15:41:26,analyst_e,UPDATE,RESULTS,Analyst,RES-23142,Standard entry per SOP-01,7.19
+2025-05-24 15:49:29,analyst_a,UPDATE,RESULTS,Analyst,RES-52516,Standard entry per SOP-01,7.0
+2025-05-24 17:51:43,analyst_a,UPDATE,RESULTS,Analyst,RES-19435,Standard entry per SOP-01,7.34
+2025-05-24 19:40:20,analyst_c,UPDATE,RESULTS,Analyst,RES-99406,Standard entry per SOP-01,7.27
+2025-05-24 22:50:36,analyst_c,UPDATE,RESULTS,Analyst,RES-47652,Standard entry per SOP-01,7.03
+2025-05-24 23:36:11,analyst_brown,UPDATE,RESULTS,Analyst,RES-1149,.,7.0
+2025-05-25 04:05:05,analyst_b,UPDATE,RESULTS,Analyst,RES-53827,Standard entry per SOP-01,6.96
+2025-05-25 04:35:16,analyst_d,UPDATE,RESULTS,Analyst,RES-98612,Standard entry per SOP-01,6.81
+2025-05-25 06:14:51,jsmith,UPDATE,RESULTS,Analyst,RES-9697,ok,7.0
+2025-05-25 08:06:06,analyst_c,UPDATE,RESULTS,Analyst,RES-74355,Standard entry per SOP-01,7.24
+2025-05-25 09:29:14,analyst_a,UPDATE,RESULTS,Analyst,RES-89448,Standard entry per SOP-01,6.61
+2025-05-25 10:44:43,analyst_d,UPDATE,RESULTS,Analyst,RES-6872,fixed,7.0
+2025-05-25 11:39:35,analyst_c,UPDATE,RESULTS,Analyst,RES-74411,Standard entry per SOP-01,7.39
+2025-05-25 13:12:03,analyst_c,UPDATE,RESULTS,Analyst,RES-43079,Standard entry per SOP-01,7.47
+2025-05-25 13:23:18,analyst_d,UPDATE,RESULTS,Analyst,RES-72770,Standard entry per SOP-01,6.59
+2025-05-25 15:25:57,analyst_a,UPDATE,RESULTS,Analyst,RES-34083,Standard entry per SOP-01,7.45
+2025-05-25 19:31:10,analyst_d,UPDATE,RESULTS,Analyst,RES-94564,Standard entry per SOP-01,6.52
+2025-05-25 22:33:00,analyst_e,UPDATE,RESULTS,Analyst,RES-73443,Standard entry per SOP-01,6.66
+2025-05-26 02:46:05,analyst_c,UPDATE,RESULTS,Analyst,RES-31681,Standard entry per SOP-01,7.44
+2025-05-26 02:53:47,analyst_e,UPDATE,RESULTS,Analyst,RES-43297,Standard entry per SOP-01,6.94
+2025-05-26 03:51:34,analyst_e,UPDATE,RESULTS,Analyst,RES-94386,Standard entry per SOP-01,6.91
+2025-05-26 07:28:51,analyst_c,UPDATE,RESULTS,Analyst,RES-23531,Standard entry per SOP-01,7.14
+2025-05-26 11:21:07,analyst_a,UPDATE,RESULTS,Analyst,RES-39673,Standard entry per SOP-01,6.77
+2025-05-26 13:25:38,analyst_e,UPDATE,RESULTS,Analyst,RES-93761,Standard entry per SOP-01,6.98
+2025-05-26 17:48:04,analyst_c,UPDATE,RESULTS,Analyst,RES-88055,Standard entry per SOP-01,6.7
+2025-05-26 18:45:24,old_timer,UPDATE,RESULTS,Analyst,RES-OLD-0,Back from leave,7.0
+2025-05-26 19:28:39,old_timer,UPDATE,RESULTS,Analyst,RES-OLD-3,Back from leave,7.0
+2025-05-26 22:28:51,analyst_d,UPDATE,RESULTS,Analyst,RES-61407,Standard entry per SOP-01,6.81
+2025-05-27 00:48:14,analyst_a,UPDATE,RESULTS,Analyst,RES-29915,Standard entry per SOP-01,6.52
+2025-05-27 01:27:05,analyst_a,UPDATE,RESULTS,Analyst,RES-84916,Standard entry per SOP-01,7.23
+2025-05-27 04:22:09,analyst_e,UPDATE,RESULTS,Analyst,RES-11285,Standard entry per SOP-01,6.76
+2025-05-27 08:09:42,analyst_d,UPDATE,RESULTS,Analyst,RES-10561,Standard entry per SOP-01,6.53
+2025-05-27 14:53:32,analyst_c,UPDATE,RESULTS,Analyst,RES-89300,Standard entry per SOP-01,7.35
+2025-05-27 15:07:36,analyst_a,UPDATE,RESULTS,Analyst,RES-21594,Standard entry per SOP-01,7.31
+2025-05-27 16:03:50,analyst_c,UPDATE,RESULTS,Analyst,RES-85985,Standard entry per SOP-01,7.22
+2025-05-27 16:07:37,analyst_e,UPDATE,RESULTS,Analyst,RES-60019,Standard entry per SOP-01,7.3
+2025-05-27 21:49:35,analyst_e,UPDATE,RESULTS,Analyst,RES-37365,Standard entry per SOP-01,7.07
+2025-05-28 00:10:58,analyst_a,UPDATE,RESULTS,Analyst,RES-44546,Standard entry per SOP-01,7.29
+2025-05-28 00:51:10,analyst_e,UPDATE,RESULTS,Analyst,RES-90262,Standard entry per SOP-01,6.69
+2025-05-28 01:49:59,analyst_e,UPDATE,RESULTS,Analyst,RES-54573,Standard entry per SOP-01,6.63
+2025-05-28 05:22:13,analyst_b,UPDATE,RESULTS,Analyst,RES-43060,Standard entry per SOP-01,6.78
+2025-05-28 13:47:34,admin_sys,UPDATE,RESULTS,Admin,RES-3732,Administrative adjustment,1.0
+2025-05-28 15:52:47,analyst_b,UPDATE,RESULTS,Analyst,RES-15015,Standard entry per SOP-01,6.78
+2025-05-28 15:53:08,analyst_b,UPDATE,RESULTS,Analyst,RES-14332,Standard entry per SOP-01,6.72
+2025-05-28 17:05:45,analyst_b,UPDATE,RESULTS,Analyst,RES-40031,Standard entry per SOP-01,6.63
+2025-05-28 18:42:47,analyst_d,UPDATE,RESULTS,Analyst,RES-17967,Standard entry per SOP-01,6.51
+2025-05-28 20:42:39,analyst_d,UPDATE,RESULTS,Analyst,RES-12041,Standard entry per SOP-01,6.6
+2025-05-28 21:22:48,analyst_b,UPDATE,RESULTS,Analyst,RES-15923,Standard entry per SOP-01,6.83
+2025-05-29 00:59:08,analyst_c,UPDATE,RESULTS,Analyst,RES-73936,Standard entry per SOP-01,6.86
+2025-05-29 03:16:18,analyst_c,UPDATE,RESULTS,Analyst,RES-21841,Standard entry per SOP-01,6.64
+2025-05-29 05:51:30,analyst_b,UPDATE,RESULTS,Analyst,RES-73647,Standard entry per SOP-01,7.33
+2025-05-29 07:30:48,analyst_a,UPDATE,RESULTS,Analyst,RES-44452,Standard entry per SOP-01,7.18
+2025-05-29 15:15:34,analyst_a,UPDATE,RESULTS,Analyst,RES-90845,Standard entry per SOP-01,7.06
+2025-05-29 16:04:51,analyst_b,UPDATE,RESULTS,Analyst,RES-97757,Standard entry per SOP-01,7.07
+2025-05-29 20:00:45,analyst_e,UPDATE,RESULTS,Analyst,RES-66255,Standard entry per SOP-01,6.86
+2025-05-29 22:45:42,analyst_e,UPDATE,RESULTS,Analyst,RES-18476,Standard entry per SOP-01,6.96
+2025-05-30 03:46:55,analyst_d,UPDATE,RESULTS,Analyst,RES-97727,Standard entry per SOP-01,6.63
+2025-05-30 04:49:12,analyst_a,UPDATE,RESULTS,Analyst,RES-32509,Standard entry per SOP-01,7.42
+2025-05-30 07:17:41,shared_qc_lab,INSERT,RESULTS,Service,RES-SVC-5,Automated entry,7.0
+2025-05-30 07:18:44,analyst_e,UPDATE,RESULTS,Analyst,RES-45769,Standard entry per SOP-01,6.95
+2025-05-30 11:12:31,analyst_a,UPDATE,RESULTS,Analyst,RES-73815,Standard entry per SOP-01,6.9
+2025-05-30 12:06:02,analyst_a,UPDATE,RESULTS,Analyst,RES-62596,Standard entry per SOP-01,6.54
+2025-05-30 12:41:35,analyst_d,UPDATE,RESULTS,Analyst,RES-56608,Standard entry per SOP-01,7.29
+2025-05-30 16:01:55,analyst_c,UPDATE,RESULTS,Analyst,RES-41508,Standard entry per SOP-01,7.16
+2025-05-30 16:38:18,analyst_e,UPDATE,RESULTS,Analyst,RES-75552,Standard entry per SOP-01,7.11
+2025-05-30 17:15:32,analyst_c,UPDATE,RESULTS,Analyst,RES-91062,Standard entry per SOP-01,7.44
+2025-05-30 18:09:51,analyst_e,UPDATE,RESULTS,Analyst,RES-90179,Standard entry per SOP-01,7.35
+2025-05-30 20:26:54,analyst_d,UPDATE,RESULTS,Analyst,RES-99704,Standard entry per SOP-01,6.92
+2025-05-30 22:42:17,analyst_b,UPDATE,RESULTS,Analyst,RES-55927,Standard entry per SOP-01,6.57
+2025-05-31 01:04:39,analyst_c,UPDATE,RESULTS,Analyst,RES-80486,Standard entry per SOP-01,7.27
+2025-05-31 02:50:02,analyst_d,UPDATE,RESULTS,Analyst,RES-35513,Standard entry per SOP-01,6.86
+2025-05-31 02:54:25,analyst_e,UPDATE,RESULTS,Analyst,RES-84419,Standard entry per SOP-01,7.45
+2025-05-31 04:30:03,analyst_e,UPDATE,RESULTS,Analyst,RES-33310,Standard entry per SOP-01,7.02
+2025-05-31 06:56:36,analyst_d,UPDATE,RESULTS,Analyst,RES-10913,Standard entry per SOP-01,6.6
+2025-05-31 08:20:03,analyst_a,UPDATE,RESULTS,Analyst,RES-10558,Standard entry per SOP-01,6.91
+2025-05-31 08:44:43,analyst_b,UPDATE,RESULTS,Analyst,RES-72804,Standard entry per SOP-01,7.16
+2025-05-31 15:52:46,analyst_d,UPDATE,RESULTS,Analyst,RES-67764,Standard entry per SOP-01,7.39
+2025-05-31 18:15:31,analyst_d,UPDATE,RESULTS,Analyst,RES-37460,Standard entry per SOP-01,7.09
+2025-05-31 19:39:35,analyst_a,UPDATE,RESULTS,Analyst,RES-74478,Standard entry per SOP-01,7.01
+2025-05-31 19:52:07,analyst_d,UPDATE,RESULTS,Analyst,RES-55610,Standard entry per SOP-01,6.71
+2025-05-31 19:56:16,analyst_b,UPDATE,RESULTS,Analyst,RES-75707,Standard entry per SOP-01,6.86
+2025-05-31 21:55:08,analyst_e,UPDATE,RESULTS,Analyst,RES-90404,Standard entry per SOP-01,7.42
+2025-05-31 22:28:38,analyst_c,UPDATE,RESULTS,Analyst,RES-54910,Standard entry per SOP-01,6.68
+2025-05-31 22:40:17,analyst_a,UPDATE,RESULTS,Analyst,RES-96617,Standard entry per SOP-01,7.09
+2025-05-31 23:59:43,analyst_c,UPDATE,RESULTS,Analyst,RES-93557,Standard entry per SOP-01,7.06
+2025-06-01 02:05:18,analyst_c,UPDATE,RESULTS,Analyst,RES-59485,Standard entry per SOP-01,7.41
+2025-06-01 02:54:32,analyst_a,UPDATE,RESULTS,Analyst,RES-23140,Standard entry per SOP-01,7.18
+2025-06-01 03:17:28,analyst_b,UPDATE,RESULTS,Analyst,RES-13808,Standard entry per SOP-01,6.66
+2025-06-01 07:48:40,analyst_c,UPDATE,RESULTS,Analyst,RES-52298,Standard entry per SOP-01,7.31
+2025-06-01 08:17:07,analyst_d,UPDATE,RESULTS,Analyst,RES-17298,Standard entry per SOP-01,6.5
+2025-06-01 11:55:54,analyst_c,UPDATE,RESULTS,Analyst,RES-61635,Standard entry per SOP-01,7.44
+2025-06-01 15:48:27,analyst_d,UPDATE,RESULTS,Analyst,RES-69534,Standard entry per SOP-01,7.41
+2025-06-01 17:06:05,analyst_e,UPDATE,RESULTS,Analyst,RES-77661,Standard entry per SOP-01,7.09
+2025-06-01 17:53:47,analyst_c,UPDATE,RESULTS,Analyst,RES-40803,Standard entry per SOP-01,6.85
+2025-06-01 18:20:10,analyst_e,UPDATE,RESULTS,Analyst,RES-78003,Standard entry per SOP-01,7.09
+2025-06-01 18:20:54,analyst_a,UPDATE,RESULTS,Analyst,RES-66665,Standard entry per SOP-01,6.8
+2025-06-01 18:24:10,old_timer,UPDATE,RESULTS,Analyst,RES-OLD-10,Back from leave,7.0
+2025-06-01 21:10:59,analyst_b,UPDATE,RESULTS,Analyst,RES-94853,Standard entry per SOP-01,7.26
+2025-06-01 22:50:33,analyst_c,UPDATE,RESULTS,Analyst,RES-68201,Standard entry per SOP-01,6.5
+2025-06-02 01:18:03,shared_qc_lab,INSERT,RESULTS,Service,RES-SVC-3,Automated entry,7.0
+2025-06-02 02:23:13,analyst_a,UPDATE,RESULTS,Analyst,RES-6429,error,7.0
+2025-06-02 03:53:22,analyst_c,UPDATE,RESULTS,Analyst,RES-47330,Standard entry per SOP-01,7.15
+2025-06-02 06:15:07,analyst_d,UPDATE,RESULTS,Analyst,RES-59545,Standard entry per SOP-01,6.81
+2025-06-02 06:26:54,analyst_e,UPDATE,RESULTS,Analyst,RES-44995,Standard entry per SOP-01,6.79
+2025-06-02 07:45:41,analyst_e,UPDATE,RESULTS,Analyst,RES-84397,Standard entry per SOP-01,7.31
+2025-06-02 09:37:09,analyst_e,UPDATE,RESULTS,Analyst,RES-90579,Standard entry per SOP-01,7.01
+2025-06-02 11:01:57,analyst_d,UPDATE,RESULTS,Analyst,RES-13113,Standard entry per SOP-01,7.42
+2025-06-02 14:46:31,analyst_c,UPDATE,RESULTS,Analyst,RES-49466,Standard entry per SOP-01,6.65
+2025-06-02 17:06:46,analyst_d,UPDATE,RESULTS,Analyst,RES-20915,Standard entry per SOP-01,6.78
+2025-06-02 17:46:06,analyst_c,UPDATE,RESULTS,Analyst,RES-85317,Standard entry per SOP-01,6.53
+2025-06-02 19:58:43,analyst_c,UPDATE,RESULTS,Analyst,RES-3261,ok,7.0
+2025-06-03 07:37:50,analyst_a,UPDATE,RESULTS,Analyst,RES-71075,Standard entry per SOP-01,6.97
+2025-06-03 07:52:28,analyst_e,UPDATE,RESULTS,Analyst,RES-37433,Standard entry per SOP-01,7.42
+2025-06-03 09:27:04,analyst_d,UPDATE,RESULTS,Analyst,RES-66503,Standard entry per SOP-01,6.6
+2025-06-03 09:58:06,analyst_b,UPDATE,RESULTS,Analyst,RES-47672,Standard entry per SOP-01,6.7
+2025-06-03 12:22:54,analyst_e,UPDATE,RESULTS,Analyst,RES-40266,Standard entry per SOP-01,6.5
+2025-06-03 12:43:32,analyst_c,UPDATE,RESULTS,Analyst,RES-62508,Standard entry per SOP-01,6.76
+2025-06-03 12:46:58,analyst_b,UPDATE,RESULTS,Analyst,RES-34999,Standard entry per SOP-01,6.84
+2025-06-03 16:43:08,analyst_e,UPDATE,RESULTS,Analyst,RES-69643,Standard entry per SOP-01,7.18
+2025-06-03 17:05:32,analyst_a,UPDATE,RESULTS,Analyst,RES-57799,Standard entry per SOP-01,6.89
+2025-06-03 22:37:26,analyst_b,UPDATE,RESULTS,Analyst,RES-54995,Standard entry per SOP-01,6.64
+2025-06-04 00:16:28,analyst_b,UPDATE,RESULTS,Analyst,RES-33794,Standard entry per SOP-01,6.62
+2025-06-04 01:44:21,analyst_a,UPDATE,RESULTS,Analyst,RES-93926,Standard entry per SOP-01,7.41
+2025-06-04 05:09:21,analyst_d,UPDATE,RESULTS,Analyst,RES-88596,Standard entry per SOP-01,6.77
+2025-06-04 06:10:58,analyst_b,UPDATE,RESULTS,Analyst,RES-80771,Standard entry per SOP-01,7.31
+2025-06-04 08:08:15,analyst_e,UPDATE,RESULTS,Analyst,RES-22221,Standard entry per SOP-01,7.46
+2025-06-04 10:10:58,admin_sys,UPDATE,RESULTS,Admin,RES-4040,Administrative adjustment,1.0
+2025-06-04 13:51:02,analyst_c,UPDATE,RESULTS,Analyst,RES-84101,Standard entry per SOP-01,6.97
+2025-06-04 14:17:09,analyst_c,UPDATE,RESULTS,Analyst,RES-79366,Standard entry per SOP-01,6.62
+2025-06-04 15:54:51,analyst_d,UPDATE,RESULTS,Analyst,RES-85099,Standard entry per SOP-01,7.12
+2025-06-04 21:14:36,analyst_b,UPDATE,RESULTS,Analyst,RES-20489,Standard entry per SOP-01,7.14
+2025-06-05 02:59:08,analyst_b,UPDATE,RESULTS,Analyst,RES-31733,Standard entry per SOP-01,6.53
+2025-06-05 04:12:37,analyst_b,UPDATE,RESULTS,Analyst,RES-60740,Standard entry per SOP-01,7.34
+2025-06-05 06:18:10,analyst_a,UPDATE,RESULTS,Analyst,RES-66288,Standard entry per SOP-01,7.42
+2025-06-05 06:23:02,analyst_b,UPDATE,RESULTS,Analyst,RES-35706,Standard entry per SOP-01,7.3
+2025-06-05 07:14:19,analyst_e,UPDATE,RESULTS,Analyst,RES-77108,Standard entry per SOP-01,6.64
+2025-06-05 08:07:09,analyst_b,UPDATE,RESULTS,Analyst,RES-77810,Standard entry per SOP-01,7.28
+2025-06-05 09:32:58,analyst_d,UPDATE,RESULTS,Analyst,RES-69505,Standard entry per SOP-01,6.84
+2025-06-05 11:53:17,analyst_b,UPDATE,RESULTS,Analyst,RES-91278,Standard entry,7.0
+2025-06-05 13:49:30,analyst_b,UPDATE,RESULTS,Analyst,RES-61316,Standard entry per SOP-01,7.46
+2025-06-05 15:49:15,analyst_d,UPDATE,RESULTS,Analyst,RES-92325,Standard entry per SOP-01,6.75
+2025-06-05 16:02:17,analyst_b,UPDATE,RESULTS,Analyst,RES-88094,Standard entry per SOP-01,6.86
+2025-06-05 17:11:18,analyst_b,UPDATE,RESULTS,Analyst,RES-56260,Standard entry per SOP-01,7.5
+2025-06-05 17:58:05,analyst_a,UPDATE,RESULTS,Analyst,RES-74068,Standard entry per SOP-01,7.34
+2025-06-05 18:53:24,analyst_c,UPDATE,RESULTS,Analyst,RES-49182,Standard entry per SOP-01,6.6
+2025-06-05 22:41:01,analyst_b,UPDATE,RESULTS,Analyst,RES-16615,Standard entry per SOP-01,6.68
+2025-06-06 00:38:00,analyst_a,UPDATE,RESULTS,Analyst,RES-62275,Standard entry per SOP-01,7.11
+2025-06-06 02:16:58,analyst_a,UPDATE,RESULTS,Analyst,RES-27026,Standard entry per SOP-01,7.17
+2025-06-06 02:43:08,analyst_e,UPDATE,RESULTS,Analyst,RES-68630,Standard entry per SOP-01,6.75
+2025-06-06 04:01:46,shared_qc_lab,INSERT,RESULTS,Service,RES-SVC-1,Automated entry,7.0
+2025-06-06 09:48:52,analyst_c,UPDATE,RESULTS,Analyst,RES-50593,Standard entry per SOP-01,6.78
+2025-06-06 14:05:01,analyst_d,UPDATE,RESULTS,Analyst,RES-33799,Standard entry per SOP-01,6.96
+2025-06-06 14:06:09,analyst_a,UPDATE,RESULTS,Analyst,RES-93376,Standard entry per SOP-01,6.79
+2025-06-06 14:40:35,analyst_b,UPDATE,RESULTS,Analyst,RES-99479,Standard entry per SOP-01,7.12
+2025-06-06 16:51:59,analyst_a,UPDATE,RESULTS,Analyst,RES-94397,Standard entry per SOP-01,7.26
+2025-06-06 18:01:15,analyst_e,UPDATE,RESULTS,Analyst,RES-73049,Standard entry per SOP-01,6.61
+2025-06-06 18:42:54,analyst_e,UPDATE,RESULTS,Analyst,RES-4346,fixed,7.0
+2025-06-07 06:10:43,analyst_d,UPDATE,RESULTS,Analyst,RES-13142,Standard entry per SOP-01,7.41
+2025-06-07 07:47:39,analyst_b,UPDATE,RESULTS,Analyst,RES-17443,Standard entry per SOP-01,7.5
+2025-06-07 08:03:51,analyst_d,UPDATE,RESULTS,Analyst,RES-72477,Standard entry per SOP-01,7.3
+2025-06-07 08:58:56,analyst_b,UPDATE,RESULTS,Analyst,RES-49119,Standard entry per SOP-01,7.37
+2025-06-07 09:30:18,analyst_a,UPDATE,RESULTS,Analyst,RES-20854,Standard entry per SOP-01,7.3
+2025-06-07 09:47:30,analyst_b,UPDATE,RESULTS,Analyst,RES-62469,Standard entry per SOP-01,7.07
+2025-06-07 10:21:19,analyst_b,UPDATE,RESULTS,Analyst,RES-26500,Standard entry per SOP-01,6.87
+2025-06-07 11:10:49,analyst_c,UPDATE,RESULTS,Analyst,RES-71508,Standard entry per SOP-01,6.99
+2025-06-07 14:12:28,analyst_a,UPDATE,RESULTS,Analyst,RES-17281,Standard entry per SOP-01,7.37
+2025-06-07 15:22:26,analyst_b,UPDATE,RESULTS,Analyst,RES-16704,Standard entry per SOP-01,7.21
+2025-06-07 19:04:26,analyst_a,UPDATE,RESULTS,Analyst,RES-45832,Standard entry per SOP-01,6.65
+2025-06-07 19:51:25,analyst_b,UPDATE,RESULTS,Analyst,RES-73108,Standard entry per SOP-01,7.03
+2025-06-07 21:23:28,analyst_a,UPDATE,RESULTS,Analyst,RES-35198,Standard entry per SOP-01,6.53
+2025-06-07 23:16:23,analyst_b,UPDATE,RESULTS,Analyst,RES-33706,Standard entry per SOP-01,6.87
+2025-06-08 06:49:37,analyst_a,UPDATE,RESULTS,Analyst,RES-20783,Standard entry per SOP-01,7.22
+2025-06-08 07:12:53,analyst_e,UPDATE,RESULTS,Analyst,RES-67017,Standard entry per SOP-01,7.01
+2025-06-08 07:14:13,analyst_d,UPDATE,RESULTS,Analyst,RES-16825,Standard entry per SOP-01,7.49
+2025-06-08 07:17:14,analyst_d,UPDATE,RESULTS,Analyst,RES-73191,Standard entry per SOP-01,7.29
+2025-06-08 08:43:43,analyst_e,UPDATE,RESULTS,Analyst,RES-82373,Standard entry per SOP-01,7.04
+2025-06-08 10:57:12,analyst_d,UPDATE,RESULTS,Analyst,RES-22938,Standard entry per SOP-01,7.23
+2025-06-08 12:19:06,analyst_c,UPDATE,RESULTS,Analyst,RES-51693,Standard entry per SOP-01,6.76
+2025-06-08 13:08:31,analyst_c,UPDATE,RESULTS,Analyst,RES-26006,Standard entry per SOP-01,6.53
+2025-06-08 15:56:12,analyst_a,UPDATE,RESULTS,Analyst,RES-65868,Standard entry per SOP-01,6.55
+2025-06-08 16:41:32,analyst_a,UPDATE,RESULTS,Analyst,RES-28545,Standard entry per SOP-01,7.39
+2025-06-08 20:57:45,analyst_a,UPDATE,RESULTS,Analyst,RES-12401,Standard entry per SOP-01,7.46
+2025-06-08 22:25:56,analyst_b,UPDATE,RESULTS,Analyst,RES-26884,Standard entry per SOP-01,6.93
+2025-06-09 00:09:16,analyst_a,UPDATE,RESULTS,Analyst,RES-70308,Standard entry per SOP-01,6.68
+2025-06-09 00:35:56,analyst_c,UPDATE,RESULTS,Analyst,RES-25581,Standard entry per SOP-01,6.78
+2025-06-09 08:59:19,analyst_d,UPDATE,RESULTS,Analyst,RES-30524,Standard entry per SOP-01,7.32
+2025-06-09 14:30:27,analyst_a,UPDATE,RESULTS,Analyst,RES-D-0,Data update,500.0
+2025-06-09 16:53:03,analyst_b,UPDATE,RESULTS,Analyst,RES-89852,Standard entry per SOP-01,7.18
+2025-06-09 17:06:04,analyst_jones,UPDATE,RESULTS,Analyst,RES-1381,.,7.0
+2025-06-09 23:45:18,analyst_b,UPDATE,RESULTS,Analyst,RES-65586,Standard entry per SOP-01,7.39
+2025-06-10 01:15:30,analyst_b,UPDATE,RESULTS,Analyst,RES-10921,Standard entry per SOP-01,7.19
+2025-06-10 03:50:23,analyst_a,UPDATE,RESULTS,Analyst,RES-16530,Standard entry per SOP-01,7.07
+2025-06-10 07:02:52,analyst_e,UPDATE,RESULTS,Analyst,RES-24714,Standard entry per SOP-01,7.17
+2025-06-10 11:31:31,analyst_a,UPDATE,RESULTS,Analyst,RES-86318,Standard entry per SOP-01,6.77
+2025-06-10 14:23:10,analyst_a,UPDATE,RESULTS,Analyst,RES-79922,Standard entry per SOP-01,6.72
+2025-06-10 16:21:35,analyst_c,UPDATE,RESULTS,Analyst,RES-46266,Standard entry per SOP-01,6.81
+2025-06-10 16:28:07,analyst_b,UPDATE,RESULTS,Analyst,RES-39387,Standard entry per SOP-01,6.59
+2025-06-10 17:50:40,analyst_d,UPDATE,RESULTS,Analyst,RES-81139,Standard entry per SOP-01,7.02
+2025-06-10 18:23:09,analyst_a,UPDATE,RESULTS,Analyst,RES-74199,Standard entry per SOP-01,6.91
+2025-06-10 20:24:25,analyst_c,UPDATE,RESULTS,Analyst,RES-61140,Standard entry per SOP-01,7.45
+2025-06-10 21:58:53,analyst_d,UPDATE,RESULTS,Analyst,RES-54884,Standard entry per SOP-01,6.87
+2025-06-10 23:53:12,analyst_d,UPDATE,RESULTS,Analyst,RES-50503,Standard entry per SOP-01,6.6
+2025-06-11 05:28:19,analyst_c,UPDATE,RESULTS,Analyst,RES-42700,Standard entry per SOP-01,6.84
+2025-06-11 06:29:52,shared_qc_lab,INSERT,RESULTS,Service,RES-SVC-9,Automated entry,7.0
+2025-06-11 08:36:19,analyst_a,UPDATE,RESULTS,Analyst,RES-82142,Standard entry per SOP-01,7.21
+2025-06-11 09:38:41,analyst_brown,UPDATE,RESULTS,Analyst,RES-8769,error,7.0
+2025-06-11 13:07:22,analyst_c,UPDATE,RESULTS,Analyst,RES-13680,Standard entry per SOP-01,7.23
+2025-06-11 21:24:10,analyst_e,UPDATE,RESULTS,Analyst,RES-58912,Standard entry per SOP-01,6.5
+2025-06-12 00:09:12,analyst_d,UPDATE,RESULTS,Analyst,RES-11495,Standard entry per SOP-01,7.34
+2025-06-12 04:36:57,analyst_d,UPDATE,RESULTS,Analyst,RES-69193,Standard entry per SOP-01,7.35
+2025-06-12 06:28:40,analyst_a,UPDATE,RESULTS,Analyst,RES-23360,Standard entry per SOP-01,7.31
+2025-06-12 08:58:33,analyst_d,UPDATE,RESULTS,Analyst,RES-19143,Standard entry per SOP-01,7.17
+2025-06-12 12:20:06,analyst_d,UPDATE,RESULTS,Analyst,RES-23674,Standard entry per SOP-01,7.43
+2025-06-12 12:36:05,analyst_e,UPDATE,RESULTS,Analyst,RES-92155,Standard entry per SOP-01,7.01
+2025-06-12 13:28:56,analyst_e,UPDATE,RESULTS,Analyst,RES-29780,Standard entry per SOP-01,6.86
+2025-06-12 15:21:12,analyst_c,UPDATE,RESULTS,Analyst,RES-43345,Standard entry,7.0
+2025-06-12 15:27:59,admin_sys,UPDATE,RESULTS,Admin,RES-7780,Administrative adjustment,1.0
+2025-06-12 15:56:15,analyst_d,UPDATE,RESULTS,Analyst,RES-53690,Standard entry per SOP-01,7.41
+2025-06-12 18:11:52,analyst_b,UPDATE,RESULTS,Analyst,RES-61784,Standard entry per SOP-01,7.43
+2025-06-13 11:37:55,analyst_b,UPDATE,RESULTS,Analyst,RES-84645,Standard entry per SOP-01,7.07
+2025-06-13 12:14:37,analyst_a,UPDATE,RESULTS,Analyst,RES-50778,Standard entry per SOP-01,7.12
+2025-06-13 16:55:21,analyst_jones,INSERT,RESULTS,Analyst,RES-B-0,Batch entry,5.5
+2025-06-13 16:55:31,analyst_jones,INSERT,RESULTS,Analyst,RES-B-1,Batch entry,5.5
+2025-06-13 16:55:41,analyst_jones,INSERT,RESULTS,Analyst,RES-B-2,Batch entry,5.5
+2025-06-13 16:55:51,analyst_jones,INSERT,RESULTS,Analyst,RES-B-3,Batch entry,5.5
+2025-06-13 16:56:01,analyst_jones,INSERT,RESULTS,Analyst,RES-B-4,Batch entry,5.5
+2025-06-13 16:56:11,analyst_jones,INSERT,RESULTS,Analyst,RES-B-5,Batch entry,5.5
+2025-06-13 16:56:21,analyst_jones,INSERT,RESULTS,Analyst,RES-B-6,Batch entry,5.5
+2025-06-13 16:56:31,analyst_jones,INSERT,RESULTS,Analyst,RES-B-7,Batch entry,5.5
+2025-06-13 16:56:41,analyst_jones,INSERT,RESULTS,Analyst,RES-B-8,Batch entry,5.5
+2025-06-13 16:56:51,analyst_jones,INSERT,RESULTS,Analyst,RES-B-9,Batch entry,5.5
+2025-06-13 16:57:01,analyst_jones,INSERT,RESULTS,Analyst,RES-B-10,Batch entry,5.5
+2025-06-13 16:57:11,analyst_jones,INSERT,RESULTS,Analyst,RES-B-11,Batch entry,5.5
+2025-06-13 16:57:21,analyst_jones,INSERT,RESULTS,Analyst,RES-B-12,Batch entry,5.5
+2025-06-13 16:57:31,analyst_jones,INSERT,RESULTS,Analyst,RES-B-13,Batch entry,5.5
+2025-06-13 16:57:41,analyst_jones,INSERT,RESULTS,Analyst,RES-B-14,Batch entry,5.5
+2025-06-13 17:08:22,analyst_e,UPDATE,RESULTS,Analyst,RES-71720,Standard entry per SOP-01,6.62
+2025-06-13 19:14:47,analyst_a,UPDATE,RESULTS,Analyst,RES-D-4,Data update,500.0
+2025-06-13 19:29:29,analyst_b,UPDATE,RESULTS,Analyst,RES-81028,Standard entry per SOP-01,7.06
+2025-06-13 20:02:03,analyst_a,UPDATE,RESULTS,Analyst,RES-45183,Standard entry per SOP-01,7.42
+2025-06-13 20:42:49,analyst_e,UPDATE,RESULTS,Analyst,RES-87410,Standard entry per SOP-01,6.82
+2025-06-13 23:39:51,analyst_b,UPDATE,RESULTS,Analyst,RES-92474,Standard entry per SOP-01,6.9
+2025-06-14 02:43:53,analyst_d,UPDATE,RESULTS,Analyst,RES-30286,Standard entry per SOP-01,6.77
+2025-06-14 03:44:23,analyst_b,UPDATE,RESULTS,Analyst,RES-79580,Standard entry per SOP-01,7.35
+2025-06-14 04:06:47,analyst_a,UPDATE,RESULTS,Analyst,RES-D-5,Data update,500.0
+2025-06-14 04:37:35,analyst_e,UPDATE,RESULTS,Analyst,RES-63068,Standard entry per SOP-01,6.98
+2025-06-14 07:05:22,analyst_b,UPDATE,RESULTS,Analyst,RES-95700,Standard entry per SOP-01,6.98
+2025-06-14 11:14:40,analyst_c,UPDATE,RESULTS,Analyst,RES-48319,Standard entry per SOP-01,7.23
+2025-06-14 13:56:35,analyst_e,UPDATE,RESULTS,Analyst,RES-89392,Standard entry per SOP-01,7.3
+2025-06-14 15:04:34,analyst_d,UPDATE,RESULTS,Analyst,RES-89122,Standard entry per SOP-01,6.94
+2025-06-14 19:44:44,analyst_e,UPDATE,RESULTS,Analyst,RES-65603,Standard entry per SOP-01,6.95
+2025-06-14 19:50:56,analyst_e,UPDATE,RESULTS,Analyst,RES-19878,Standard entry per SOP-01,7.09
+2025-06-14 21:55:51,analyst_a,UPDATE,RESULTS,Analyst,RES-21395,Standard entry per SOP-01,6.62
+2025-06-14 22:38:10,analyst_e,UPDATE,RESULTS,Analyst,RES-64269,Standard entry per SOP-01,6.94
+2025-06-14 23:55:55,analyst_a,UPDATE,RESULTS,Analyst,RES-13604,Standard entry per SOP-01,6.53
+2025-06-14 23:58:29,analyst_e,UPDATE,RESULTS,Analyst,RES-97258,Standard entry per SOP-01,7.35
+2025-06-15 00:50:21,analyst_b,UPDATE,RESULTS,Analyst,RES-26012,Standard entry per SOP-01,6.83
+2025-06-15 06:27:23,analyst_e,UPDATE,RESULTS,Analyst,RES-55090,Standard entry per SOP-01,6.99
+2025-06-15 09:59:07,analyst_a,UPDATE,RESULTS,Analyst,RES-72979,Standard entry per SOP-01,7.33
+2025-06-15 15:24:44,analyst_a,UPDATE,RESULTS,Analyst,RES-38001,Standard entry per SOP-01,6.73
+2025-06-15 16:04:09,analyst_b,UPDATE,RESULTS,Analyst,RES-62780,Standard entry per SOP-01,6.82
+2025-06-15 16:08:33,analyst_a,UPDATE,RESULTS,Analyst,RES-51360,Standard entry per SOP-01,6.79
+2025-06-15 17:14:03,analyst_c,UPDATE,RESULTS,Analyst,RES-42166,Standard entry per SOP-01,6.61
+2025-06-15 17:20:34,analyst_a,UPDATE,RESULTS,Analyst,RES-56597,Standard entry per SOP-01,6.67
+2025-06-15 18:17:03,analyst_a,UPDATE,RESULTS,Analyst,RES-80393,Standard entry per SOP-01,7.28
+2025-06-15 21:56:09,analyst_e,UPDATE,RESULTS,Analyst,RES-40268,Standard entry per SOP-01,6.55
+2025-06-15 23:58:26,analyst_b,UPDATE,RESULTS,Analyst,RES-64484,Standard entry per SOP-01,6.61
+2025-06-16 02:19:12,analyst_a,UPDATE,RESULTS,Analyst,RES-97454,Standard entry per SOP-01,7.27
+2025-06-16 02:27:56,analyst_d,UPDATE,RESULTS,Analyst,RES-25771,Standard entry per SOP-01,7.24
+2025-06-16 05:46:32,analyst_d,UPDATE,RESULTS,Analyst,RES-87648,Standard entry per SOP-01,7.3
+2025-06-16 06:48:11,analyst_a,UPDATE,RESULTS,Analyst,RES-64850,Standard entry per SOP-01,6.82
+2025-06-16 12:04:43,analyst_a,UPDATE,RESULTS,Analyst,RES-11510,Standard entry per SOP-01,7.13
+2025-06-16 18:12:02,analyst_d,UPDATE,RESULTS,Analyst,RES-73806,Standard entry per SOP-01,7.5
+2025-06-16 19:10:49,analyst_b,UPDATE,RESULTS,Analyst,RES-41486,Standard entry per SOP-01,7.27
+2025-06-16 20:51:19,analyst_d,UPDATE,RESULTS,Analyst,RES-68921,Standard entry per SOP-01,6.74
+2025-06-16 22:23:26,analyst_a,UPDATE,RESULTS,Analyst,RES-60645,Standard entry per SOP-01,6.95
+2025-06-16 23:44:48,analyst_c,UPDATE,RESULTS,Analyst,RES-83872,Standard entry per SOP-01,6.77
+2025-06-17 00:52:34,analyst_c,UPDATE,RESULTS,Analyst,RES-83863,Standard entry per SOP-01,6.91
+2025-06-17 01:18:03,analyst_b,UPDATE,RESULTS,Analyst,RES-35760,Standard entry per SOP-01,7.41
+2025-06-17 04:14:51,analyst_b,UPDATE,RESULTS,Analyst,RES-19734,Standard entry per SOP-01,7.19
+2025-06-17 07:56:21,analyst_a,UPDATE,RESULTS,Analyst,RES-81177,Standard entry per SOP-01,6.54
+2025-06-17 08:20:30,analyst_e,UPDATE,RESULTS,Analyst,RES-35633,Standard entry per SOP-01,7.1
+2025-06-17 09:04:05,analyst_e,UPDATE,RESULTS,Analyst,RES-86494,Standard entry per SOP-01,6.68
+2025-06-17 09:34:34,analyst_b,UPDATE,RESULTS,Analyst,RES-38498,Standard entry per SOP-01,7.48
+2025-06-17 10:00:09,analyst_e,UPDATE,RESULTS,Analyst,RES-19442,Standard entry per SOP-01,6.88
+2025-06-17 10:29:54,analyst_a,UPDATE,RESULTS,Analyst,RES-42977,Standard entry per SOP-01,7.3
+2025-06-17 10:38:00,analyst_z,UPDATE,RESULTS,Analyst,RES-5028,ok,7.0
+2025-06-17 17:46:24,analyst_e,UPDATE,RESULTS,Analyst,RES-32901,Standard entry per SOP-01,7.45
+2025-06-17 20:07:12,svc_lims_batch,INSERT,RESULTS,Service,RES-SVC-7,Automated entry,7.0
+2025-06-18 02:00:32,analyst_e,UPDATE,RESULTS,Analyst,RES-26409,Standard entry per SOP-01,7.23
+2025-06-18 02:50:12,analyst_c,UPDATE,RESULTS,Analyst,RES-92429,Standard entry per SOP-01,6.94
+2025-06-18 02:57:19,analyst_brown,UPDATE,RESULTS,Analyst,RES-6588,fixed,7.0
+2025-06-18 03:48:28,analyst_b,UPDATE,RESULTS,Analyst,RES-36432,Standard entry per SOP-01,6.51
+2025-06-18 05:06:15,analyst_c,UPDATE,RESULTS,Analyst,RES-84368,Standard entry per SOP-01,6.86
+2025-06-18 06:14:28,analyst_d,UPDATE,RESULTS,Analyst,RES-90645,Standard entry per SOP-01,7.07
+2025-06-18 08:07:43,analyst_e,UPDATE,RESULTS,Analyst,RES-68273,Standard entry per SOP-01,7.13
+2025-06-18 10:19:37,analyst_a,UPDATE,RESULTS,Analyst,RES-29731,Standard entry per SOP-01,7.41
+2025-06-18 13:51:43,analyst_c,UPDATE,RESULTS,Analyst,RES-61082,Standard entry per SOP-01,6.77
+2025-06-18 15:47:41,analyst_c,UPDATE,RESULTS,Analyst,RES-53802,Standard entry per SOP-01,7.35
+2025-06-18 16:10:02,analyst_c,UPDATE,RESULTS,Analyst,RES-49681,Standard entry per SOP-01,6.8
+2025-06-18 19:36:05,analyst_e,UPDATE,RESULTS,Analyst,RES-55743,Standard entry per SOP-01,7.35
+2025-06-19 02:22:15,admin_sys,UPDATE,RESULTS,Admin,RES-9662,Administrative adjustment,1.0
+2025-06-19 05:42:22,analyst_b,UPDATE,RESULTS,Analyst,RES-43404,Standard entry per SOP-01,7.22
+2025-06-19 11:35:10,analyst_c,UPDATE,RESULTS,Analyst,RES-80327,Standard entry per SOP-01,6.98
+2025-06-19 12:20:35,analyst_c,UPDATE,RESULTS,Analyst,RES-46721,Standard entry per SOP-01,6.79
+2025-06-19 15:09:59,analyst_a,UPDATE,RESULTS,Analyst,RES-45131,Standard entry per SOP-01,7.02
+2025-06-19 17:05:44,analyst_c,UPDATE,RESULTS,Analyst,RES-63578,Standard entry per SOP-01,6.94
+2025-06-19 19:12:07,analyst_a,UPDATE,RESULTS,Analyst,RES-94768,Standard entry per SOP-01,6.93
+2025-06-20 01:40:46,analyst_d,UPDATE,RESULTS,Analyst,RES-92967,Standard entry per SOP-01,7.2
+2025-06-20 03:21:18,analyst_d,UPDATE,RESULTS,Analyst,RES-28915,Standard entry per SOP-01,6.88
+2025-06-20 04:52:21,analyst_c,UPDATE,RESULTS,Analyst,RES-23407,Standard entry per SOP-01,7.42
+2025-06-20 08:20:43,analyst_c,UPDATE,RESULTS,Analyst,RES-35182,Standard entry per SOP-01,7.18
+2025-06-20 14:46:26,analyst_c,UPDATE,RESULTS,Analyst,RES-67666,Standard entry per SOP-01,6.66
+2025-06-20 16:15:21,old_timer,UPDATE,RESULTS,Analyst,RES-OLD-2,Back from leave,7.0
+2025-06-20 17:20:27,analyst_b,UPDATE,RESULTS,Analyst,RES-55422,Standard entry,7.0
+2025-06-20 17:28:10,analyst_d,UPDATE,RESULTS,Analyst,RES-40848,Standard entry per SOP-01,6.6
+2025-06-20 22:05:32,analyst_d,UPDATE,RESULTS,Analyst,RES-12217,Standard entry per SOP-01,6.72
+2025-06-21 01:01:21,admin_sys,UPDATE,RESULTS,Admin,RES-6435,Administrative adjustment,1.0
+2025-06-21 05:13:23,analyst_a,UPDATE,RESULTS,Analyst,RES-20644,Standard entry per SOP-01,6.53
+2025-06-21 06:38:21,analyst_a,UPDATE,RESULTS,Analyst,RES-21254,Standard entry per SOP-01,7.26
+2025-06-21 09:59:15,analyst_b,UPDATE,RESULTS,Analyst,RES-24500,Standard entry per SOP-01,6.54
+2025-06-21 13:53:12,analyst_d,UPDATE,RESULTS,Analyst,RES-90244,Standard entry per SOP-01,6.89
+2025-06-21 23:46:55,analyst_b,UPDATE,RESULTS,Analyst,RES-55253,Standard entry per SOP-01,7.4
+2025-06-22 00:09:34,analyst_e,UPDATE,RESULTS,Analyst,RES-64651,Standard entry per SOP-01,7.32
+2025-06-22 04:13:02,analyst_a,UPDATE,RESULTS,Analyst,RES-23744,Standard entry per SOP-01,6.94
+2025-06-22 05:32:53,analyst_b,UPDATE,RESULTS,Analyst,RES-88551,Standard entry per SOP-01,7.22
+2025-06-22 05:39:01,analyst_d,UPDATE,RESULTS,Analyst,RES-96216,Standard entry per SOP-01,7.18
+2025-06-22 11:35:05,analyst_c,UPDATE,RESULTS,Analyst,RES-27202,Standard entry per SOP-01,6.68
+2025-06-22 12:10:45,analyst_b,UPDATE,RESULTS,Analyst,RES-38509,Standard entry per SOP-01,7.08
+2025-06-22 12:38:28,analyst_a,UPDATE,RESULTS,Analyst,RES-69231,Standard entry per SOP-01,6.9
+2025-06-22 13:01:18,analyst_b,UPDATE,RESULTS,Analyst,RES-36907,Standard entry per SOP-01,6.71
+2025-06-22 14:36:08,analyst_b,UPDATE,RESULTS,Analyst,RES-76432,Standard entry per SOP-01,7.38
+2025-06-22 15:07:37,analyst_b,UPDATE,RESULTS,Analyst,RES-51110,Standard entry per SOP-01,6.98
+2025-06-22 18:37:22,analyst_c,UPDATE,RESULTS,Analyst,RES-91795,Standard entry per SOP-01,7.07
+2025-06-22 18:40:40,analyst_a,UPDATE,RESULTS,Analyst,RES-24021,Standard entry per SOP-01,7.18
+2025-06-22 21:11:56,analyst_b,UPDATE,RESULTS,Analyst,RES-98063,Standard entry per SOP-01,7.09
+2025-06-23 00:27:44,analyst_c,UPDATE,RESULTS,Analyst,RES-69040,Standard entry per SOP-01,7.01
+2025-06-23 00:41:11,analyst_a,UPDATE,RESULTS,Analyst,RES-88154,Standard entry per SOP-01,6.66
+2025-06-23 03:39:47,analyst_c,UPDATE,RESULTS,Analyst,RES-47946,Standard entry per SOP-01,6.66
+2025-06-23 08:02:02,analyst_c,UPDATE,RESULTS,Analyst,RES-56916,Standard entry per SOP-01,7.0
+2025-06-23 11:06:21,analyst_d,UPDATE,RESULTS,Analyst,RES-82174,Standard entry per SOP-01,7.03
+2025-06-23 11:46:38,analyst_c,UPDATE,RESULTS,Analyst,RES-91610,Standard entry per SOP-01,7.4
+2025-06-23 17:06:50,analyst_e,UPDATE,RESULTS,Analyst,RES-17102,Standard entry per SOP-01,6.96
+2025-06-23 21:13:37,analyst_e,UPDATE,RESULTS,Analyst,RES-61162,Standard entry per SOP-01,6.93
+2025-06-23 23:08:03,analyst_c,UPDATE,RESULTS,Analyst,RES-68645,Standard entry per SOP-01,6.65
+2025-06-24 00:45:56,analyst_d,UPDATE,RESULTS,Analyst,RES-18870,Standard entry per SOP-01,6.72
+2025-06-24 04:16:43,analyst_d,UPDATE,RESULTS,Analyst,RES-57435,Standard entry per SOP-01,6.98
+2025-06-24 12:42:09,analyst_b,UPDATE,RESULTS,Analyst,RES-9235,ok,7.0
+2025-06-24 16:09:33,analyst_a,UPDATE,RESULTS,Analyst,RES-19749,Standard entry per SOP-01,6.81
+2025-06-24 17:23:34,admin_sys,UPDATE,RESULTS,Admin,RES-3602,Administrative adjustment,1.0
+2025-06-24 18:48:37,analyst_d,UPDATE,RESULTS,Analyst,RES-38471,Standard entry per SOP-01,7.34
+2025-06-24 21:08:16,analyst_e,UPDATE,RESULTS,Analyst,RES-14402,Standard entry per SOP-01,6.77
+2025-06-25 03:20:36,analyst_c,UPDATE,RESULTS,Analyst,RES-44468,Standard entry per SOP-01,6.89
+2025-06-25 06:56:10,analyst_d,UPDATE,RESULTS,Analyst,RES-48152,Standard entry per SOP-01,6.97
+2025-06-25 14:54:09,analyst_c,UPDATE,RESULTS,Analyst,RES-48937,Standard entry per SOP-01,6.69
+2025-06-25 16:24:30,analyst_b,UPDATE,RESULTS,Analyst,RES-77287,Standard entry per SOP-01,6.87
+2025-06-25 19:32:08,analyst_e,UPDATE,RESULTS,Analyst,RES-26599,Standard entry per SOP-01,6.97
+2025-06-25 20:35:12,analyst_e,UPDATE,RESULTS,Analyst,RES-88435,Standard entry per SOP-01,7.08
+2025-06-25 22:12:13,analyst_a,UPDATE,RESULTS,Analyst,RES-14241,Standard entry per SOP-01,7.01
+2025-06-25 23:28:34,analyst_e,UPDATE,RESULTS,Analyst,RES-75151,Standard entry per SOP-01,6.7
+2025-06-26 01:17:08,analyst_d,UPDATE,RESULTS,Analyst,RES-61808,Standard entry per SOP-01,7.22
+2025-06-26 01:28:56,jsmith,UPDATE,RESULTS,Analyst,RES-5317,correction,7.0
+2025-06-26 02:12:31,analyst_a,UPDATE,RESULTS,Analyst,RES-90134,Standard entry per SOP-01,6.9
+2025-06-26 14:58:54,analyst_c,UPDATE,RESULTS,Analyst,RES-79547,Standard entry per SOP-01,7.07
+2025-06-26 15:40:01,analyst_d,UPDATE,RESULTS,Analyst,RES-15361,Standard entry per SOP-01,7.12
+2025-06-26 16:32:46,analyst_b,UPDATE,RESULTS,Analyst,RES-58231,Standard entry per SOP-01,7.46
+2025-06-26 17:25:38,analyst_e,UPDATE,RESULTS,Analyst,RES-49775,Standard entry per SOP-01,6.57
+2025-06-26 22:20:32,analyst_c,UPDATE,RESULTS,Analyst,RES-54680,Standard entry per SOP-01,6.89
+2025-06-26 23:26:16,analyst_d,UPDATE,RESULTS,Analyst,RES-96041,Standard entry per SOP-01,6.61
+2025-06-27 01:06:05,analyst_e,UPDATE,RESULTS,Analyst,RES-11121,Standard entry per SOP-01,7.15
+2025-06-27 01:19:17,analyst_c,UPDATE,RESULTS,Analyst,RES-15105,Standard entry per SOP-01,6.87
+2025-06-27 01:59:26,analyst_d,UPDATE,RESULTS,Analyst,RES-87502,Standard entry per SOP-01,7.45
+2025-06-27 02:40:52,analyst_c,DELETE,SAMPLE_DATA,Analyst,SMP-999,First time delete,
+2025-06-27 03:28:57,analyst_a,UPDATE,RESULTS,Analyst,RES-32832,Standard entry per SOP-01,7.26
+2025-06-27 05:08:20,it_manager,SELECT,SAMPLE_DATA,Manager,N/A,Audit check,
+2025-06-27 08:27:04,analyst_e,UPDATE,RESULTS,Analyst,RES-29553,Standard entry per SOP-01,7.39
+2025-06-27 11:38:44,analyst_a,UPDATE,RESULTS,Analyst,RES-D-2,Data update,500.0
+2025-06-27 11:59:42,analyst_d,UPDATE,RESULTS,Analyst,RES-57772,Standard entry,7.0
+2025-06-27 12:43:58,analyst_c,UPDATE,RESULTS,Analyst,RES-43906,Standard entry per SOP-01,6.92
+2025-06-27 15:05:44,analyst_b,UPDATE,RESULTS,Analyst,RES-1252,error,7.0
+2025-06-27 19:26:19,analyst_b,UPDATE,RESULTS,Analyst,RES-97774,Standard entry per SOP-01,6.77
+2025-06-27 19:33:40,analyst_e,UPDATE,RESULTS,Analyst,RES-89042,Standard entry,7.0
+2025-06-27 21:00:04,analyst_c,UPDATE,RESULTS,Analyst,RES-21184,Standard entry per SOP-01,6.71
+2025-06-27 22:15:47,analyst_b,UPDATE,RESULTS,Analyst,RES-65842,Standard entry per SOP-01,6.64
+2025-06-27 23:27:34,analyst_e,UPDATE,RESULTS,Analyst,RES-44192,Standard entry per SOP-01,6.51
+2025-06-28 12:05:50,analyst_a,UPDATE,RESULTS,Analyst,RES-24290,Standard entry per SOP-01,7.38
+2025-06-28 13:57:55,analyst_b,UPDATE,RESULTS,Analyst,RES-37688,Standard entry per SOP-01,7.02
+2025-06-28 14:55:17,analyst_b,UPDATE,RESULTS,Analyst,RES-49478,Standard entry per SOP-01,6.96
+2025-06-28 22:05:44,analyst_a,UPDATE,RESULTS,Analyst,RES-62397,Standard entry per SOP-01,6.55
+2025-06-29 07:26:25,analyst_d,UPDATE,RESULTS,Analyst,RES-95039,Standard entry per SOP-01,7.11
+2025-06-29 09:20:38,analyst_d,UPDATE,RESULTS,Analyst,RES-46800,Standard entry per SOP-01,6.89
+2025-06-29 10:44:14,analyst_b,UPDATE,RESULTS,Analyst,RES-81533,Standard entry per SOP-01,6.81
+2025-06-29 10:56:21,analyst_d,UPDATE,RESULTS,Analyst,RES-34586,Standard entry per SOP-01,7.01
+2025-06-29 16:31:48,analyst_e,UPDATE,RESULTS,Analyst,RES-91612,Standard entry per SOP-01,6.99
+2025-06-29 17:05:09,analyst_d,UPDATE,RESULTS,Analyst,RES-70435,Standard entry per SOP-01,6.98
+2025-06-29 20:28:38,analyst_d,UPDATE,RESULTS,Analyst,RES-41645,Standard entry per SOP-01,6.59
+2025-06-29 22:36:19,analyst_e,UPDATE,RESULTS,Analyst,RES-10066,Standard entry per SOP-01,6.55
+2025-06-29 23:28:29,analyst_new,UPDATE,RESULTS,Analyst,RES-8254,correction,7.0
+2025-07-04 10:00:00,analyst_a,UPDATE,RESULTS,Analyst,RES-HOL,Holiday entry,7.0
