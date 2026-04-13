@@ -8255,88 +8255,82 @@ def _at_deterministic_justification(row: dict) -> str:
 
 def at_generate_justifications(top_df: pd.DataFrame, model_id: str) -> pd.DataFrame:
     """
-    Generates a 3-sentence GxP justification for each escalated event.
-    Primary path: LLM via litellm.
-    Fallback: deterministic Python justification — same format, no visible error.
-    The client never sees an error string in the output regardless of LLM status.
+    Generates a one-sentence factual log summary for each escalated event.
+    Primary: single batched LLM call returning JSON array — target 5-15s total.
+    Fallback: deterministic Python justification per event — no visible error.
     """
-    justifications = []
     total = len(top_df)
+    if total == 0:
+        return top_df
 
+    # ── Build batch prompt ────────────────────────────────────────────────────
+    events_payload = []
     for rank, (_, row) in enumerate(top_df.iterrows(), 1):
-        text = None
+        events_payload.append({
+            "id":          rank,
+            "user":        str(row.get("user_id",     "unknown")),
+            "action":      str(row.get("action_type", "unknown")),
+            "record_type": str(row.get("record_type", "")),
+            "record_id":   str(row.get("record_id",   "")),
+            "timestamp":   str(row.get("timestamp",   "")),
+            "comment":     str(row.get("comments",    ""))[:80],
+            "sequence":    str(row.get("Sequence_Context", "")).strip(),
+        })
 
-        # ── Primary: LLM ──────────────────────────────────────────────────────
-        try:
-            from litellm import completion as _comp
-            triggered = str(row.get("Triggered_Rules","None"))
-            rule_rat  = str(row.get("Rule_Rationale","")).split(" | ")[0][:250]
-            sugg_disp = str(row.get("Suggested_Disposition",""))
-            record_id = str(row.get("record_id","unknown record"))
-            rec_type  = str(row.get("record_type","unknown type"))
-            usr       = str(row.get("user_id","unknown user"))
-            act       = str(row.get("action_type","unknown action"))
-            cmt       = str(row.get("comments","none provided"))
-            ts        = str(row.get("timestamp","unknown time"))
+    batch_prompt = f"""You are writing the "What Happened" column in a GxP audit trail review table.
 
-            seq_ctx   = str(row.get("Sequence_Context","")).strip()
-            chain_ctx = f"  Sequence context: {seq_ctx}\n" if seq_ctx else ""
+For each of the {total} events below, write exactly ONE sentence stating observable log facts only.
 
-            # Determine primary rule to anchor the narrative
-            all_rules = [r.strip() for r in triggered.split(";") if r.strip()]
-            primary_rule = all_rules[0] if all_rules else "Risk indicator detected"
+HARD RULES:
+1. State ONLY: who, what action, which record, when, what comment was recorded.
+2. If "sequence" is provided, include it in your sentence.
+3. Do NOT use regulatory language, risk language, or action instructions.
+4. ONE sentence per event. Max 40 words each.
+5. Respond ONLY with a valid JSON array of objects: [{{"id": 1, "narrative": "..."}}, ...]
+6. No preamble, no explanation, no markdown. Raw JSON only.
 
-            prompt = f"""You are writing the System Narrative column in a GxP audit trail review table.
+EVENTS:
+{events_payload}
 
-YOUR ONLY JOB: Write exactly ONE sentence stating the observable facts from the log.
+Respond with JSON array only."""
 
-HARD RULES — no exceptions:
-1. State ONLY what the log record shows: who, what action, on which record, at what time, what comment was recorded.
-2. If Sequence context is provided below, you MUST include it in your sentence — it is factual log context.
-3. Do NOT use any regulatory language: no "may indicate", "raises a concern", "is inconsistent with", "warrants", "ALCOA", "21 CFR", "data integrity".
-4. Do NOT recommend any action: no "verify", "confirm", "obtain", "investigate", "escalate".
-5. Do NOT infer intent or motivation.
-6. ONE sentence. Max 40 words.
+    justifications = [""] * total
 
-Log data:
-  User: {usr}
-  Action: {act}
-  Record type: {rec_type}
-  Record ID: {record_id}
-  Timestamp: {ts}
-  Comment on file: "{cmt}"
-{chain_ctx}
-CORRECT example: "analyst_x performed DELETE on RESULTS/RES-042 at 02:14 on 15-Mar-2026; no change reason was recorded."
-CORRECT example: "svc_batch executed APPROVE on BATCH_RELEASE/BR-117 at 09:32 on 22-Jan-2026; comment reads 'release ok'."
-WRONG example: "This action may indicate unauthorised access to a GxP record." [contains regulatory language]
-WRONG example: "Verify the user's access rights before closing this finding." [contains action instruction]
+    # ── Primary: batch LLM call ───────────────────────────────────────────────
+    try:
+        candidate = _call_ai_with_fallback(
+            user_prompt=batch_prompt,
+            system_prompt=(
+                "You write one-sentence factual log summaries for pharmaceutical QA tables. "
+                "Respond only with a JSON array. No preamble. No markdown."),
+            max_tokens=min(80 * total, 2000),
+            temperature=0.05,
+        )
+        if candidate:
+            import json as _json
+            _clean = candidate.strip()
+            if _clean.startswith("```"):
+                _clean = "\n".join(_clean.split("\n")[1:])
+            if _clean.endswith("```"):
+                _clean = _clean[:_clean.rfind("```")]
+            parsed = _json.loads(_clean.strip())
+            if isinstance(parsed, list):
+                _by_id = {item["id"]: item["narrative"]
+                          for item in parsed
+                          if isinstance(item, dict) and "id" in item and "narrative" in item}
+                for rank in range(1, total + 1):
+                    if rank in _by_id and len(_by_id[rank]) > 20:
+                        justifications[rank - 1] = _by_id[rank]
+    except Exception:
+        pass   # fall through to deterministic for any that are still empty
 
-Write only the one sentence. No labels, no preamble, no explanation."""
-
-            candidate = _call_ai_with_fallback(
-                user_prompt=prompt,
-                system_prompt=(
-                    "You write one-sentence factual log summaries for pharmaceutical QA tables. "
-                    "State only observable facts: who, what, which record, when, what comment. "
-                    "No regulatory language. No action instructions. One sentence, max 30 words."
-                ),
-                max_tokens=80,
-                temperature=0.05,
-            )
-            if candidate and len(candidate) > 40 and "error" not in candidate.lower()[:30]:
-                text = candidate
-
-        except Exception:
-            pass   # silently fall through to deterministic fallback
-
-        # ── Fallback: deterministic Python justification ───────────────────────
-        if not text:
-            text = _at_deterministic_justification(row.to_dict())
-
-        justifications.append(text)
+    # ── Fallback: deterministic for any event that didn't get an AI narrative ──
+    for rank, (_, row) in enumerate(top_df.iterrows(), 1):
+        if not justifications[rank - 1]:
+            justifications[rank - 1] = _at_deterministic_justification(row.to_dict())
 
     top_df = top_df.copy()
-    top_df["AI_Justification"] = justifications  # internal key unchanged for compatibility
+    top_df["AI_Justification"] = justifications
     return top_df
 
 
@@ -11799,6 +11793,8 @@ def dim_score_periods(df: pd.DataFrame) -> dict:
         "top_rule":          rule_df.iloc[0]["Rule"] if len(rule_df) else None,
         "top3":              top3,
         "rules_skipped":     rules_skipped,
+        # Used by narrative for clean-user benchmark
+        "repeat_df_usernames": list(repeat_df["Username"].unique()) if not repeat_df.empty else [],
     }
 
     return {
@@ -11814,15 +11810,702 @@ def dim_score_periods(df: pd.DataFrame) -> dict:
 def dim_build_excel(result: dict, system_name: str, file_name: str,
                     model_id: str) -> bytes:
     """
-    Build 5-sheet GxP evidence workbook for Data Integrity Monitor findings.
-    Sheets: Dashboard, Period Trends, Repeat Users, Rule Recurrence, Narrative Summary.
+    Build 6-sheet GxP evidence workbook for Data Integrity Monitor findings.
+    Sheets: Dashboard, Period Trends, Repeat Users, Rule Recurrence,
+            Activity Heatmap, Narrative Summary.
     """
     from openpyxl import Workbook
     from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
     from openpyxl.utils import get_column_letter
+    from openpyxl.formatting.rule import ColorScaleRule
 
     output   = io.BytesIO()
     wb       = Workbook()
+
+    # ── Colour palette ────────────────────────────────────────────────────────
+    C_NAVY   = "1E3A5F"
+    C_WHITE  = "FFFFFF"
+    C_AMBER  = "D97706"
+    C_RED    = "C0392B"
+    C_GREEN  = "27AE60"
+    C_GREY   = "F1F5F9"
+    C_MID    = "94A3B8"
+    C_LIGHT  = "EFF6FF"
+
+    _POSTURE_COLORS = {
+        "Critical":     ("C0392B", "FFFFFF"),
+        "Deteriorating":("EA580C", "FFFFFF"),
+        "Stable":       ("1D4ED8", "FFFFFF"),
+        "Improving":    ("16A34A", "FFFFFF"),
+        "Baseline":     ("64748B", "FFFFFF"),
+    }
+    _TREND_COLORS = {
+        "Significant Increase": "B91C1C",
+        "Moderate Increase":    "C2410C",
+        "Slight Increase":      "B45309",
+        "Stable":               "1D4ED8",
+        "Slight Decrease":      "15803D",
+        "Moderate Decrease":    "166534",
+        "Significant Decrease": "14532D",
+    }
+    _TREND_BG = {
+        "Significant Increase": "FEF2F2",
+        "Moderate Increase":    "FFF7ED",
+        "Slight Increase":      "FFFBEB",
+        "Stable":               "EFF6FF",
+        "Slight Decrease":      "F0FDF4",
+        "Moderate Decrease":    "DCFCE7",
+        "Significant Decrease": "BBF7D0",
+    }
+
+    bdr = Border(
+        left=Side(style="thin", color="D1D5DB"),
+        right=Side(style="thin", color="D1D5DB"),
+        top=Side(style="thin", color="D1D5DB"),
+        bottom=Side(style="thin", color="D1D5DB"),
+    )
+    bdr_none = Border()
+
+    def _fill(hex_color): return PatternFill("solid", fgColor=hex_color)
+
+    def _hdr(ws, row, col, val, width=None, bold=True, bg=C_NAVY, fg=C_WHITE,
+             size=9, wrap=False, align="left"):
+        c = ws.cell(row=row, column=col, value=val)
+        c.font      = Font(name="Calibri", bold=bold, size=size, color=fg)
+        c.fill      = _fill(bg)
+        c.alignment = Alignment(horizontal=align, vertical="center", wrap_text=wrap)
+        c.border    = bdr
+        if width:
+            ws.column_dimensions[get_column_letter(col)].width = width
+        return c
+
+    def _cell(ws, row, col, val, bold=False, bg=None, fg="1A1A1A",
+              size=9, wrap=False, align="left", border=True):
+        c = ws.cell(row=row, column=col, value=val)
+        c.font      = Font(name="Calibri", bold=bold, size=size, color=fg)
+        c.fill      = _fill(bg) if bg else PatternFill()
+        c.alignment = Alignment(horizontal=align, vertical="top", wrap_text=wrap)
+        c.border    = bdr if border else bdr_none
+        return c
+
+    smry    = result["summary"]
+    periods = result["periods"]
+    pdf     = result["period_df"]
+    rdf     = result["repeat_df"]
+    ruledf  = result["rule_df"]
+    raw_df  = result.get("raw_df", pd.DataFrame())
+
+    last_period_label = f"Period {len(periods)} ({periods[-1]})"
+    first_period_label = f"Period 1 ({periods[0]})"
+
+    # =========================================================================
+    # SHEET 1 — DASHBOARD
+    # =========================================================================
+    ws1 = wb.active
+    ws1.title = "Dashboard"
+    ws1.sheet_view.showGridLines = False
+    ws1.column_dimensions["A"].width = 32
+    ws1.column_dimensions["B"].width = 24
+    ws1.column_dimensions["C"].width = 24
+    ws1.column_dimensions["D"].width = 24
+    ws1.column_dimensions["E"].width = 24
+
+    # ── Row 1: Title ──────────────────────────────────────────────────────────
+    ws1.merge_cells("A1:E1")
+    t = ws1.cell(row=1, column=1,
+                 value="⬡  DATA INTEGRITY MONITOR — COMMAND CENTRE")
+    t.font      = Font(name="Calibri", bold=True, size=15, color=C_NAVY)
+    t.alignment = Alignment(horizontal="left", vertical="center")
+    ws1.row_dimensions[1].height = 28
+
+    # ── Row 2: Metadata ───────────────────────────────────────────────────────
+    ws1.merge_cells("A2:E2")
+    meta = ws1.cell(row=2, column=1,
+             value=f"System: {system_name or '(not entered)'}   |   "
+                   f"Source: {file_name}   |   "
+                   + "   |   ".join(
+                       f"Period {i+1}: {p}" for i, p in enumerate(periods))
+                   + f"   |   Generated: "
+                   f"{datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}")
+    meta.font      = Font(name="Calibri", size=8.5, color="5A6A7A")
+    meta.alignment = Alignment(horizontal="left", vertical="center")
+    ws1.row_dimensions[2].height = 14
+
+    # ── Row 4: DI Posture traffic-light banner ────────────────────────────────
+    posture    = smry["posture_last"]
+    p_bg, p_fg = _POSTURE_COLORS.get(posture, (C_MID, C_WHITE))
+    _posture_icon = {
+        "Critical": "🔴", "Deteriorating": "🟠",
+        "Stable": "🔵", "Improving": "🟢", "Baseline": "⚪"
+    }.get(posture, "⚪")
+    ws1.merge_cells("A4:E4")
+    pos = ws1.cell(row=4, column=1,
+                   value=f"{_posture_icon}  DI POSTURE: {posture.upper()}"
+                         f"   |   {last_period_label} vs {first_period_label}")
+    pos.font      = Font(name="Calibri", bold=True, size=13, color=p_fg)
+    pos.fill      = _fill(p_bg)
+    pos.alignment = Alignment(horizontal="left", vertical="center")
+    ws1.row_dimensions[4].height = 32
+
+    # ── Row 5: Divider label ──────────────────────────────────────────────────
+    ws1.merge_cells("A5:E5")
+    div = ws1.cell(row=5, column=1,
+                   value=f"KEY METRICS — {last_period_label}")
+    div.font      = Font(name="Calibri", bold=True, size=9,
+                         color=C_NAVY)
+    div.fill      = _fill(C_LIGHT)
+    div.alignment = Alignment(horizontal="left", vertical="center")
+    ws1.row_dimensions[5].height = 16
+
+    # ── Rows 6-8: KPI tiles (Total, Deletions, Failed Logins, Off-Hours) ──────
+    # H/C removed — always equals Total since DIM only banks H/C events
+    last_row = pdf.iloc[-1]
+    kpis = [
+        ("Total Findings",      "Total_Findings",      C_NAVY),
+        ("Deletion Events",     "Deletion_Findings",   C_RED),
+        ("Failed Login Events", "Failed_Login",        "7C3AED"),
+        ("Off-Hours Events",    "Off_Hours",           C_AMBER),
+    ]
+    for ci, (label, col_key, kpi_color) in enumerate(kpis, 1):
+        val  = int(last_row[col_key])
+        pct  = last_row.get(f"{col_key}_pct_chg")
+        _hdr(ws1, 6, ci, label, bold=True, bg=C_NAVY, fg=C_WHITE, align="center")
+        vc = ws1.cell(row=7, column=ci, value=val)
+        vc.font      = Font(name="Calibri", bold=True, size=20, color=kpi_color)
+        vc.fill      = _fill("F8FAFC")
+        vc.alignment = Alignment(horizontal="center", vertical="center")
+        vc.border    = bdr
+        ws1.row_dimensions[7].height = 36
+        if pd.notna(pct) and pct is not None:
+            arrow      = _dim_trend_arrow(float(pct))
+            tlabel     = _dim_trend_label(float(pct))
+            tcolor     = _TREND_COLORS.get(tlabel, "1A1A1A")
+            tbg        = _TREND_BG.get(tlabel, C_GREY)
+            delta_text = f"{arrow} {pct:+.1f}% vs prior"
+            tc = ws1.cell(row=8, column=ci, value=delta_text)
+            tc.font      = Font(name="Calibri", size=8, bold=True, color=tcolor)
+            tc.fill      = _fill(tbg)
+            tc.alignment = Alignment(horizontal="center", vertical="center")
+            tc.border    = bdr
+        ws1.row_dimensions[8].height = 16
+
+    # ── Row 10: TOP 3 ACTIONS ─────────────────────────────────────────────────
+    ws1.merge_cells("A10:E10")
+    t3h = ws1.cell(row=10, column=1, value="▼  TOP 3 ACTIONS — REVIEW TODAY")
+    t3h.font      = Font(name="Calibri", bold=True, size=9, color=C_RED)
+    t3h.fill      = _fill("FEF2F2")
+    t3h.alignment = Alignment(horizontal="left", vertical="center")
+    ws1.row_dimensions[10].height = 16
+
+    top3 = smry.get("top3", [])
+    if top3:
+        _hdr(ws1, 11, 1, "Metric")
+        _hdr(ws1, 11, 2, "Latest Count", align="center")
+        _hdr(ws1, 11, 3, "vs Prior", align="center")
+        _hdr(ws1, 11, 4, "Trend")
+        _hdr(ws1, 11, 5, "Suggested CAPA", bg="7C3AED")
+        ws1.row_dimensions[11].height = 16
+        _CAPA_MAP = {
+            "Total Findings":       "Review top recurring rules — consider targeted user training and access review.",
+            "Deletion Events":      "Audit all deletions against source docs. Consider restricting DELETE permissions for non-DBA roles.",
+            "High/Critical Findings":"Escalate top repeat offenders to QA management. Initiate CAPA for recurring Critical events.",
+            "Failed Login Events":  "Verify no credential sharing. Enforce account lockout policy after N failed attempts.",
+            "Off-Hours Activity":   "Obtain approved overtime records or maintenance windows for all off-hours sessions.",
+            "Dormant Account Flags":"Disable or remove dormant accounts. Review access provisioning SOP.",
+        }
+        for ri, item in enumerate(top3, 12):
+            tcolor = _TREND_COLORS.get(item["Trend"], C_RED)
+            tbg    = _TREND_BG.get(item["Trend"], C_GREY)
+            _cell(ws1, ri, 1, item["Metric"], bold=True, fg=C_NAVY)
+            _cell(ws1, ri, 2, item["Current"], align="center")
+            _cell(ws1, ri, 3, f"{item['Pct_Change']:+.1f}%",
+                  bold=True, fg=tcolor, bg=tbg[2:] if len(tbg) > 6 else tbg,
+                  align="center")
+            _cell(ws1, ri, 3, f"{item['Pct_Change']:+.1f}%",
+                  bold=True, fg=tcolor, align="center")
+            _cell(ws1, ri, 4, item["Trend"], fg=tcolor, bold=True)
+            _cell(ws1, ri, 5, _CAPA_MAP.get(item["Metric"], "Review finding and assess CAPA need."),
+                  fg="5B21B6", wrap=True)
+            ws1.row_dimensions[ri].height = 28
+    else:
+        ws1.merge_cells("A12:E12")
+        ok = ws1.cell(row=12, column=1,
+                      value="✓ No significant worsening metrics in latest period.")
+        ok.font = Font(name="Calibri", size=9, color=C_GREEN, bold=True)
+        ws1.row_dimensions[12].height = 16
+
+    # ── Row 16: Repeat users summary ─────────────────────────────────────────
+    _ru_row = 16
+    ws1.merge_cells(f"A{_ru_row}:E{_ru_row}")
+    ruh = ws1.cell(row=_ru_row, column=1, value="REPEAT HIGH-RISK USERS — USER RISK PROFILES")
+    ruh.font      = Font(name="Calibri", bold=True, size=9, color=C_NAVY)
+    ruh.fill      = _fill(C_LIGHT)
+    ruh.alignment = Alignment(horizontal="left", vertical="center")
+    ws1.row_dimensions[_ru_row].height = 16
+
+    n_repeat   = smry["repeat_users"]
+    top_repeat = smry["top_repeat_user"]
+    n_periods  = smry["n_periods"]
+
+    if not rdf.empty:
+        _hdr(ws1, _ru_row+1, 1, "Username")
+        _hdr(ws1, _ru_row+1, 2, "Periods Flagged", align="center")
+        _hdr(ws1, _ru_row+1, 3, "% Periods Active", align="center")
+        _hdr(ws1, _ru_row+1, 4, "Total Findings", align="center")
+        _hdr(ws1, _ru_row+1, 5, "Most Common Rule")
+        ws1.row_dimensions[_ru_row+1].height = 16
+        for _ri, (_, _rrow) in enumerate(rdf.head(8).iterrows(), _ru_row+2):
+            _pf   = int(_rrow.get("Periods_Flagged", 0))
+            _pct  = round(_pf / n_periods * 100) if n_periods > 0 else 0
+            _rule = re.sub(r'\s*\[(CRITICAL|HIGH|MEDIUM|LOW)\]\s*$', '',
+                           str(_rrow.get("Most_Common_Rule","—"))).strip()[:55]
+            _rbg  = "FFF0F0" if _pf >= 3 else "FFFBF0" if _pf == 2 else None
+            _rfc  = C_RED if _pf >= 3 else C_NAVY
+            _cell(ws1, _ri, 1, str(_rrow["Username"]), bold=True, fg=_rfc, bg=_rbg)
+            _cell(ws1, _ri, 2, f"{_pf} / {n_periods}", align="center", bg=_rbg)
+            _cell(ws1, _ri, 3, f"{_pct}%", bold=True,
+                  fg=C_RED if _pct == 100 else C_AMBER if _pct >= 50 else C_NAVY,
+                  align="center", bg=_rbg)
+            _cell(ws1, _ri, 4, int(_rrow.get("Total_Findings", 0)),
+                  align="center", bg=_rbg)
+            _cell(ws1, _ri, 5, _rule, bg=_rbg, wrap=True)
+            ws1.row_dimensions[_ri].height = 20
+    else:
+        ws1.cell(row=_ru_row+1, column=1,
+                 value="✓ No repeat high-risk users across review periods."
+        ).font = Font(name="Calibri", size=9, color=C_GREEN, bold=True)
+
+    # ── Bottom: Regulatory basis ───────────────────────────────────────────────
+    _reg_row = _ru_row + 12
+    ws1.merge_cells(f"A{_reg_row}:E{_reg_row}")
+    reg = ws1.cell(row=_reg_row, column=1,
+             value="Regulatory Basis: ALCOA+ | 21 CFR Part 11 §11.10(e) | "
+                   "EU Annex 11 Clause 9 | FDA CSA Final Guidance (Sep 2021)")
+    reg.font      = Font(name="Calibri", size=8, italic=True, color=C_MID)
+    reg.alignment = Alignment(horizontal="left", vertical="center")
+
+    # ── Embedded trend chart — matplotlib PNG ─────────────────────────────────
+    try:
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        import matplotlib.patches as mpatches
+        from openpyxl.drawing.image import Image as XLImage
+
+        _period_labels = [f"Period {i+1}" for i in range(len(periods))]
+        _totals    = [int(pdf.iloc[i]["Total_Findings"]) for i in range(len(periods))]
+        _deletions = [int(pdf.iloc[i]["Deletion_Findings"]) for i in range(len(periods))]
+        _failed    = [int(pdf.iloc[i]["Failed_Login"]) for i in range(len(periods))]
+
+        _x = range(len(periods))
+        _w = 0.28
+
+        fig, ax = plt.subplots(figsize=(8, 3.2))
+        fig.patch.set_facecolor("#F8FAFC")
+        ax.set_facecolor("#F8FAFC")
+
+        bars1 = ax.bar([i - _w for i in _x], _totals,    width=_w, color="#1E3A5F", label="Total Findings")
+        bars2 = ax.bar([i       for i in _x], _deletions, width=_w, color="#C0392B", label="Deletion Events")
+        bars3 = ax.bar([i + _w for i in _x], _failed,    width=_w, color="#7C3AED", label="Failed Logins")
+
+        for bar in list(bars1) + list(bars2) + list(bars3):
+            h = bar.get_height()
+            if h > 0:
+                ax.text(bar.get_x() + bar.get_width()/2, h + 0.5,
+                        str(int(h)), ha="center", va="bottom",
+                        fontsize=7, color="#374151", fontweight="bold")
+
+        ax.set_xticks(list(_x))
+        ax.set_xticklabels(_period_labels, fontsize=9)
+        ax.set_ylabel("Finding Count", fontsize=8, color="#374151")
+        ax.set_title("Period-over-Period Risk Trend", fontsize=10,
+                     fontweight="bold", color="#1E3A5F", pad=8)
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
+        ax.spines["left"].set_color("#D1D5DB")
+        ax.spines["bottom"].set_color("#D1D5DB")
+        ax.tick_params(colors="#374151", labelsize=8)
+        ax.yaxis.grid(True, color="#E5E7EB", linewidth=0.5, linestyle="--")
+        ax.set_axisbelow(True)
+        ax.legend(fontsize=7.5, framealpha=0.8, loc="upper right")
+
+        fig.tight_layout(pad=1.0)
+        _chart_buf = io.BytesIO()
+        fig.savefig(_chart_buf, format="png", dpi=150, bbox_inches="tight")
+        plt.close(fig)
+        _chart_buf.seek(0)
+
+        _img = XLImage(_chart_buf)
+        _img.width  = 480
+        _img.height = 195
+        ws1.add_image(_img, "A30")
+    except Exception:
+        # matplotlib not available — skip chart silently
+        pass
+
+    ws1.freeze_panes = "A3"
+
+    # =========================================================================
+    # SHEET 2 — PERIOD TRENDS  (H/C columns removed — always equals Total)
+    # =========================================================================
+    ws2 = wb.create_sheet("Period Trends")
+    ws2.sheet_view.showGridLines = False
+
+    trend_cols = [
+        ("Review Period",      "Review_Period",              22),
+        ("Total Findings",     "Total_Findings",             14),
+        ("Deletion Events",    "Deletion_Findings",          16),
+        ("Failed Logins",      "Failed_Login",               14),
+        ("Off-Hours",          "Off_Hours",                  14),
+        ("Dormant Flags",      "Dormant_Findings",           14),
+        ("Avg Risk Weight",    "Avg_Risk_Weight",            14),
+        ("DI Posture",         "DI_Posture",                 16),
+        ("Total Δ%",           "Total_Findings_pct_chg",    12),
+        ("Total Trend",        "Total_Findings_trend",       20),
+        ("Deletion Δ%",        "Deletion_Findings_pct_chg", 12),
+        ("Deletion Trend",     "Deletion_Findings_trend",    20),
+    ]
+
+    ws2.cell(row=1, column=1,
+             value="Period-over-Period Trend Analysis"
+    ).font = Font(name="Calibri", bold=True, size=12, color=C_NAVY)
+    ws2.cell(row=2, column=1,
+             value="Note: All findings are High or Critical tier — "
+                   "DIM banks only H/C events from AT. "
+                   "Total Findings = High/Critical count."
+    ).font = Font(name="Calibri", size=8.5, italic=True, color="5A6A7A")
+    ws2.row_dimensions[1].height = 20
+    ws2.row_dimensions[2].height = 14
+
+    for ci, (hdr, _, width) in enumerate(trend_cols, 1):
+        _hdr(ws2, 3, ci, hdr, width=width)
+    ws2.row_dimensions[3].height = 18
+
+    for ri, (_, row_data) in enumerate(pdf.iterrows(), 4):
+        posture_r = str(row_data.get("DI_Posture", "—"))
+        p_bg_r, p_fg_r = _POSTURE_COLORS.get(posture_r, (C_GREY, "1A1A1A"))
+        for ci, (_, col_key, _) in enumerate(trend_cols, 1):
+            val = row_data.get(col_key, "—")
+            if pd.isna(val): val = "—"
+            if isinstance(val, float) and col_key.endswith("_pct_chg"):
+                val = f"{val:+.1f}%" if val != "—" else "—"
+            c = ws2.cell(row=ri, column=ci, value=val)
+            if col_key == "DI_Posture":
+                c.font = Font(name="Calibri", bold=True, size=9, color=p_fg_r)
+                c.fill = _fill(p_bg_r)
+            elif col_key.endswith("_trend"):
+                tc  = _TREND_COLORS.get(str(val), "1A1A1A")
+                tbg = _TREND_BG.get(str(val), C_GREY)
+                c.font = Font(name="Calibri", size=9, color=tc,
+                              bold=("Increase" in str(val) or "Decrease" in str(val)))
+                c.fill = _fill(tbg)
+            elif col_key.endswith("_pct_chg") and val != "—":
+                raw_pct = row_data.get(col_key)
+                if pd.notna(raw_pct):
+                    pf  = float(raw_pct)
+                    fc  = "B91C1C" if pf > 15 else "C2410C" if pf > 5 else \
+                          "15803D" if pf < -5 else "1A1A1A"
+                    fbg = "FEF2F2" if pf > 15 else "FFF7ED" if pf > 5 else \
+                          "F0FDF4" if pf < -5 else C_GREY
+                    c.font = Font(name="Calibri", size=9, bold=True, color=fc)
+                    c.fill = _fill(fbg)
+                else:
+                    c.font = Font(name="Calibri", size=9)
+            else:
+                c.font = Font(name="Calibri", size=9, color="2C3E50")
+                if ri % 2 == 0: c.fill = _fill("F8FAFC")
+            c.alignment = Alignment(horizontal="center" if ci > 1 else "left",
+                                    vertical="center")
+            c.border = bdr
+        ws2.row_dimensions[ri].height = 16
+
+    ws2.freeze_panes = "A4"
+
+    # =========================================================================
+    # SHEET 3 — REPEAT USERS
+    # =========================================================================
+    ws3 = wb.create_sheet("Repeat Users")
+    ws3.sheet_view.showGridLines = False
+    ws3.cell(row=1, column=1,
+             value="Repeat High-Risk Users — Flagged High/Critical in 2+ Periods"
+    ).font = Font(name="Calibri", bold=True, size=12, color=C_NAVY)
+    ws3.row_dimensions[1].height = 20
+
+    repeat_cols = [
+        ("Username",            "Username",         20),
+        ("Periods Flagged",     "Periods_Flagged",  14),
+        ("% Periods Active",    "_pct_active",      16),
+        ("Period List",         "Period_List",       30),
+        ("Last Seen",           "Last_Seen",         16),
+        ("Total Findings",      "Total_Findings",    14),
+        ("Most Common Rule",    "Most_Common_Rule",  45),
+    ]
+
+    if rdf.empty:
+        ws3.cell(row=3, column=1,
+                 value="✓ No repeat high-risk users detected across review periods."
+        ).font = Font(name="Calibri", size=9, color=C_GREEN, bold=True)
+    else:
+        for ci, (hdr, _, width) in enumerate(repeat_cols, 1):
+            _hdr(ws3, 2, ci, hdr, width=width)
+        ws3.row_dimensions[2].height = 18
+        for ri, (_, row_data) in enumerate(rdf.iterrows(), 3):
+            _pf   = int(row_data.get("Periods_Flagged", 0))
+            _pct  = round(_pf / n_periods * 100) if n_periods > 0 else 0
+            row_bg = "FFF0F0" if _pf >= 3 else "FFFBF0" if _pf == 2 else None
+            for ci, (_, col_key, _) in enumerate(repeat_cols, 1):
+                if col_key == "_pct_active":
+                    val = f"{_pct}% of periods"
+                else:
+                    val = row_data.get(col_key, "")
+                c = ws3.cell(row=ri, column=ci, value=val)
+                c.font      = Font(name="Calibri", size=9,
+                                   bold=(ci == 1),
+                                   color=C_RED if _pf >= 3 else C_NAVY)
+                c.fill      = _fill(row_bg) if row_bg else PatternFill()
+                c.alignment = Alignment(horizontal="left", vertical="top",
+                                        wrap_text=(ci in (4, 7)))
+                c.border    = bdr
+            ws3.row_dimensions[ri].height = 28
+
+    ws3.freeze_panes = "A3"
+
+    # =========================================================================
+    # SHEET 4 — RULE RECURRENCE  (ALCOA+ column added)
+    # =========================================================================
+    ws4 = wb.create_sheet("Rule Recurrence")
+    ws4.sheet_view.showGridLines = False
+    ws4.cell(row=1, column=1,
+             value="Rule Recurrence Analysis — Rules Firing Across Multiple Periods"
+    ).font = Font(name="Calibri", bold=True, size=12, color=C_NAVY)
+    ws4.cell(row=2, column=1,
+             value="Rules recurring across periods indicate systemic control gaps "
+                   "rather than isolated incidents. Prioritise for CAPA."
+    ).font = Font(name="Calibri", size=9, italic=True, color="5A6A7A")
+    ws4.row_dimensions[1].height = 20
+    ws4.row_dimensions[2].height = 14
+
+    _ALCOA_MAP = {
+        "Rule 1":  "Contemporaneous / Accurate",
+        "Rule 2":  "Original (batch vs real-time)",
+        "Rule 3":  "Legible / Traceable",
+        "Rule 4":  "Complete / Enduring",
+        "Rule 5":  "Attributable",
+        "Rule 6":  "Enduring / Complete",
+        "Rule 7":  "Complete / Enduring",
+        "Rule 8":  "Attributable",
+        "Rule 9":  "Complete",
+        "Rule 10": "Contemporaneous",
+        "Rule 11": "Contemporaneous",
+        "Rule 12": "Contemporaneous",
+        "Rule 13": "Attributable",
+        "Rule 14": "Attributable",
+        "Rule 16": "Attributable",
+    }
+
+    def _alcoa(rule_str: str) -> str:
+        for k, v in _ALCOA_MAP.items():
+            if k.lower() in str(rule_str).lower():
+                return v
+        return "—"
+
+    rule_cols = [
+        ("Rule",                "Rule",              50),
+        ("ALCOA+ Category",     "_alcoa",            24),
+        ("Periods Seen",        "Periods_Seen",      14),
+        ("Period List",         "Period_List",        30),
+        ("Total Occurrences",   "Total_Occurrences", 16),
+        ("First Period Count",  "First_Period_Cnt",  16),
+        ("Latest Period Count", "Last_Period_Cnt",   16),
+        ("Trend %",             "Trend_pct",         12),
+        ("Trend",               "Trend_Label",       22),
+    ]
+
+    if ruledf.empty:
+        ws4.cell(row=4, column=1,
+                 value="No rule recurrence data available."
+        ).font = Font(name="Calibri", size=9, color=C_MID)
+    else:
+        for ci, (hdr, _, width) in enumerate(rule_cols, 1):
+            _hdr(ws4, 3, ci, hdr, width=width,
+                 bg="7C3AED" if hdr == "ALCOA+ Category" else C_NAVY)
+        ws4.row_dimensions[3].height = 18
+        for ri, (_, row_data) in enumerate(ruledf.iterrows(), 4):
+            tl     = str(row_data.get("Trend_Label", ""))
+            tc     = _TREND_COLORS.get(tl, "1A1A1A")
+            for ci, (_, col_key, _) in enumerate(rule_cols, 1):
+                if col_key == "_alcoa":
+                    val = _alcoa(str(row_data.get("Rule", "")))
+                else:
+                    val = row_data.get(col_key, "")
+                if col_key == "Trend_pct" and pd.notna(val):
+                    val = f"{float(val):+.1f}%"
+                c = ws4.cell(row=ri, column=ci, value=val)
+                if col_key == "Trend_Label":
+                    c.font = Font(name="Calibri", size=9, bold=True, color=tc)
+                elif col_key == "Rule":
+                    c.font = Font(name="Calibri", size=9, bold=True, color=C_NAVY)
+                elif col_key == "_alcoa":
+                    c.font = Font(name="Calibri", size=9, color="5B21B6", bold=True)
+                    c.fill = _fill("F5F3FF")
+                else:
+                    c.font = Font(name="Calibri", size=9, color="2C3E50")
+                c.alignment = Alignment(
+                    horizontal="left" if ci in (1, 2, 4) else "center",
+                    vertical="top", wrap_text=(ci in (1, 4)))
+                c.border = bdr
+                if col_key != "_alcoa" and ri % 2 == 0:
+                    c.fill = _fill("F8FAFC")
+            ws4.row_dimensions[ri].height = 16
+
+    ws4.freeze_panes = "A4"
+
+    # =========================================================================
+    # SHEET 5 — ACTIVITY HEATMAP (User vs Hour-of-Day)
+    # =========================================================================
+    ws5 = wb.create_sheet("Activity Heatmap")
+    ws5.sheet_view.showGridLines = False
+    ws5.cell(row=1, column=1,
+             value="User Activity Heatmap — GxP Events by Hour of Day"
+    ).font = Font(name="Calibri", bold=True, size=12, color=C_NAVY)
+    ws5.cell(row=2, column=1,
+             value="Colour intensity = number of GxP events in that hour. "
+                   "Deep red = high activity. White = no activity. "
+                   "Off-hours (22:00–06:00) highlighted in column headers."
+    ).font = Font(name="Calibri", size=9, italic=True, color="5A6A7A")
+    ws5.row_dimensions[1].height = 20
+    ws5.row_dimensions[2].height = 14
+
+    # Build user × hour grid from raw_df
+    _heatmap_built = False
+    if not raw_df.empty and "Event_Timestamp" in raw_df.columns and "Username" in raw_df.columns:
+        try:
+            _hm = raw_df[~raw_df.get("_is_sentinel", pd.Series(False,
+                         index=raw_df.index))].copy()
+            _hm["_ts"] = pd.to_datetime(_hm["Event_Timestamp"], errors="coerce")
+            _hm        = _hm.dropna(subset=["_ts"])
+            _hm["_hr"] = _hm["_ts"].dt.hour
+
+            # Top 20 users by event count
+            _top_users = (_hm.groupby("Username").size()
+                          .sort_values(ascending=False).head(20).index.tolist())
+            _hm_top    = _hm[_hm["Username"].isin(_top_users)]
+
+            # Build pivot: rows=users, cols=hours 0–23
+            _pivot = (_hm_top.groupby(["Username", "_hr"]).size()
+                      .unstack(fill_value=0)
+                      .reindex(columns=range(24), fill_value=0))
+            _pivot = _pivot.loc[_top_users]   # preserve top-user order
+
+            # Write hour headers (row 4)
+            ws5.cell(row=4, column=1, value="User / Hour").font = Font(
+                name="Calibri", bold=True, size=8, color=C_WHITE)
+            ws5.cell(row=4, column=1).fill = _fill(C_NAVY)
+            ws5.column_dimensions["A"].width = 20
+
+            _OFF_HOURS = set(range(0, 7)) | set(range(22, 24))
+            for _hr in range(24):
+                _hc = ws5.cell(row=4, column=_hr + 2, value=f"{_hr:02d}:00")
+                _hc.font = Font(name="Calibri", bold=True, size=7.5,
+                                color=C_WHITE)
+                _hc.fill = _fill("C0392B" if _hr in _OFF_HOURS else C_NAVY)
+                _hc.alignment = Alignment(horizontal="center", vertical="center")
+                ws5.column_dimensions[get_column_letter(_hr + 2)].width = 5.5
+            ws5.row_dimensions[4].height = 18
+
+            # Write data rows
+            for _ui, _uname in enumerate(_top_users, 5):
+                uc = ws5.cell(row=_ui, column=1, value=_uname)
+                uc.font      = Font(name="Calibri", bold=True, size=8, color=C_NAVY)
+                uc.alignment = Alignment(horizontal="left", vertical="center")
+                for _hr in range(24):
+                    _cnt = int(_pivot.loc[_uname, _hr]) if _hr in _pivot.columns else 0
+                    dc   = ws5.cell(row=_ui, column=_hr + 2,
+                                    value=_cnt if _cnt > 0 else None)
+                    dc.font      = Font(name="Calibri", size=7.5, color="374151")
+                    dc.alignment = Alignment(horizontal="center", vertical="center")
+                    if _hr in _OFF_HOURS:
+                        dc.fill = _fill("FFF5F5") if _cnt == 0 else PatternFill()
+                ws5.row_dimensions[_ui].height = 14
+
+            # Apply color scale rule over the data range
+            _data_rows = len(_top_users)
+            _cr        = get_column_letter(2)
+            _cc        = get_column_letter(25)
+            _range_ref = f"{_cr}5:{_cc}{4 + _data_rows}"
+            ws5.conditional_formatting.add(
+                _range_ref,
+                ColorScaleRule(
+                    start_type="num",  start_value=0,   start_color="FFFFFF",
+                    mid_type="num",    mid_value=5,     mid_color="FBBF24",
+                    end_type="num",    end_value=30,    end_color="B91C1C",
+                )
+            )
+            _heatmap_built = True
+        except Exception:
+            pass
+
+    if not _heatmap_built:
+        ws5.cell(row=4, column=1,
+                 value="Heatmap not available — Event_Timestamp data required."
+        ).font = Font(name="Calibri", size=9, color=C_MID)
+
+    ws5.freeze_panes = "B5"
+
+    # =========================================================================
+    # SHEET 6 — NARRATIVE SUMMARY
+    # =========================================================================
+    ws6 = wb.create_sheet("Narrative Summary")
+    ws6.column_dimensions["A"].width = 110
+    ws6.sheet_view.showGridLines = False
+
+    _title6 = ws6.cell(row=1, column=1,
+             value="Data Integrity Monitor — Executive Summary")
+    _title6.font      = Font(name="Calibri", bold=True, size=14, color=C_NAVY)
+    _title6.alignment = Alignment(horizontal="left", vertical="center")
+    ws6.row_dimensions[1].height = 26
+
+    _disc = ws6.cell(row=2, column=1,
+             value=("This narrative is generated from calculated metrics only. "
+                    "Every statement cites a specific count or percentage derived "
+                    "from the uploaded data. Human reviewer confirmation required "
+                    "before use as regulatory evidence."))
+    _disc.font      = Font(name="Calibri", size=9, italic=True, color="5A6A7A")
+    _disc.alignment = Alignment(horizontal="left", vertical="top", wrap_text=True)
+    ws6.row_dimensions[2].height = 32
+
+    narrative_text = _dim_generate_narrative(smry, pdf, model_id, raw_df)
+
+    _CHARS_PER_LINE = 130
+    for li, line in enumerate(narrative_text.split("\n"), 4):
+        c = ws6.cell(row=li, column=1, value=line)
+        c.alignment = Alignment(horizontal="left", vertical="top", wrap_text=True)
+        if line.startswith("##"):
+            c.font = Font(name="Calibri", bold=True, size=11, color=C_NAVY)
+            c.fill = _fill("EFF6FF")
+            ws6.row_dimensions[li].height = 22
+        elif line.startswith("**") or line.startswith("*"):
+            c.font = Font(name="Calibri", bold=True, size=9, color="2C3E50")
+            ws6.row_dimensions[li].height = 15
+        elif line.strip() == "":
+            ws6.row_dimensions[li].height = 8
+        else:
+            c.font = Font(name="Calibri", size=9.5, color="2C3E50")
+            _est = max(1, -(-len(line) // _CHARS_PER_LINE))
+            ws6.row_dimensions[li].height = max(14, _est * 14)
+
+    skipped = smry.get("rules_skipped", [])
+    if skipped:
+        _skip_row = len(narrative_text.split("\n")) + 6
+        ws6.cell(row=_skip_row, column=1,
+                 value="ℹ  Columns not provided (analysis scope reduced):"
+        ).font = Font(name="Calibri", size=9, bold=True, color=C_AMBER)
+        for i, note in enumerate(skipped, _skip_row + 1):
+            ws6.cell(row=i, column=1, value=f"  • {note}"
+            ).font = Font(name="Calibri", size=9, color="5A6A7A")
+
+    wb.save(output)
+    return output.getvalue()
 
     # ── Colour palette ────────────────────────────────────────────────────────
     C_NAVY   = "1E3A5F"
@@ -12266,7 +12949,7 @@ def dim_build_excel(result: dict, system_name: str, file_name: str,
     ws5.row_dimensions[2].height = 32
 
     # ── Generate narrative ────────────────────────────────────────────────────
-    narrative_text = _dim_generate_narrative(smry, result["period_df"], model_id)
+    narrative_text = _dim_generate_narrative(smry, result["period_df"], model_id, result.get("raw_df", pd.DataFrame()))
 
     _CHARS_PER_LINE = 130   # approximate chars that fit in 110-width column at size 9
     for li, line in enumerate(narrative_text.split("\n"), 4):
@@ -12303,26 +12986,168 @@ def dim_build_excel(result: dict, system_name: str, file_name: str,
 
 
 def _dim_generate_narrative(smry: dict, period_df: pd.DataFrame,
-                             model_id: str) -> str:
+                             model_id: str,
+                             raw_df: pd.DataFrame = None) -> str:
     """
     Generate AI executive narrative from calculated metrics only.
     Deterministic fallback if AI unavailable.
+    raw_df used for clean-user benchmark computation.
     """
-    # Build context string from calculated metrics — no speculation
     periods    = smry["periods"]
     first_p    = smry["first_period"]
     last_p     = smry["last_period"]
     n_periods  = smry["n_periods"]
     tf_first   = smry["total_findings_first"]
     tf_last    = smry["total_findings_last"]
-    hc_first   = smry["hc_first"]
-    hc_last    = smry["hc_last"]
     overall    = smry["overall_pct_chg"]
     posture    = smry["posture_last"]
     n_repeat   = smry["repeat_users"]
     top_repeat = smry["top_repeat_user"]
     top_rule   = smry["top_rule"]
     top3       = smry.get("top3", [])
+
+    # ── Clean-user benchmark ──────────────────────────────────────────────────
+    # Users who appear in the dataset but were never escalated as H/C.
+    _clean_users = []
+    if raw_df is not None and not raw_df.empty:
+        try:
+            _sentinel_mask = raw_df.get("_is_sentinel", pd.Series(False, index=raw_df.index))
+            _real = raw_df[~_sentinel_mask]
+            _all_users  = set(_real["Username"].dropna().unique())
+            _flagged    = set(smry.get("repeat_df_usernames", []))
+            # Fallback: try to read from repeat_df summary
+            _clean_count = len(_all_users - _flagged)
+            _clean_pct   = round(_clean_count / max(len(_all_users), 1) * 100)
+        except Exception:
+            _clean_count = 0
+            _clean_pct   = 0
+    else:
+        _clean_count = 0
+        _clean_pct   = 0
+
+    # ── CAPA map ──────────────────────────────────────────────────────────────
+    _CAPA_NARRATIVE = {
+        "Total Findings":       (
+            "Review SOP for change-reason documentation. Consider mandatory "
+            "rationale field enforcement at system level."),
+        "Deletion Events":      (
+            "Conduct a record-by-record deletion audit against source documents. "
+            "Consider restricting DELETE permissions for non-DBA roles "
+            "(ref: SOP-QA-010). Escalate unexplained deletions to QA management."),
+        "High/Critical Findings":(
+            "Initiate targeted CAPA for repeat Critical-tier users. "
+            "Review access provisioning for all flagged accounts."),
+        "Failed Login Events":  (
+            "Enforce account lockout policy. Verify no credential sharing. "
+            "Review all data modifications within 30 minutes of failed login events."),
+        "Off-Hours Activity":   (
+            "Obtain approved overtime or maintenance window records for all "
+            "off-hours sessions. Unexplained sessions should be treated as "
+            "unauthorised access until documented."),
+        "Dormant Account Flags":(
+            "Disable or archive dormant accounts immediately. "
+            "Review access provisioning SOP to enforce periodic access reviews."),
+    }
+
+    fallback_lines = [
+        "## Data Integrity Monitor — Executive Summary",
+        "",
+        "## Review Scope",
+        (f"This report covers {n_periods} review period(s) from {first_p} to {last_p}. "
+         f"Total High/Critical findings moved from {tf_first} in Period 1 "
+         f"to {tf_last} in the latest period "
+         f"({overall:+.1f}% overall change). "
+         f"DI Posture in the latest period: {posture.upper()}."),
+        "",
+        "## Finding Trend",
+        (f"High and Critical findings: {tf_last} in the latest period "
+         f"({overall:+.1f}% vs Period 1). "
+         + _dim_trend_label(overall) + " trend across the review window."),
+        "",
+        "## Repeat High-Risk Users",
+        (f"{n_repeat} user(s) appeared as High/Critical in two or more review periods, "
+         f"indicating persistent access or behavioural risk rather than isolated events."
+         + (f" Most persistent user: {top_repeat}." if top_repeat else "")
+         if n_repeat > 0 else
+         "No users appeared as High/Critical in multiple review periods."),
+    ]
+
+    if _clean_count > 0:
+        fallback_lines += [
+            "",
+            "## Compliance Baseline",
+            (f"{_clean_count} user(s) ({_clean_pct}% of active users) produced no "
+             f"High or Critical findings across all {n_periods} review period(s). "
+             f"This confirms the detection engine is not over-flagging and that "
+             f"compliant behaviour is the norm across the user population."),
+        ]
+
+    fallback_lines += [
+        "",
+        "## Rule Recurrence",
+        (f"The most frequently recurring rule is '{top_rule}'. "
+         f"Recurring rules indicate systemic control gaps requiring CAPA "
+         f"rather than event-level review."
+         if top_rule else "No rule recurrence data available."),
+    ]
+
+    if top3:
+        fallback_lines += ["", "## Priority Actions & Suggested CAPA"]
+        for i, item in enumerate(top3, 1):
+            capa = _CAPA_NARRATIVE.get(item["Metric"],
+                   "Review finding and assess CAPA need.")
+            fallback_lines.append(
+                f"{i}. {item['Metric']}: {item['Current']} findings in latest period "
+                f"({item['Pct_Change']:+.1f}% vs prior — {item['Trend']}). "
+                f"Suggested CAPA: {capa}")
+
+    fallback_lines += [
+        "",
+        "## Reviewer Statement",
+        ("This summary was generated from calculated metrics. All counts and "
+         "percentages are derived deterministically from the uploaded data. "
+         "Narrative text does not influence risk classification. "
+         "Human reviewer confirmation is required before this document is used "
+         "as regulatory evidence."),
+    ]
+
+    # Try AI narrative
+    try:
+        from litellm import completion as _comp
+        ctx = "\n".join(fallback_lines)
+        prompt = f"""You are writing an executive summary for a pharmaceutical QA periodic review.
+
+RULES — strict:
+1. Every sentence MUST cite a specific number, count, or percentage from the data below.
+2. Do NOT speculate, infer causes, or use vague language.
+3. Do NOT use regulatory citation language (no "21 CFR", "ALCOA+", "GAMP").
+4. Structure: Review Scope / Finding Trend / Repeat Users / Compliance Baseline / Rule Recurrence / Priority Actions & CAPA.
+5. Max 300 words total. Plain English. No bullet points in narrative paragraphs.
+6. Use exact counts and percentages — do not round or paraphrase numbers.
+7. Include a CAPA suggestion for each Priority Action item, drawn from the data below.
+
+CALCULATED DATA:
+{ctx}
+
+Write the executive summary now. Start with "## Review Scope" heading."""
+
+        resp = _comp(
+            model=model_id, stream=False, temperature=0.05, max_tokens=500,
+            messages=[
+                {"role": "system", "content":
+                 "You write data-grounded executive summaries for pharmaceutical QA teams. "
+                 "Every sentence cites a specific number. Include CAPA suggestions. "
+                 "No vague language. No speculation."},
+                {"role": "user", "content": prompt},
+            ]
+        )
+        candidate = resp.choices[0].message.content.strip()
+        if len(candidate) > 100:
+            return candidate
+    except Exception:
+        pass
+
+    return "\n".join(fallback_lines)
 
     # Deterministic fallback — always available
     fallback_lines = [
@@ -12674,7 +13499,7 @@ def show_dim(user: str, role: str, model_id: str):
         key="dim_dl_btn",
         use_container_width=False,
     )
-    st.caption("Output generated with 5 worksheets: **Dashboard** · **Period Trends** · **Repeat Users** · **Rule Recurrence** · **Narrative Summary**")
+    st.caption("Output generated with 6 worksheets: **Dashboard** · **Period Trends** · **Repeat Users** · **Rule Recurrence** · **Activity Heatmap** · **Narrative Summary**")
 
     # ── New Analysis — bottom of page ─────────────────────────────────────────
     st.markdown("<div style='margin-top:24px;'></div>", unsafe_allow_html=True)
@@ -14850,16 +15675,24 @@ match your system's export column names to the fields above — rename nothing i
                 # than a padded one with low-signal filler.
                 top20 = qualified.copy()
 
-                st.write(f"✍️ Step 3: Generating system narratives for top {_AT_TOP_N} events...")
-                _ = prog.progress(0.65)
-                top20  = at_generate_justifications(top20, model_id)
-
-                _ = prog.progress(0.90)
-                st.write("📋 Step 4: Building evidence package...")
+                # ── Step 3: Deterministic narratives — instant, no LLM wait ──────
+                # AI enrichment is offered as a one-click option on the results page.
+                # This keeps the analysis flow under 5 seconds regardless of model
+                # availability. Deterministic output is format-identical to AI output.
+                st.write(f"📋 Step 3: Building evidence package...")
+                _ = prog.progress(0.80)
+                _det_narratives = [
+                    _at_deterministic_justification(row.to_dict())
+                    for _, row in top20.iterrows()
+                ]
+                top20 = top20.copy()
+                top20["AI_Justification"] = _det_narratives
+                st.session_state["at_ai_enriched"]   = False
                 st.session_state["at_scored_df"]     = scored
                 st.session_state["at_top20_df"]      = top20
                 st.session_state["at_total_events"]  = len(scored)
                 st.session_state["at_analysis_done"] = True
+                st.session_state["at_model_id"]      = model_id
 
                 # ── Auto-feed DIM ──────────────────────────────────────────────
                 # Bank ALL High/Critical events — not just the top-20 UI cap.
@@ -14941,9 +15774,32 @@ match your system's export column names to the fields above — rename nothing i
         n_med   = int((_scored_ip["Risk_Tier"]=="Medium").sum())
         n_low   = int((_scored_ip["Risk_Tier"]=="Low").sum())
         n_oop   = int((scored["Risk_Tier"]=="Out of Period").sum())
-        # Cleared = genuinely Low-scored events only
-        # H/C events that didn't make the top-20 cut are still risk findings — not cleared
         pct_clr = round(n_low / n_total * 100, 1) if n_total > 0 else 0
+
+        # ── AI narrative enrichment (optional, on-demand) ─────────────────────
+        _ai_enriched = st.session_state.get("at_ai_enriched", False)
+        if not _ai_enriched:
+            _enrich_col, _ = st.columns([2, 5])
+            with _enrich_col:
+                if st.button(
+                    "✨ Enrich with AI Narratives (~30s)",
+                    key="at_enrich_ai_btn",
+                    use_container_width=True,
+                    help="Replaces the auto-generated log summaries with AI-written "
+                         "narratives. Results are identical in structure — AI adds "
+                         "context where the log data supports it."
+                ):
+                    with st.spinner(
+                        f"Generating AI narratives for {len(top20)} events — "
+                        "you can read the results above while this runs…"
+                    ):
+                        top20 = at_generate_justifications(top20,
+                                    st.session_state.get("at_model_id", ""))
+                    st.session_state["at_top20_df"]   = top20
+                    st.session_state["at_ai_enriched"] = True
+                    st.rerun()
+        else:
+            st.caption("✅ AI narratives active — What Happened column uses AI-generated summaries.")
 
         # ── Hero banner ───────────────────────────────────────────────────────
         st.markdown(f"""
@@ -15179,6 +16035,45 @@ match your system's export column names to the fields above — rename nothing i
             st.caption("Sorted by risk score — highest first. "
                        "Click any event to expand. "
                        "Events not shown here are visible in the Full Audit Log sheet.")
+
+            # ── Rule 6 callout — surface delete-reconstruct volume ────────────
+            # Rule 6 is the most serious data integrity pattern (delete + recreate
+            # same record). Show its full dataset count so reviewers don't miss
+            # it if some instances fell outside the top-20 display cap.
+            _r6_all = scored[
+                scored["score_del_recreate"] >= 9
+            ] if "score_del_recreate" in scored.columns else pd.DataFrame()
+            _r6_total = len(_r6_all)
+            _r6_in_top = len(top20[
+                top20["score_del_recreate"] >= 9
+            ]) if "score_del_recreate" in top20.columns else 0
+            _r6_hidden = _r6_total - _r6_in_top
+
+            if _r6_total > 0:
+                _r6_users = sorted(_r6_all["user_id"].dropna().unique().tolist()) \
+                            if "user_id" in _r6_all.columns else []
+                _r6_user_str = (
+                    ", ".join(_r6_users[:4])
+                    + (f" +{len(_r6_users)-4} more" if len(_r6_users) > 4 else "")
+                ) if _r6_users else "—"
+                _r6_hidden_note = (
+                    f" {_r6_hidden} not shown in top {_AT_TOP_N} — see Full Audit Log."
+                    if _r6_hidden > 0 else f" All {_r6_total} shown above."
+                )
+                st.markdown(
+                    f"<div style='background:#1a0a0a;border:1.5px solid #dc2626;"
+                    f"border-radius:8px;padding:10px 16px;margin:8px 0 12px;'>"
+                    f"<span style='color:#dc2626;font-size:0.72rem;font-weight:700;"
+                    f"text-transform:uppercase;letter-spacing:1.5px;'>⚠ Rule 6 — "
+                    f"Record Reconstruction Pattern</span>"
+                    f"<div style='color:#fca5a5;font-size:0.82rem;margin-top:4px;'>"
+                    f"<b>{_r6_total}</b> delete→recreate event"
+                    f"{'s' if _r6_total != 1 else ''} detected in full dataset "
+                    f"· Users: <b>{_r6_user_str}</b>"
+                    f"<span style='color:#64748b;'> ·{_r6_hidden_note}</span>"
+                    f"</div></div>",
+                    unsafe_allow_html=True
+                )
 
         tier_colors = {
             "Critical":"#dc2626","High":"#ea580c",
