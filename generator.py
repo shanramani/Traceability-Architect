@@ -8335,7 +8335,11 @@ def at_build_excel(top_df, scored_df, system_name, r_start, r_end, fname) -> byt
     n_high    = int((scored_df["Risk_Tier"]=="High").sum())
     n_med     = int((scored_df["Risk_Tier"]=="Medium").sum())
     n_low     = int((scored_df["Risk_Tier"]=="Low").sum())
-    pct_clear = round((total-n_esc)/total*100,1) if total>0 else 0
+    n_oop     = int((scored_df["Risk_Tier"]=="Out of Period").sum())
+    # Cleared = events genuinely scored Low (not events that simply weren't in top 20)
+    # H/C events not escalated are still risk findings — they must NOT count as cleared
+    n_cleared = n_low + n_med   # Low + Medium are the only tiers that are genuinely cleared
+    pct_clear = round(n_cleared / total * 100, 1) if total > 0 else 0
 
     # ══════════════════════════════════════════════════════════════════════════
     # SHEET 1 — Cover & Summary
@@ -8565,7 +8569,7 @@ def at_build_excel(top_df, scored_df, system_name, r_start, r_end, fname) -> byt
 
     _summary_row("RESULTS AT A GLANCE", "", section=True)
     _summary_row("Total Records Reviewed",   f"{total:,}")
-    _summary_row("Records Auto-Cleared",     f"{total-n_esc:,}  ({pct_clear}%)")
+    _summary_row("Records Auto-Cleared",     f"{n_cleared:,}  ({pct_clear}%)")
     _summary_row("Records Requiring Review", f"{n_esc}",         bold_val=True)
     row += 1
 
@@ -9142,7 +9146,19 @@ def at_build_excel(top_df, scored_df, system_name, r_start, r_end, fname) -> byt
     ws6.column_dimensions["C"].width = 40
     ws6.column_dimensions["D"].width = 58
 
-    # ── Derive answers from scored_df and top_df ──────────────────────────────
+    # ── Derive answers from full scored_df (not just top_df) ─────────────────
+    # Items 2 and 4 must reflect the full dataset — if Rule 5/6 fired anywhere
+    # in the log, the checklist must flag it regardless of whether it made top 20.
+    def _rule_fired_anywhere(rule_prefix: str) -> bool:
+        """True if the rule fired in ANY scored event (not just escalated top 20)."""
+        if "Primary_Rule" in scored_df.columns:
+            return scored_df["Primary_Rule"].str.contains(
+                rule_prefix, case=False, na=False, regex=False).any()
+        if "Triggered_Rules" in scored_df.columns:
+            return scored_df["Triggered_Rules"].str.contains(
+                rule_prefix, case=False, na=False, regex=False).any()
+        return False
+
     _trig_top = " | ".join(
         str(r) for r in top_df.get("Triggered_Rules",
         pd.Series(dtype=str)).tolist()) if "Triggered_Rules" in top_df.columns else ""
@@ -9150,9 +9166,10 @@ def at_build_excel(top_df, scored_df, system_name, r_start, r_end, fname) -> byt
         str(r) for r in scored_df.get("Triggered_Rules",
         pd.Series(dtype=str)).tolist()) if "Triggered_Rules" in scored_df.columns else ""
 
-    _r5  = "Rule 5"  in _trig_top
-    _r6  = "Rule 6"  in _trig_top
-    _r7  = "Rule 7"  in _trig_top
+    # Items 2 & 4: check full dataset — Rule 6/7 deletion and Rule 5 failed login
+    _r5  = _rule_fired_anywhere("Rule 5")
+    _r6  = _rule_fired_anywhere("Rule 6")
+    _r7  = "Rule 7"  in _trig_top   # audit trail integrity stays top-only (requires escalation)
     _r11 = "Rule 11" in _trig_top or "Rule 11" in _trig_all
     _r12 = "Rule 12" in _trig_top or "Rule 12" in _trig_all
     _r13 = "Rule 13" in _trig_top or "Rule 13" in _trig_all
@@ -11444,7 +11461,15 @@ def _dim_normalise_columns(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _dim_classify_rule(rule_str: str) -> dict:
-    """Classify a triggered rule string into event category flags."""
+    """Classify a triggered rule string into event category flags.
+    Rule numbering as of v85+ client-facing labels:
+      Rule 5  = Failed Login spike
+      Rule 6  = Record Reconstruction (delete + recreate)
+      Rule 7  = Audit Trail Integrity Event
+      Rule 9  = Audit Trail Timestamp Gap  (NOT dormant — was renumbered)
+      Rule 10 = Off-Hours / Holiday Activity
+      Rule 13 = Dormant Account Sudden Activity
+    """
     r = str(rule_str).lower()
     return {
         "is_deletion":    any(x in r for x in ["rule 6", "rule 7", "delete",
@@ -11457,7 +11482,9 @@ def _dim_classify_rule(rule_str: str) -> dict:
         "is_off_hours":   any(x in r for x in ["rule 10", "off-hours",
                                                  "off hours", "after hours",
                                                  "after-hours", "outside hours"]),
-        "is_dormant":     any(x in r for x in ["rule 9", "dormant",
+        # Rule 9 is Timestamp Gap — do NOT include here.
+        # Dormant Account is Rule 13 in current client-facing numbering.
+        "is_dormant":     any(x in r for x in ["rule 13", "dormant",
                                                  "inactive user", "never used",
                                                  "never logged", "ghost"]),
     }
@@ -11574,18 +11601,31 @@ def dim_score_periods(df: pd.DataFrame) -> dict:
             return "Baseline"
         chg  = row["Total_Findings_pct_chg"]
         hc   = row["High_Critical"]
+        # Primary posture from total findings change
         if chg > 30 and hc > 0:  return "Critical"
         if chg > 15:              return "Deteriorating"
         if chg < -15:             return "Improving"
+        # Even if total is Stable, a severe sub-metric spike overrides
+        # (e.g. deletions +75% while total holds flat — still deteriorating pattern)
+        del_pct = row.get("Deletion_Findings_pct_chg", 0) or 0
+        if pd.notna(del_pct) and float(del_pct) > 50 and int(row.get("Deletion_Findings", 0)) > 0:
+            return "Deteriorating"
         return "Stable"
     period_df["DI_Posture"] = period_df.apply(_posture, axis=1)
 
     # ── Feature 2: Repeat high-risk users ────────────────────────────────────
-    hc_df     = df[df["is_high_crit"]].copy()
+    hc_df     = df[df["is_high_crit"] & ~df["_is_sentinel"]].copy()
     user_grp  = hc_df.groupby("Username")
     repeat_rows = []
     for uname, grp in user_grp:
-        periods_flagged = sorted(grp["Review_Period"].unique().tolist())
+        # Sort periods chronologically using actual event timestamps per period
+        _user_periods = grp["Review_Period"].unique().tolist()
+        def _up_start(p):
+            _r = grp[grp["Review_Period"] == p]
+            _ts = pd.to_datetime(_r.get("Event_Timestamp", pd.Series(dtype=str)),
+                                 errors="coerce").dropna()
+            return _ts.min() if not _ts.empty else pd.Timestamp.max
+        periods_flagged = sorted(_user_periods, key=_up_start)
         if len(periods_flagged) < 2:
             continue
         rule_counts = grp["Rule_Triggered"].value_counts()
@@ -11594,7 +11634,7 @@ def dim_score_periods(df: pd.DataFrame) -> dict:
             "Username":        uname,
             "Periods_Flagged": len(periods_flagged),
             "Period_List":     ", ".join(str(p) for p in periods_flagged),
-            "Last_Seen":       periods_flagged[-1],
+            "Last_Seen":       periods_flagged[-1],   # last chronologically
             "Total_Findings":  len(grp),
             "Most_Common_Rule":str(top_rule)[:80],
             "Risk_Levels":     ", ".join(sorted(grp["Risk_Level_Norm"].unique())),
@@ -11618,7 +11658,14 @@ def dim_score_periods(df: pd.DataFrame) -> dict:
     for rule, grp in rule_grp:
         if not rule or rule == "nan" or "no named rules" in rule.lower():
             continue
-        periods_seen  = sorted(grp["Review_Period"].unique().tolist())
+        # Sort periods chronologically using actual timestamps
+        def _rp_start(p):
+            _r = grp[grp["Review_Period"] == p]
+            _ts = pd.to_datetime(_r.get("Event_Timestamp", pd.Series(dtype=str)),
+                                 errors="coerce").dropna()
+            return _ts.min() if not _ts.empty else pd.Timestamp.max
+        _raw_periods  = grp["Review_Period"].unique().tolist()
+        periods_seen  = sorted(_raw_periods, key=_rp_start)
         period_counts = grp.groupby("Review_Period").size().to_dict()
         first_cnt     = period_counts.get(periods_seen[0], 0)
         last_cnt      = period_counts.get(periods_seen[-1], 0)
@@ -14736,7 +14783,9 @@ match your system's export column names to the fields above — rename nothing i
         n_med   = int((_scored_ip["Risk_Tier"]=="Medium").sum())
         n_low   = int((_scored_ip["Risk_Tier"]=="Low").sum())
         n_oop   = int((scored["Risk_Tier"]=="Out of Period").sum())
-        pct_clr = round((n_total-n_esc)/n_total*100,1) if n_total>0 else 0
+        # Cleared = genuinely Low-scored events only
+        # H/C events that didn't make the top-20 cut are still risk findings — not cleared
+        pct_clr = round(n_low / n_total * 100, 1) if n_total > 0 else 0
 
         # ── Hero banner ───────────────────────────────────────────────────────
         st.markdown(f"""
