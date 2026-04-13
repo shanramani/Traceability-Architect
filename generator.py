@@ -13766,9 +13766,7 @@ def show_audit_trail(user: str, role: str, model_id: str):
     st.title("🔍 Audit Trail Review Intelligence")
     st.markdown(
         "<p style='color:#94a3b8;margin-top:-12px;'>"
-        "Periodic Review: Audit Trail Review Intelligence — Reduce audit log entries "
-        "to the 20 highest-risk events, with documented statistical justification "
-        "for the Periodic Review Report.</p>",
+        "Surface the 20 highest-risk events from your audit log.</p>",
         unsafe_allow_html=True
     )
 
@@ -15776,31 +15774,6 @@ match your system's export column names to the fields above — rename nothing i
         n_oop   = int((scored["Risk_Tier"]=="Out of Period").sum())
         pct_clr = round(n_low / n_total * 100, 1) if n_total > 0 else 0
 
-        # ── AI narrative enrichment (optional, on-demand) ─────────────────────
-        _ai_enriched = st.session_state.get("at_ai_enriched", False)
-        if not _ai_enriched:
-            _enrich_col, _ = st.columns([2, 5])
-            with _enrich_col:
-                if st.button(
-                    "✨ Enrich with AI Narratives (~30s)",
-                    key="at_enrich_ai_btn",
-                    use_container_width=True,
-                    help="Replaces the auto-generated log summaries with AI-written "
-                         "narratives. Results are identical in structure — AI adds "
-                         "context where the log data supports it."
-                ):
-                    with st.spinner(
-                        f"Generating AI narratives for {len(top20)} events — "
-                        "you can read the results above while this runs…"
-                    ):
-                        top20 = at_generate_justifications(top20,
-                                    st.session_state.get("at_model_id", ""))
-                    st.session_state["at_top20_df"]   = top20
-                    st.session_state["at_ai_enriched"] = True
-                    st.rerun()
-        else:
-            st.caption("✅ AI narratives active — What Happened column uses AI-generated summaries.")
-
         # ── Hero banner ───────────────────────────────────────────────────────
         st.markdown(f"""
 <div style="background:#0f172a;border:2px solid #38bdf8;border-radius:10px;
@@ -15818,9 +15791,7 @@ match your system's export column names to the fields above — rename nothing i
     </p>
   </div>
   <p style="margin:4px 0 0;font-size:0.8rem;color:#475569;font-style:italic;">
-    Only events where a named detection rule fired above threshold are escalated —
-    dimension scores alone cannot trigger an escalation.
-    &nbsp;·&nbsp; {st.session_state.get('at_file_name','')}
+    {st.session_state.get('at_file_name','')}
   </p>
 </div>""", unsafe_allow_html=True)
 
@@ -15871,8 +15842,7 @@ match your system's export column names to the fields above — rename nothing i
 
         st.markdown("<br>", unsafe_allow_html=True)
 
-        # ── Risk Distribution ─────────────────────────────────────────────────
-        st.markdown("### Risk Distribution — Full Dataset")
+        # ── Risk Distribution — compact, centred ──────────────────────────────
         _dist_tiers  = ["Critical", "High", "Medium", "Low"]
         _dist_counts = [n_crit, n_high, n_med, n_low]
         _dist_esc    = ["Yes", "Yes" if n_high > 0 else "No", "No", "No"]
@@ -15880,12 +15850,26 @@ match your system's export column names to the fields above — rename nothing i
             _dist_tiers.append("Out of Period")
             _dist_counts.append(n_oop)
             _dist_esc.append("Excluded")
-        st.dataframe(pd.DataFrame({
+        _dist_df = pd.DataFrame({
             "Risk Tier":  _dist_tiers,
             "Count":      _dist_counts,
             "% of Total": [round(v/n_total*100,1) for v in _dist_counts],
             "Escalated":  _dist_esc,
-        }), use_container_width=True, hide_index=True)
+        })
+        _, _mid, _ = st.columns([1, 2, 1])
+        with _mid:
+            st.dataframe(
+                _dist_df,
+                hide_index=True,
+                use_container_width=True,
+                column_config={
+                    "Risk Tier":  st.column_config.TextColumn(width="medium"),
+                    "Count":      st.column_config.NumberColumn(width="small"),
+                    "% of Total": st.column_config.NumberColumn(
+                                      format="%.1f%%", width="small"),
+                    "Escalated":  st.column_config.TextColumn(width="small"),
+                }
+            )
 
         # ── Download ──────────────────────────────────────────────────────────
         st.markdown("---")
@@ -15935,7 +15919,14 @@ match your system's export column names to the fields above — rename nothing i
                     "Output generated with 4 worksheets: <b style='color:#94a3b8;'>Summary</b> · "
                     "<b style='color:#94a3b8;'>Events for Review</b> · "
                     "<b style='color:#94a3b8;'>Full Audit Log</b> · "
-                    "<b style='color:#94a3b8;'>Detection Logic</b></p>",
+                    "<b style='color:#94a3b8;'>Detection Logic</b><br>"
+                    + (
+                        "<span style='color:#4ade80;'>✅ AI narratives included in 'What Happened' column.</span>"
+                        if st.session_state.get("at_ai_enriched")
+                        else "<span style='color:#f59e0b;'>⚡ Auto-generated summaries in 'What Happened' column. "
+                             "Scroll down and click <b>✨ Enrich with AI Narratives</b> first for AI-written text.</span>"
+                    )
+                    + "</p>",
                     unsafe_allow_html=True
                 )
             with na_col:
@@ -16293,6 +16284,36 @@ match your system's export column names to the fields above — rename nothing i
       {str(row.get('AI_Justification',''))}</p>
   </div>
 </div>""", unsafe_allow_html=True)
+
+        # ── AI narrative enrichment — bottom of page, after all cards ───────────
+        # Placed here so all 20 event cards are fully visible above before the
+        # spinner runs. Reviewer can read everything while AI generates.
+        st.markdown("---")
+        _ai_enriched = st.session_state.get("at_ai_enriched", False)
+        if not _ai_enriched:
+            _enrich_col, _ = st.columns([2, 5])
+            with _enrich_col:
+                if st.button(
+                    "✨ Enrich with AI Narratives (~30s)",
+                    key="at_enrich_ai_btn",
+                    use_container_width=True,
+                    help="Replaces the auto-generated 'What Happened' summaries with "
+                         "AI-written narratives. All risk scores and rules are unchanged."
+                ):
+                    with st.spinner(
+                        f"Generating AI narratives for {len(top20)} events…"
+                    ):
+                        top20 = at_generate_justifications(
+                            top20, st.session_state.get("at_model_id", ""))
+                    st.session_state["at_top20_df"]   = top20
+                    st.session_state["at_ai_enriched"] = True
+                    st.rerun()
+            st.caption(
+                "The 'What Happened' column currently uses auto-generated log summaries. "
+                "Click above to replace with AI-written narratives (~30s). "
+                "All risk classifications and rules are unaffected.")
+        else:
+            st.caption("✅ AI narratives active — What Happened column uses AI-generated summaries.")
 
         # ── Content for Periodic Review — very bottom of page ─────────────────
         st.markdown("---")
