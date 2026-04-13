@@ -8277,6 +8277,7 @@ def at_generate_justifications(top_df: pd.DataFrame, model_id: str) -> pd.DataFr
             "sequence":    str(row.get("Sequence_Context", "")).strip(),
         })
 
+    import json as _json
     batch_prompt = f"""You are writing the "What Happened" column in a GxP audit trail review table.
 
 For each of the {total} events below, write exactly ONE sentence stating observable log facts only.
@@ -8290,7 +8291,7 @@ HARD RULES:
 6. No preamble, no explanation, no markdown. Raw JSON only.
 
 EVENTS:
-{events_payload}
+{_json.dumps(events_payload, indent=2)}
 
 Respond with JSON array only."""
 
@@ -8307,7 +8308,6 @@ Respond with JSON array only."""
             temperature=0.05,
         )
         if candidate:
-            import json as _json
             _clean = candidate.strip()
             if _clean.startswith("```"):
                 _clean = "\n".join(_clean.split("\n")[1:])
@@ -15859,16 +15859,13 @@ match your system's export column names to the fields above — rename nothing i
         _, _mid, _ = st.columns([1, 2, 1])
         with _mid:
             st.dataframe(
-                _dist_df,
+                _dist_df.style.set_properties(**{"text-align": "center"})
+                              .set_table_styles([{
+                                  "selector": "th",
+                                  "props": [("text-align", "center")]
+                              }]),
                 hide_index=True,
                 use_container_width=True,
-                column_config={
-                    "Risk Tier":  st.column_config.TextColumn(width="medium"),
-                    "Count":      st.column_config.NumberColumn(width="small"),
-                    "% of Total": st.column_config.NumberColumn(
-                                      format="%.1f%%", width="small"),
-                    "Escalated":  st.column_config.TextColumn(width="small"),
-                }
             )
 
         # ── Download ──────────────────────────────────────────────────────────
