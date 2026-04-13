@@ -7731,34 +7731,42 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
                 return entry
         return None
 
+    # ── Pre-compute fallback labels vectorized — O(n) total, not O(n*14) ────────
+    # Defined once here; _primary_rule does an O(1) Series lookup on the fallback
+    # path instead of recreating a dict and sorting on every row call.
+    _SIGNAL_NAMES_A = {
+        "score_rule1_vague_rationale":      "Vague/missing rationale",
+        "score_rule2_burst":                "High-volume burst activity",
+        "score_rule3_admin_conflict":       "Admin/GxP role conflict",
+        "score_rule4_drift":                "Change-control drift",
+        "score_rule5_failed_login":         "Failed login preceding action",
+        "score_del_recreate":               "Delete-recreate sequence",
+        "score_record":                     "Sensitive record deletion",
+        "score_privilege":                  "Privileged-user action on GxP data",
+        "score_gap":                        "Audit trail timestamp gap",
+        "score_temporal":                   "Off-hours/holiday activity",
+        "score_rule12_timestamp_reversal":  "Timestamp reversal",
+        "score_rule13_service_account":     "Service/shared account action",
+        "score_rule14_dormant_account":     "Dormant account activity",
+        "score_rule16_first_time_behavior": "First-time action type for user",
+    }
+    _sig_cols_a = [c for c in _SIGNAL_NAMES_A if c in df.columns]
+    _fallback_a = pd.Series("No named rule threshold met", index=df.index)
+    if _sig_cols_a:
+        _sub_a   = df[_sig_cols_a]
+        _any_a   = (_sub_a > 0).any(axis=1)
+        if _any_a.any():
+            def _top2_a(row):
+                top = row[row > 0].nlargest(2)
+                names = [_SIGNAL_NAMES_A[c] for c in top.index]
+                return ("Multiple signals — " + " + ".join(names)) if names else "No named rule threshold met"
+            _fallback_a[_any_a] = _sub_a[_any_a].apply(_top2_a, axis=1)
+
     def _primary_rule(row):
         m = _master_lookup(row)
         if m:
             return m[2]
-        # No single named rule met its threshold — find the two highest-scoring
-        # dimensions and name them so a reviewer can see exactly what triggered.
-        _DIM_NAMES = {
-            "score_rule1_vague_rationale":      "Vague/missing rationale",
-            "score_rule2_burst":                "High-volume burst activity",
-            "score_rule3_admin_conflict":       "Admin/GxP role conflict",
-            "score_rule4_drift":                "Change-control drift",
-            "score_rule5_failed_login":         "Failed login preceding action",
-            "score_del_recreate":               "Delete-recreate sequence",
-            "score_record":                     "Sensitive record deletion",
-            "score_privilege":                  "Privileged-user action on GxP data",
-            "score_gap":                        "Audit trail timestamp gap",
-            "score_temporal":                   "Off-hours/holiday activity",
-            "score_rule12_timestamp_reversal":  "Timestamp reversal",
-            "score_rule13_service_account":     "Service/shared account action",
-            "score_rule14_dormant_account":     "Dormant account activity",
-            "score_rule16_first_time_behavior": "First-time action type for user",
-        }
-        _scored = [(float(row.get(c, 0)), name) for c, name in _DIM_NAMES.items() if float(row.get(c, 0)) > 0]
-        _scored.sort(reverse=True)
-        if _scored:
-            top = [n for _, n in _scored[:2]]
-            return "Multiple signals — " + " + ".join(top)
-        return "No named rule threshold met"
+        return _fallback_a[row.name]   # O(1) lookup — no per-row dict or sort
 
     def _evidence_strength(row):
         m = _master_lookup(row)
@@ -7818,34 +7826,40 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
         ("score_temporal",                   5,  "Rule 11 — Off-Hours/Holiday Activity [MEDIUM]"),
     ]
 
+    # ── Pre-compute fallback labels for _RULE_PRIORITY path ──────────────────────
+    _SIGNAL_NAMES_B = {
+        "score_rule1_vague_rationale":      "Vague/missing rationale",
+        "score_rule2_burst":                "High-volume burst activity",
+        "score_rule3_admin_conflict":       "Admin/GxP role conflict",
+        "score_rule4_drift":                "Change-control drift",
+        "score_rule5_failed_login":         "Failed login preceding action",
+        "score_del_recreate":               "Delete-recreate sequence",
+        "score_record":                     "Sensitive record deletion",
+        "score_privilege":                  "Privileged-user action on GxP data",
+        "score_gap":                        "Audit trail timestamp gap",
+        "score_temporal":                   "Off-hours/holiday activity",
+        "score_rule12_timestamp_reversal":  "Timestamp reversal",
+        "score_rule13_service_account":     "Service/shared account action",
+        "score_rule14_dormant_account":     "Dormant account activity",
+        "score_rule16_first_time_behavior": "First-time action type for user",
+    }
+    _sig_cols_b = [c for c in _SIGNAL_NAMES_B if c in df.columns]
+    _fallback_b = pd.Series("No named rule threshold met", index=df.index)
+    if _sig_cols_b:
+        _sub_b = df[_sig_cols_b]
+        _any_b = (_sub_b > 0).any(axis=1)
+        if _any_b.any():
+            def _top2_b(row):
+                top = row[row > 0].nlargest(2)
+                names = [_SIGNAL_NAMES_B[c] for c in top.index]
+                return ("Multiple signals — " + " + ".join(names)) if names else "No named rule threshold met"
+            _fallback_b[_any_b] = _sub_b[_any_b].apply(_top2_b, axis=1)
+
     def _primary_rule(row):
         for score_col, threshold, label in _RULE_PRIORITY:
             if float(row.get(score_col, 0)) >= threshold:
                 return label
-        # Fallback: highest scoring dimension
-        # No single named rule met its threshold — surface the top contributing signals
-        _DIM_NAMES2 = {
-            "score_rule1_vague_rationale":      "Vague/missing rationale",
-            "score_rule2_burst":                "High-volume burst activity",
-            "score_rule3_admin_conflict":       "Admin/GxP role conflict",
-            "score_rule4_drift":                "Change-control drift",
-            "score_rule5_failed_login":         "Failed login preceding action",
-            "score_del_recreate":               "Delete-recreate sequence",
-            "score_record":                     "Sensitive record deletion",
-            "score_privilege":                  "Privileged-user action on GxP data",
-            "score_gap":                        "Audit trail timestamp gap",
-            "score_temporal":                   "Off-hours/holiday activity",
-            "score_rule12_timestamp_reversal":  "Timestamp reversal",
-            "score_rule13_service_account":     "Service/shared account action",
-            "score_rule14_dormant_account":     "Dormant account activity",
-            "score_rule16_first_time_behavior": "First-time action type for user",
-        }
-        _sc2 = [(float(row.get(c, 0)), name) for c, name in _DIM_NAMES2.items() if float(row.get(c, 0)) > 0]
-        _sc2.sort(reverse=True)
-        if _sc2:
-            top2 = [n for _, n in _sc2[:2]]
-            return "Multiple signals — " + " + ".join(top2)
-        return "No named rule threshold met"
+        return _fallback_b[row.name]   # O(1) lookup — no per-row dict or sort
 
     def _supporting_signals(row):
         primary = _primary_rule(row)
@@ -11712,7 +11726,9 @@ def dim_score_periods(df: pd.DataFrame) -> dict:
         periods_seen  = sorted(_raw_periods, key=_rp_start)
         period_counts = grp.groupby("Review_Period").size().to_dict()
         first_cnt     = period_counts.get(periods_seen[0], 0)
-        last_cnt      = period_counts.get(periods_seen[-1], 0)
+        # Always use the global last period (not last-seen period) so a rule that
+        # fired in Period 1 only shows Last_Period_Cnt = 0, not 16.
+        last_cnt      = period_counts.get(periods[-1], 0)
         if first_cnt > 0:
             recur_pct = round((last_cnt - first_cnt) / first_cnt * 100, 1)
         else:
@@ -11916,7 +11932,7 @@ def dim_build_excel(result: dict, system_name: str, file_name: str,
     posture   = smry["posture_last"]
     p_bg, p_fg = _POSTURE_COLORS.get(posture, (C_MID, C_WHITE))
     pos_cell  = ws1.cell(row=4, column=1,
-                         value=f"DI Posture — {smry['last_period']}: {posture.upper()}")
+                         value=f"DI Posture — Latest Period vs Prior: {posture.upper()}")
     pos_cell.font      = Font(name="Calibri", bold=True, size=12, color=p_fg)
     pos_cell.fill      = _fill(p_bg)
     pos_cell.alignment = Alignment(horizontal="left", vertical="center")
@@ -12001,6 +12017,54 @@ def dim_build_excel(result: dict, system_name: str, file_name: str,
     ).font = Font(name="Calibri", size=8, italic=True, color=C_MID)
 
     ws1.freeze_panes = "A3"
+
+    # ── Embedded bar chart — Total Findings per period ────────────────────────
+    # Write chart data into a staging block (hidden rows 30+) then reference it.
+    from openpyxl.chart import BarChart, Reference, Series as ChartSeries
+    _chart_data_start = 30
+    ws1.cell(row=_chart_data_start, column=1, value="Period").font = Font(
+        name="Calibri", size=8, bold=True, color=C_NAVY)
+    ws1.cell(row=_chart_data_start, column=2, value="Total Findings").font = Font(
+        name="Calibri", size=8, bold=True, color=C_NAVY)
+    ws1.cell(row=_chart_data_start, column=3, value="High/Critical").font = Font(
+        name="Calibri", size=8, bold=True, color=C_NAVY)
+    for _ci, _p in enumerate(periods, 1):
+        _pr = result["period_df"].iloc[_ci - 1]
+        ws1.cell(row=_chart_data_start + _ci, column=1,
+                 value=f"Period {_ci}").font = Font(name="Calibri", size=8)
+        ws1.cell(row=_chart_data_start + _ci, column=2,
+                 value=int(_pr["Total_Findings"]))
+        ws1.cell(row=_chart_data_start + _ci, column=3,
+                 value=int(_pr["High_Critical"]))
+
+    _n = len(periods)
+    _chart = BarChart()
+    _chart.type       = "col"
+    _chart.grouping   = "clustered"
+    _chart.title      = "Total Findings vs High/Critical — by Period"
+    _chart.y_axis.title = "Finding Count"
+    _chart.x_axis.title = "Review Period"
+    _chart.style      = 10
+    _chart.width      = 18
+    _chart.height     = 10
+
+    _data_ref = Reference(ws1,
+                          min_col=2, max_col=3,
+                          min_row=_chart_data_start,
+                          max_row=_chart_data_start + _n)
+    _cats_ref = Reference(ws1,
+                          min_col=1,
+                          min_row=_chart_data_start + 1,
+                          max_row=_chart_data_start + _n)
+    _chart.add_data(_data_ref, titles_from_data=True)
+    _chart.set_categories(_cats_ref)
+    # Navy for total, amber for H/C
+    if len(_chart.series) > 0:
+        _chart.series[0].graphicalProperties.solidFill = C_NAVY
+    if len(_chart.series) > 1:
+        _chart.series[1].graphicalProperties.solidFill = C_RED
+
+    ws1.add_chart(_chart, "A20")
 
     # =========================================================================
     # SHEET 2 — PERIOD TRENDS
@@ -12183,37 +12247,45 @@ def dim_build_excel(result: dict, system_name: str, file_name: str,
     # SHEET 5 — NARRATIVE SUMMARY
     # =========================================================================
     ws5 = wb.create_sheet("Narrative Summary")
-    ws5.column_dimensions["A"].width = 105
+    ws5.column_dimensions["A"].width = 110
+    ws5.sheet_view.showGridLines = False
 
-    ws5.cell(row=1, column=1,
-             value="Data Integrity Monitor — AI-Generated Executive Summary"
-    ).font = Font(name="Calibri", bold=True, size=13, color=C_NAVY)
-    ws5.row_dimensions[1].height = 22
+    _title5 = ws5.cell(row=1, column=1,
+             value="Data Integrity Monitor — Executive Summary")
+    _title5.font      = Font(name="Calibri", bold=True, size=14, color=C_NAVY)
+    _title5.alignment = Alignment(horizontal="left", vertical="center")
+    ws5.row_dimensions[1].height = 26
 
-    ws5.cell(row=2, column=1,
+    _disc = ws5.cell(row=2, column=1,
              value=("This narrative is generated from calculated metrics only. "
                     "Every statement cites a specific count or percentage derived "
                     "from the uploaded data. Human reviewer confirmation required "
-                    "before use as regulatory evidence.")
-    ).font = Font(name="Calibri", size=9, italic=True, color="5A6A7A")
-    ws5.row_dimensions[2].height = 28
+                    "before use as regulatory evidence."))
+    _disc.font      = Font(name="Calibri", size=9, italic=True, color="5A6A7A")
+    _disc.alignment = Alignment(horizontal="left", vertical="top", wrap_text=True)
+    ws5.row_dimensions[2].height = 32
 
     # ── Generate narrative ────────────────────────────────────────────────────
     narrative_text = _dim_generate_narrative(smry, result["period_df"], model_id)
 
+    _CHARS_PER_LINE = 130   # approximate chars that fit in 110-width column at size 9
     for li, line in enumerate(narrative_text.split("\n"), 4):
         c = ws5.cell(row=li, column=1, value=line)
+        c.alignment = Alignment(horizontal="left", vertical="top", wrap_text=True)
         if line.startswith("##"):
             c.font = Font(name="Calibri", bold=True, size=11, color=C_NAVY)
-            ws5.row_dimensions[li].height = 20
+            c.fill = _fill("EFF6FF")
+            ws5.row_dimensions[li].height = 22
         elif line.startswith("**") or line.startswith("*"):
             c.font = Font(name="Calibri", bold=True, size=9, color="2C3E50")
-            ws5.row_dimensions[li].height = 14
+            ws5.row_dimensions[li].height = 15
+        elif line.strip() == "":
+            ws5.row_dimensions[li].height = 8
         else:
-            c.font = Font(name="Calibri", size=9, color="2C3E50")
-            ws5.row_dimensions[li].height = 14
-        c.alignment = Alignment(horizontal="left", vertical="top",
-                                wrap_text=True)
+            c.font = Font(name="Calibri", size=9.5, color="2C3E50")
+            # Auto-size height: estimate wrapped line count from char length
+            _est_lines = max(1, -(-len(line) // _CHARS_PER_LINE))  # ceiling div
+            ws5.row_dimensions[li].height = max(14, _est_lines * 14)
 
     # ── Rules skipped note ────────────────────────────────────────────────────
     skipped = smry.get("rules_skipped", [])
@@ -12479,23 +12551,24 @@ def show_dim(user: str, role: str, model_id: str):
     # ── Period Comparison Table — with source file column ─────────────────────
     st.markdown("<div class='dim-section-hdr'>📊 Period Comparison</div>", unsafe_allow_html=True)
     st.caption(
-        "Each row is one review period. Subcategory counts overlap — "
+        "Each row is one review period, oldest first. Subcategory counts overlap — "
         "one event can be both High/Critical and a Deletion. "
-        "Most recent period shown first."
     )
     _sc = ["Review_Period","Total_Findings","Deletion_Findings",
            "Failed_Login","Dormant_Findings","DI_Posture"]
-    _cmp = pdf[[c for c in _sc if c in pdf.columns]].copy()
-    _cmp = _cmp.iloc[::-1].reset_index(drop=True)
+    _cmp = pdf[[c for c in _sc if c in pdf.columns]].copy().reset_index(drop=True)
+    # Prepend "Period N" label to the date range so column 1 reads "Period 1 — 01-Jan-2025 → 30-Mar-2025"
+    _cmp["Review_Period"] = [
+        f"Period {i+1} — {p}" for i, p in enumerate(_cmp["Review_Period"])
+    ]
     # Add source file column
     _cmp.insert(1, "Source File", _cmp["Review_Period"].map(
-        lambda p: _period_files.get(p, "—")))
+        lambda p: _period_files.get(p.split(" — ", 1)[-1], "—")))
     _cmp.columns = [c.replace("_"," ") for c in _cmp.columns]
     st.dataframe(_cmp, use_container_width=True, hide_index=True)
     st.caption(
         "All findings shown are High or Critical tier — banked from AT analysis. "
         "Subcategory counts (Deletions, Failed Logins) are subsets of Total Findings, not additions. "
-        "Most recent period shown first. "
         "DI Posture: **Improving** = total findings down >15% · "
         "**Stable** = within ±5% · "
         "**Deteriorating** = up >15% · "
@@ -12513,32 +12586,30 @@ def show_dim(user: str, role: str, model_id: str):
                 "Users flagged as High or Critical risk in 2 or more periods. "
                 "Repeat flagging indicates a persistent pattern requiring targeted review or access remediation."
             )
+            _ru_col, _ = st.columns([3, 1])
             for _,row in rdf.iterrows():
                 _np   = int(row["Periods_Flagged"])
                 _bc   = "#f87171" if _np >= 3 else "#fb923c"
                 _rule = str(row.get("Most_Common_Rule","—"))
-                # Strip severity bracket from rule label for cleaner display
                 _rule = re.sub(r'\s*\[(CRITICAL|HIGH|MEDIUM|LOW)\]', '', _rule).strip()
                 if len(_rule) > 60:
                     _rule = _rule[:57] + "…"
                 _tot  = int(row.get("Total_Findings", 0))
-                st.markdown(
-                    f"<div style='background:#1e293b;border-radius:8px;padding:12px 16px;"
-                    f"margin-bottom:10px;border-left:3px solid {_bc};display:flex;"
-                    f"justify-content:space-between;align-items:center;'>"
-                    f"<div>"
-                    f"<span style='color:#e2e8f0;font-weight:700;font-size:0.95rem;'>"
-                    f"{row['Username']}</span>"
-                    f"<div style='color:#94a3b8;font-size:0.8rem;margin-top:4px;'>"
-                    f"{_rule}</div>"
-                    f"</div>"
-                    f"<div style='text-align:right;flex-shrink:0;margin-left:16px;'>"
-                    f"<span style='background:{_bc}22;color:{_bc};border:1px solid {_bc}44;"
-                    f"border-radius:6px;padding:2px 10px;font-size:0.78rem;font-weight:700;"
-                    f"display:block;margin-bottom:4px;'>{_np} period{'s' if _np!=1 else ''}</span>"
-                    f"<span style='color:#64748b;font-size:0.75rem;'>{_tot} finding{'s' if _tot!=1 else ''}</span>"
-                    f"</div>"
-                    f"</div>", unsafe_allow_html=True)
+                with _ru_col:
+                    st.markdown(
+                        f"<div style='background:#1e293b;border-left:3px solid {_bc};"
+                        f"border-radius:0 8px 8px 0;padding:10px 16px;margin-bottom:8px;'>"
+                        f"<div style='display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;'>"
+                        f"<span style='color:#e2e8f0;font-size:0.88rem;font-weight:700;'>{row['Username']}</span>"
+                        f"<span style='display:flex;gap:10px;align-items:center;'>"
+                        f"<span style='color:{_bc};font-size:0.78rem;font-weight:700;border:1px solid {_bc}44;"
+                        f"border-radius:4px;padding:1px 8px;'>{_np} period{'s' if _np!=1 else ''}</span>"
+                        f"</span></div>"
+                        f"<div style='color:#94a3b8;font-size:0.79rem;line-height:1.5;'>"
+                        f"{_rule} &nbsp;·&nbsp; "
+                        f"<span style='color:#64748b;'>{_tot} finding{'s' if _tot!=1 else ''} across all periods</span>"
+                        f"</div>"
+                        f"</div>", unsafe_allow_html=True)
 
     # ── Rule Recurrence ──────────────────────────────────────────────────────────
     ruledf = result["rule_df"]
