@@ -9157,6 +9157,15 @@ def at_build_excel(top_df, scored_df, system_name, r_start, r_end, fname) -> byt
     top_out["Reviewer_Disposition"] = "☐ Justified     ☐ Escalate to CAPA     ☐ False Positive"
     top_out["Reviewer_Notes"]       = ""
 
+    # Normalise timestamp column to consistent ISO format regardless of source CSV format.
+    # Input CSVs may store dates as "4/1/25 0:45" (US short) or "2025-04-01 00:45:00" (ISO).
+    # timestamp_parsed is always a proper datetime — use it as the authoritative source.
+    if "timestamp_parsed" in top_out.columns:
+        _ts_fmt = top_out["timestamp_parsed"].dt.strftime("%Y-%m-%d %H:%M:%S")
+        top_out["timestamp"] = _ts_fmt.where(
+            top_out["timestamp_parsed"].notna(),
+            top_out["timestamp"].astype(str))
+
     # FIX AT-5: Add a note row explaining why the Events for Review count may
     # be lower than the High+Critical count in the Full Audit Log.
     # Without this, reviewers always assume a bug.
@@ -9175,15 +9184,20 @@ def at_build_excel(top_df, scored_df, system_name, r_start, r_end, fname) -> byt
             f"across multiple dimensions are logged but not escalated. "
             f"All events remain visible in the Full Audit Log sheet."
         )
-        ws2.merge_cells(f"A1:{get_column_letter(len(reviewer_cols))}1")
-        note_cell = ws2.cell(row=1, column=1, value=note_text)
-        note_cell.font      = Font(bold=False, color="1E40AF", name="Calibri", size=8.5)
-        note_cell.fill      = _fill("DBEAFE")
-        note_cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
-        ws2.row_dimensions[1].height = 42
-        _header_start = 2
     else:
-        _header_start = 1
+        note_text = (
+            f"ℹ️  Showing all {n_shown} High/Critical events from the Full Audit Log. "
+            f"Events are escalated for human review when at least one specific named rule (Rules 1–14) "
+            f"fires clearly above its threshold. Events with only weak signals across multiple dimensions "
+            f"are logged but not escalated. All events remain visible in the Full Audit Log sheet."
+        )
+    ws2.merge_cells(f"A1:{get_column_letter(len(reviewer_cols))}1")
+    note_cell = ws2.cell(row=1, column=1, value=note_text)
+    note_cell.font      = Font(bold=False, color="1E40AF", name="Calibri", size=8.5)
+    note_cell.fill      = _fill("DBEAFE")
+    note_cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+    ws2.row_dimensions[1].height = 42
+    _header_start = 2
 
     # Suggested Disposition cell colours
     SUGG_FILL = {
@@ -9280,6 +9294,12 @@ def at_build_excel(top_df, scored_df, system_name, r_start, r_end, fname) -> byt
     # Strip internal columns — keep only the log_cols fields
     keep_fields = [f for _, f, _ in log_cols]
     log_df = scored_df[[c for c in keep_fields if c in scored_df.columns]].copy()
+
+    # Normalise timestamps — same ISO format fix as Events for Review above.
+    if "timestamp_parsed" in scored_df.columns and "timestamp" in log_df.columns:
+        _ts_fmt_log = scored_df["timestamp_parsed"].dt.strftime("%Y-%m-%d %H:%M:%S")
+        log_df["timestamp"] = _ts_fmt_log.where(
+            scored_df["timestamp_parsed"].notna(), log_df["timestamp"].astype(str))
 
     for ci, (hdr_label, _, col_w) in enumerate(log_cols, 1):
         c = ws3.cell(row=1, column=ci, value=hdr_label)
