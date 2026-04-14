@@ -8205,24 +8205,26 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
             df[_col] = df[_col].astype(str).apply(_relabel_rule)
 
     # FIX 2: Sort by Risk_Score descending then timestamp ascending as tiebreaker.
-    # Without a stable secondary sort, equal-scoring events appear in different
-    # orders across runs on the same input — producing the 00:40 vs 00:45 timestamp
-    # inconsistency observed between runs. timestamp_parsed provides a deterministic
-    # tiebreaker that is stable regardless of pandas internal ordering.
-    _sort_cols = ["Risk_Score"]
-    _sort_asc  = [False]
+    # FIX TIER-SORT: Sort tier first so Critical always appears above High regardless
+    # of composite score — a Critical at 7.1 must show before a High at 7.8.
+    _TIER_ORDER = {"Critical": 0, "High": 1, "Medium": 2, "Low": 3, "Out of Period": 4}
+    df["_tier_sort"] = df["Risk_Tier"].map(_TIER_ORDER).fillna(9)
+    _sort_cols = ["_tier_sort", "Risk_Score"]
+    _sort_asc  = [True, False]
     if "timestamp_parsed" in df.columns:
         _sort_cols.append("timestamp_parsed")
         _sort_asc.append(True)
-    return df.sort_values(_sort_cols, ascending=_sort_asc).reset_index(drop=True)
+    result = df.sort_values(_sort_cols, ascending=_sort_asc).reset_index(drop=True)
+    result = result.drop(columns=["_tier_sort"], errors="ignore")
+    return result
 
 
 def _at_deterministic_justification(row: dict) -> str:
     """
-    Builds a single factual sentence for the System Narrative column.
-    States only observable log data: who, what, which record, when, comment.
-    No regulatory language. No action instructions. No inference.
-    Used as fallback when LLM is unavailable — output is format-identical.
+    Builds a contextual sentence for the What Happened column.
+    Combines observable log facts with plain-English rule context.
+    No regulatory language. No action instructions.
+    Always produces a richer output than bare log data.
     """
     user     = str(row.get("user_id",     "unknown user"))
     action   = str(row.get("action_type", "unknown action"))
@@ -8246,11 +8248,92 @@ def _at_deterministic_justification(row: dict) -> str:
     else:
         comment_clause = "; no change reason was recorded"
 
-    # Build chain context from natural language Sequence_Context field
-    seq_ctx      = str(row.get("Sequence_Context", "")).strip()
-    chain_clause = f" — {seq_ctx}" if seq_ctx else ""
+    # Use Sequence_Context if available (chain/sequence events)
+    seq_ctx = str(row.get("Sequence_Context", "")).strip()
+    if seq_ctx:
+        return f"{user} performed {action} on {record_ref} at {ts}{comment_clause} — {seq_ctx}."
 
-    return f"{user} performed {action} on {record_ref} at {ts}{comment_clause}{chain_clause}."
+    # Build rule-context clause from Primary_Rule
+    primary = str(row.get("Primary_Rule", "")).strip()
+    primary_clean = (primary.replace("[CRITICAL]","").replace("[HIGH]","")
+                            .replace("[MEDIUM]","").replace("[LOW]","").strip())
+
+    _RULE_CONTEXT = {
+        "Rule 1":  lambda u,a,r,c: (
+            f"the single-word comment '{c}' provides no traceable justification "
+            f"for why this record was modified"
+            if c else "no change reason documents why this record was modified"
+        ),
+        "Rule 2":  lambda u,a,r,c: (
+            f"{u} performed {len(str(c).split())} or more identical actions in rapid "
+            f"succession — this pattern is consistent with batch entry rather than "
+            f"real-time recording"
+        ),
+        "Rule 3":  lambda u,a,r,c: (
+            f"{u} is an administrator account — production GxP data was changed "
+            f"outside a standard analyst role"
+        ),
+        "Rule 4":  lambda u,a,r,c: (
+            f"the change deviates from the expected change-control sequence "
+            f"for this record type"
+        ),
+        "Rule 5":  lambda u,a,r,c: (
+            f"this data action occurred within 30 minutes of repeated failed "
+            f"login attempts by the same user"
+        ),
+        "Rule 6":  lambda u,a,r,c: (
+            f"a delete-then-recreate pattern was detected on this record — "
+            f"the original entry no longer exists in the audit trail"
+        ),
+        "Rule 7":  lambda u,a,r,c: (
+            f"a direct write to the audit trail table is an integrity event "
+            f"that must be formally explained and authorised"
+        ),
+        "Rule 8":  lambda u,a,r,c: (
+            f"{u} holds elevated system privileges — direct modification of "
+            f"GxP data by a privileged account requires additional justification"
+        ),
+        "Rule 9":  lambda u,a,r,c: (
+            f"a gap in audit trail coverage immediately precedes this entry "
+            f"with no documented explanation for the missing period"
+        ),
+        "Rule 10": lambda u,a,r,c: (
+            f"this action occurred outside approved working hours with no "
+            f"documented maintenance window or overtime record on file"
+        ),
+        "Rule 11": lambda u,a,r,c: (
+            f"the recorded timestamp pre-dates the creation timestamp of this "
+            f"record, which is not possible in a correctly configured system"
+        ),
+        "Rule 12": lambda u,a,r,c: (
+            f"actions performed by a shared or service account cannot be "
+            f"attributed to a specific identified individual"
+        ),
+        "Rule 13": lambda u,a,r,c: (
+            f"{u} was a dormant account with no recent activity — sudden "
+            f"reactivation on a GxP system requires access review"
+        ),
+        "Rule 14": lambda u,a,r,c: (
+            f"this action type had not previously been performed by {u} — "
+            f"behaviour outside an approved access pattern requires review"
+        ),
+    }
+
+    context_clause = ""
+    for rule_key, ctx_fn in _RULE_CONTEXT.items():
+        if rule_key.lower() in primary_clean.lower():
+            try:
+                context_clause = ctx_fn(user, action, record_ref, cmt_clean)
+            except Exception:
+                pass
+            break
+
+    if context_clause:
+        return (f"{user} performed {action} on {record_ref} at {ts}"
+                f"{comment_clause} — {context_clause}.")
+    else:
+        return (f"{user} performed {action} on {record_ref} at {ts}"
+                f"{comment_clause}.")
 
 
 def at_generate_justifications(top_df: pd.DataFrame, model_id: str) -> pd.DataFrame:
@@ -8480,9 +8563,10 @@ def at_build_excel(top_df, scored_df, system_name, r_start, r_end, fname) -> byt
     n_med     = int((scored_df["Risk_Tier"]=="Medium").sum())
     n_low     = int((scored_df["Risk_Tier"]=="Low").sum())
     n_oop     = int((scored_df["Risk_Tier"]=="Out of Period").sum())
-    # Cleared = events genuinely scored Low (not events that simply weren't in top 20)
-    # H/C events not escalated are still risk findings — they must NOT count as cleared
-    n_cleared = n_low + n_med   # Low + Medium are the only tiers that are genuinely cleared
+    # Cleared = events genuinely scored Low only.
+    # Medium events are scored anomalies — they must NOT count as cleared.
+    # H/C events not escalated are still risk findings — also not cleared.
+    n_cleared = n_low
     pct_clear = round(n_cleared / total * 100, 1) if total > 0 else 0
 
     # ══════════════════════════════════════════════════════════════════════════
@@ -8658,6 +8742,13 @@ def at_build_excel(top_df, scored_df, system_name, r_start, r_end, fname) -> byt
     # Reset column widths back to standard after critical box
     ws.column_dimensions["A"].width = 36
     ws.column_dimensions["B"].width = 52
+    ws.column_dimensions["C"].width = 26
+    ws.column_dimensions["D"].width = 22
+    # Write an invisible anchor to col D so max_column is always 4
+    # regardless of whether the Critical events block fired.
+    _anc = ws.cell(row=1, column=4, value="")
+    _anc.font = Font(name="Calibri", size=1, color="FFFFFF")
+    _anc.fill = _fill(C_HEADER_BG)
 
     def _summary_row(label, value, bold_val=False, section=False, tier=None):
         nonlocal row
@@ -13098,19 +13189,25 @@ def _dim_generate_narrative(smry: dict, period_df: pd.DataFrame,
     top3       = smry.get("top3", [])
 
     # ── Clean-user benchmark ──────────────────────────────────────────────────
-    # Count unique users in banked data vs those flagged in 2+ periods.
-    # "Clean" in DIM context = appeared in only 1 period, not a repeat offender.
-    # (DIM only banks H/C events so all users had at least one finding.)
+    # DIM banks only H/C events so everyone in raw_df had at least one finding.
+    # "Single-period" users = appeared in exactly 1 period (not repeat offenders).
+    # "Repeat" users = appeared in 2+ periods (in repeat_df_usernames).
     _clean_count = 0
     _clean_pct   = 0
-    if raw_df is not None and not raw_df.empty:
+    _n_repeat_named = len(smry.get("repeat_df_usernames", []))
+    if raw_df is not None and not raw_df.empty and "Username" in raw_df.columns:
         try:
-            _all_users  = set(raw_df["Username"].dropna().unique())
-            _flagged    = set(smry.get("repeat_df_usernames", []))
-            _single_period = _all_users - _flagged   # appeared in only 1 period
-            _total_users   = max(len(_all_users), 1)
-            _clean_count   = len(_single_period)
-            _clean_pct     = round(_clean_count / _total_users * 100)
+            # Exclude sentinel rows (clean periods with placeholder username)
+            _real = raw_df[
+                raw_df["Username"].notna() &
+                ~raw_df["Username"].str.strip().isin(
+                    ["(no escalations)", "", "nan", "None"])
+            ]
+            _all_users = set(_real["Username"].dropna().unique())
+            _flagged   = set(smry.get("repeat_df_usernames", []))
+            _single    = _all_users - _flagged
+            _clean_count = len(_single)
+            _clean_pct   = round(_clean_count / max(len(_all_users), 1) * 100)
         except Exception:
             _clean_count = 0
             _clean_pct   = 0
@@ -15764,10 +15861,7 @@ match your system's export column names to the fields above — rename nothing i
                 # than a padded one with low-signal filler.
                 top20 = qualified.copy()
 
-                # ── Step 3: Deterministic narratives — instant, no LLM wait ──────
-                # AI enrichment is offered as a one-click option on the results page.
-                # This keeps the analysis flow under 5 seconds regardless of model
-                # availability. Deterministic output is format-identical to AI output.
+                # ── Step 3: Build narratives — instant, rule-contextual ────────
                 st.write(f"📋 Step 3: Building evidence package...")
                 _ = prog.progress(0.80)
                 _det_narratives = [
@@ -15776,12 +15870,10 @@ match your system's export column names to the fields above — rename nothing i
                 ]
                 top20 = top20.copy()
                 top20["AI_Justification"] = _det_narratives
-                st.session_state["at_ai_enriched"]   = False
                 st.session_state["at_scored_df"]     = scored
                 st.session_state["at_top20_df"]      = top20
                 st.session_state["at_total_events"]  = len(scored)
                 st.session_state["at_analysis_done"] = True
-                st.session_state["at_model_id"]      = model_id
 
                 # ── Auto-feed DIM ──────────────────────────────────────────────
                 # Bank ALL High/Critical events — not just the top-20 UI cap.
@@ -16007,14 +16099,7 @@ match your system's export column names to the fields above — rename nothing i
                     "Output generated with 4 worksheets: <b style='color:#94a3b8;'>Summary</b> · "
                     "<b style='color:#94a3b8;'>Events for Review</b> · "
                     "<b style='color:#94a3b8;'>Full Audit Log</b> · "
-                    "<b style='color:#94a3b8;'>Detection Logic</b><br>"
-                    + (
-                        "<span style='color:#4ade80;'>✅ AI narratives included in 'What Happened' column.</span>"
-                        if st.session_state.get("at_ai_enriched")
-                        else "<span style='color:#f59e0b;'>⚡ Auto-generated summaries in 'What Happened' column. "
-                             "Scroll down and click <b>✨ Enrich with AI Narratives</b> first for AI-written text.</span>"
-                    )
-                    + "</p>",
+                    "<b style='color:#94a3b8;'>Detection Logic</b></p>",
                     unsafe_allow_html=True
                 )
             with na_col:
@@ -16372,36 +16457,6 @@ match your system's export column names to the fields above — rename nothing i
       {str(row.get('AI_Justification',''))}</p>
   </div>
 </div>""", unsafe_allow_html=True)
-
-        # ── AI narrative enrichment — bottom of page, after all cards ───────────
-        # Placed here so all 20 event cards are fully visible above before the
-        # spinner runs. Reviewer can read everything while AI generates.
-        st.markdown("---")
-        _ai_enriched = st.session_state.get("at_ai_enriched", False)
-        if not _ai_enriched:
-            _enrich_col, _ = st.columns([2, 5])
-            with _enrich_col:
-                if st.button(
-                    "✨ Enrich with AI Narratives (~30s)",
-                    key="at_enrich_ai_btn",
-                    use_container_width=True,
-                    help="Replaces the auto-generated 'What Happened' summaries with "
-                         "AI-written narratives. All risk scores and rules are unchanged."
-                ):
-                    with st.spinner(
-                        f"Generating AI narratives for {len(top20)} events…"
-                    ):
-                        top20 = at_generate_justifications(
-                            top20, st.session_state.get("at_model_id", ""))
-                    st.session_state["at_top20_df"]   = top20
-                    st.session_state["at_ai_enriched"] = True
-                    st.rerun()
-            st.caption(
-                "The 'What Happened' column currently uses auto-generated log summaries. "
-                "Click above to replace with AI-written narratives (~30s). "
-                "All risk classifications and rules are unaffected.")
-        else:
-            st.caption("✅ AI narratives active — What Happened column uses AI-generated summaries.")
 
         # ── Content for Periodic Review — very bottom of page ─────────────────
         st.markdown("---")
