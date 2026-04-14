@@ -8283,23 +8283,29 @@ def at_generate_justifications(top_df: pd.DataFrame, model_id: str) -> pd.DataFr
     import json as _json
     batch_prompt = f"""You are a GxP compliance analyst writing the "What Happened" column for a pharmaceutical audit trail review.
 
-For each event below, write ONE sentence (max 45 words) that a QA Director can read and immediately understand WHY this event was flagged as high risk.
+For each event below, write ONE sentence (max 45 words) that a QA Director can read and immediately understand WHY this event was flagged.
 
 RULES:
-1. Start with the user and action: who did what, to which record, when.
-2. Then add the risk context from the "rule" field in plain English — explain what makes this suspicious.
-3. If "sequence" is provided, include it — it shows how this event connects to others.
+1. Always include: who, what action, which record, when, what comment was given.
+2. ALWAYS add a second clause after " — " explaining what makes this suspicious based on the rule.
+3. If "sequence" is provided, use it instead of rule for the second clause.
 4. Do NOT use regulatory citations (no "21 CFR", "ALCOA+", "GxP").
-5. Do NOT say "escalated", "flagged", "risk", "concern", "violation" — describe the observable facts that imply the risk.
+5. Do NOT say "escalated", "flagged", "risk", "violation" — describe observable facts.
 6. Vary your sentence structure — do not start every sentence with the username.
 7. Respond ONLY with a valid JSON array: [{{"id": 1, "narrative": "..."}}, ...]
 8. Raw JSON only. No preamble, no markdown, no explanation.
 
-GOOD example (Rule 6 — delete/recreate): "At 02:14, analyst_x deleted RESULTS/RES-042 with no change reason, then recreated the same record 90 seconds later with a different value — the original entry no longer exists in the audit trail."
-GOOD example (Rule 3 — admin on GxP): "Using an administrator account, admin_sys modified a result record at 00:27 with comment 'Administrative override' — production GxP data was changed outside a standard analyst role."
-GOOD example (Rule 1 — vague rationale): "jsmith updated RESULTS/RES-7201 at 09:15 with only 'ok' as the change reason, providing no traceable justification for why the result value was modified."
+GOOD examples — note the " — " clause is MANDATORY in every sentence:
+Rule 3 (Admin on GxP): "Using an administrator account, admin_sys modified RESULTS/RES-3143 at 00:27 with comment 'Administrative adjustment' — a production result record was changed outside a standard analyst role."
+Rule 1 (Vague rationale): "jsmith updated RESULTS/RES-8758 at 10:54 with comment 'error' — the single-word reason provides no traceable justification for why the result value was modified."
+Rule 7 (Audit trail integrity): "dba_prod updated the AUDIT_TRAIL table directly at 13:39 with comment 'System maintenance' — a direct write to the audit trail record is an integrity event that must be explained."
+Rule 6 (Delete/recreate): "analyst_new deleted RESULTS/RES-042 at 02:14 with comment 'Mistake', then recreated the same record 90 seconds later — the original audit trail entry no longer exists."
+Rule 5 (Failed login): "jsmith performed an UPDATE on RESULTS/RES-LOGIN at 14:15 with comment 'Update after login' — this data change occurred within 30 minutes of repeated failed login attempts by the same user."
+Rule 9 (Timestamp gap): "svc_lims_batch inserted RESULTS/RES-SVC-3 at 10:33 with comment 'Automated entry' — a gap in audit trail coverage immediately precedes this entry with no documented explanation."
+Rule 10 (Off-hours): "shared_qc_lab inserted RESULTS/RES-SVC-4 at 21:24 with comment 'Automated entry' — this GxP system action occurred outside approved working hours with no documented maintenance window."
+Rule 12 (Service account): "shared_qc_lab inserted RESULTS/RES-SVC-1 at 12:50 with comment 'Automated entry' — actions performed by a shared account cannot be attributed to a specific individual."
 
-BAD example: "analyst_x performed DELETE on RESULTS/RES-042 at 02:14; comment on file reads 'none'." [too bare — no risk context]
+BAD (never do this): "analyst_x performed DELETE on RESULTS/RES-042 at 02:14; comment on file reads 'none'." — NO second clause, no context.
 
 EVENTS:
 {_json.dumps(events_payload, indent=2)}
@@ -8487,6 +8493,8 @@ def at_build_excel(top_df, scored_df, system_name, r_start, r_end, fname) -> byt
     ws.sheet_properties.tabColor = "1E3A5F"
     ws.column_dimensions["A"].width = 36
     ws.column_dimensions["B"].width = 52
+    ws.column_dimensions["C"].width = 26   # always declare — prevents 2-col collapse
+    ws.column_dimensions["D"].width = 22   # when no Critical events exist
     ws.sheet_view.showGridLines = False
 
     row = 1
@@ -12379,8 +12387,8 @@ def dim_build_excel(result: dict, system_name: str, file_name: str,
         "Rule 8":  "Attributable",
         "Rule 9":  "Complete",
         "Rule 10": "Contemporaneous",
-        "Rule 11": "Contemporaneous",
-        "Rule 12": "Contemporaneous",
+        "Rule 11": "Contemporaneous",   # Timestamp Reversal
+        "Rule 12": "Attributable",      # Service/Shared Account — not Contemporaneous
         "Rule 13": "Attributable",
         "Rule 14": "Attributable",
         "Rule 16": "Attributable",
@@ -13090,23 +13098,22 @@ def _dim_generate_narrative(smry: dict, period_df: pd.DataFrame,
     top3       = smry.get("top3", [])
 
     # ── Clean-user benchmark ──────────────────────────────────────────────────
-    # Users who appear in the dataset but were never escalated as H/C.
-    _clean_users = []
+    # Count unique users in banked data vs those flagged in 2+ periods.
+    # "Clean" in DIM context = appeared in only 1 period, not a repeat offender.
+    # (DIM only banks H/C events so all users had at least one finding.)
+    _clean_count = 0
+    _clean_pct   = 0
     if raw_df is not None and not raw_df.empty:
         try:
-            _sentinel_mask = raw_df.get("_is_sentinel", pd.Series(False, index=raw_df.index))
-            _real = raw_df[~_sentinel_mask]
-            _all_users  = set(_real["Username"].dropna().unique())
+            _all_users  = set(raw_df["Username"].dropna().unique())
             _flagged    = set(smry.get("repeat_df_usernames", []))
-            # Fallback: try to read from repeat_df summary
-            _clean_count = len(_all_users - _flagged)
-            _clean_pct   = round(_clean_count / max(len(_all_users), 1) * 100)
+            _single_period = _all_users - _flagged   # appeared in only 1 period
+            _total_users   = max(len(_all_users), 1)
+            _clean_count   = len(_single_period)
+            _clean_pct     = round(_clean_count / _total_users * 100)
         except Exception:
             _clean_count = 0
             _clean_pct   = 0
-    else:
-        _clean_count = 0
-        _clean_pct   = 0
 
     # ── CAPA map ──────────────────────────────────────────────────────────────
     _CAPA_NARRATIVE = {
@@ -13159,10 +13166,11 @@ def _dim_generate_narrative(smry: dict, period_df: pd.DataFrame,
         fallback_lines += [
             "",
             "## Compliance Baseline",
-            (f"{_clean_count} user(s) ({_clean_pct}% of active users) produced no "
-             f"High or Critical findings across all {n_periods} review period(s). "
-             f"This confirms the detection engine is not over-flagging and that "
-             f"compliant behaviour is the norm across the user population."),
+            (f"{_clean_count} user(s) ({_clean_pct}% of flagged users) appeared in only "
+             f"one review period with no repeat pattern, indicating isolated rather than "
+             f"systemic behaviour. "
+             f"{len(smry.get('repeat_df_usernames', []))} user(s) were flagged across "
+             f"two or more periods and represent persistent access or behavioural risk."),
         ]
 
     fallback_lines += [
