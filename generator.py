@@ -11423,6 +11423,41 @@ def show_user_access_review(user: str, role: str, model_id: str):
 
         st.session_state["uar_scored_result"] = result
         st.session_state["uar_analysis_done"] = True
+
+        # ── Auto-feed DIM: bank High/Critical UAR findings ────────────────────
+        _uar_period_label = (
+            f"{st.session_state.get('uar_review_start', '')} → "
+            f"{st.session_state.get('uar_review_end', '')}"
+        ).strip(" →") or f"UAR Period {st.session_state.get('dim_periods_banked', 0) + 1}"
+        _uar_sys  = st.session_state.get("uar_system_name", "System")
+        _uar_file = st.session_state.get("uar_file_name", "")
+        _uar_hc   = result["top_users"][
+            result["top_users"]["Risk_Level"].isin(["High", "Critical"])
+        ] if not result["top_users"].empty else pd.DataFrame()
+        _uar_dim_rows = []
+        for _, _urow in _uar_hc.iterrows():
+            _uar_dim_rows.append({
+                "Review_Period":  _uar_period_label,
+                "Username":       str(_urow.get("username", _urow.get("user_id", "unknown"))),
+                "Risk_Level":     str(_urow.get("Risk_Level", "High")),
+                "Rule_Triggered": str(_urow.get("Rule_Pattern", _urow.get("Triggered_Rules", "UAR finding")))[:120],
+                "System_Name":    _uar_sys,
+                "Event_Type":     "ACCESS_REVIEW",
+                "Event_Timestamp":str(datetime.datetime.utcnow()),
+                "Source_File":    _uar_file,
+                "Source_Module":  "UAR",
+            })
+        if _uar_dim_rows:
+            _uar_existing = [
+                r for r in st.session_state.get("dim_accumulated_rows", [])
+                if not (r.get("Review_Period") == _uar_period_label
+                        and r.get("Source_Module") == "UAR")
+            ]
+            _uar_existing.extend(_uar_dim_rows)
+            st.session_state["dim_accumulated_rows"] = _uar_existing
+            st.session_state["dim_periods_banked"] = len(
+                set(r["Review_Period"] for r in _uar_existing))
+
         st.rerun()
 
     # ── Step 4: Results ───────────────────────────────────────────────────────
@@ -11721,6 +11756,7 @@ def _dim_normalise_columns(df: pd.DataFrame) -> pd.DataFrame:
 
 def _dim_classify_rule(rule_str: str) -> dict:
     """Classify a triggered rule string into event category flags.
+    Handles both AT rules (Rule N — label) and UAR rules (U1:, U7:, U8: etc.)
     Rule numbering as of v85+ client-facing labels:
       Rule 5  = Failed Login spike
       Rule 6  = Record Reconstruction (delete + recreate)
@@ -11728,6 +11764,11 @@ def _dim_classify_rule(rule_str: str) -> dict:
       Rule 9  = Audit Trail Timestamp Gap  (NOT dormant — was renumbered)
       Rule 10 = Off-Hours / Holiday Activity
       Rule 13 = Dormant Account Sudden Activity
+    UAR rules:
+      U1  = Admin/privileged role
+      U7  = Dormant account
+      U8  = Ghost account (employment mismatch)
+      U9  = Missing access justification
     """
     r = str(rule_str).lower()
     return {
@@ -11741,11 +11782,10 @@ def _dim_classify_rule(rule_str: str) -> dict:
         "is_off_hours":   any(x in r for x in ["rule 10", "off-hours",
                                                  "off hours", "after hours",
                                                  "after-hours", "outside hours"]),
-        # Rule 9 is Timestamp Gap — do NOT include here.
-        # Dormant Account is Rule 13 in current client-facing numbering.
         "is_dormant":     any(x in r for x in ["rule 13", "dormant",
                                                  "inactive user", "never used",
-                                                 "never logged", "ghost"]),
+                                                 "never logged", "ghost",
+                                                 "u7:", "u8:", "access_review"]),
     }
 
 
@@ -11814,6 +11854,12 @@ def dim_score_periods(df: pd.DataFrame) -> dict:
         return {"error": "Minimum 2 review periods required. "
                          "Check the Review_Period column contains distinct period values."}
 
+    # ── Backfill Source_Module for rows banked before UAR integration ────────
+    if "Source_Module" not in df.columns:
+        df["Source_Module"] = "AT"
+    else:
+        df["Source_Module"] = df["Source_Module"].fillna("AT")
+
     # Mark sentinel rows (auto-banked clean periods with no real findings)
     # so they don't inflate counts when compared against periods with real data
     _SENTINEL_RULE = "no named rules triggered"
@@ -11831,6 +11877,8 @@ def dim_score_periods(df: pd.DataFrame) -> dict:
         period_rows.append({
             "Review_Period":        p,
             "Total_Findings":       len(pf_real),
+            "AT_Findings":          int((pf_real["Source_Module"] == "AT").sum()),
+            "UAR_Findings":         int((pf_real["Source_Module"] == "UAR").sum()),
             "High_Critical":        int(pf_real["is_high_crit"].sum()),
             "Deletion_Findings":    int(pf_real["is_deletion"].sum()),
             "Failed_Login":         int(pf_real["is_failed_login"].sum()),
@@ -11841,7 +11889,8 @@ def dim_score_periods(df: pd.DataFrame) -> dict:
     period_df = pd.DataFrame(period_rows)
 
     # Calculate % change column-by-column vs prior period
-    metrics = ["Total_Findings", "High_Critical", "Deletion_Findings",
+    metrics = ["Total_Findings", "AT_Findings", "UAR_Findings",
+               "High_Critical", "Deletion_Findings",
                "Failed_Login", "Off_Hours", "Dormant_Findings"]
     for m in metrics:
         prev = period_df[m].shift(1)
@@ -11869,6 +11918,13 @@ def dim_score_periods(df: pd.DataFrame) -> dict:
     # ── Feature 2: Repeat high-risk users ────────────────────────────────────
     hc_df     = df[df["is_high_crit"] & ~df["_is_sentinel"]].copy()
     user_grp  = hc_df.groupby("Username")
+    # Build set of UAR-flagged usernames for compound risk detection
+    _uar_flagged_users = set(
+        hc_df[hc_df["Source_Module"] == "UAR"]["Username"].str.lower().unique()
+    )
+    _at_flagged_users  = set(
+        hc_df[hc_df["Source_Module"] == "AT"]["Username"].str.lower().unique()
+    )
     repeat_rows = []
     for uname, grp in user_grp:
         # Sort periods chronologically using actual event timestamps per period
@@ -11883,6 +11939,8 @@ def dim_score_periods(df: pd.DataFrame) -> dict:
             continue
         rule_counts = grp["Rule_Triggered"].value_counts()
         top_rule    = rule_counts.index[0] if len(rule_counts) else "—"
+        _is_compound = (str(uname).lower() in _uar_flagged_users and
+                        str(uname).lower() in _at_flagged_users)
         repeat_rows.append({
             "Username":        uname,
             "Periods_Flagged": len(periods_flagged),
@@ -11891,6 +11949,7 @@ def dim_score_periods(df: pd.DataFrame) -> dict:
             "Total_Findings":  len(grp),
             "Most_Common_Rule":str(top_rule)[:80],
             "Risk_Levels":     ", ".join(sorted(grp["Risk_Level_Norm"].unique())),
+            "Compound_Risk":   "⚠ AT + UAR" if _is_compound else "",
         })
     repeat_df = pd.DataFrame(repeat_rows).sort_values(
         ["Periods_Flagged", "Total_Findings"], ascending=False
@@ -12106,14 +12165,15 @@ def dim_build_excel(result: dict, system_name: str, file_name: str,
     ws1 = wb.active
     ws1.title = "Dashboard"
     ws1.sheet_view.showGridLines = False
-    ws1.column_dimensions["A"].width = 32
-    ws1.column_dimensions["B"].width = 24
-    ws1.column_dimensions["C"].width = 24
-    ws1.column_dimensions["D"].width = 24
-    ws1.column_dimensions["E"].width = 24
+    ws1.column_dimensions["A"].width = 24
+    ws1.column_dimensions["B"].width = 22
+    ws1.column_dimensions["C"].width = 22
+    ws1.column_dimensions["D"].width = 22
+    ws1.column_dimensions["E"].width = 22
+    ws1.column_dimensions["F"].width = 22
 
     # ── Row 1: Title ──────────────────────────────────────────────────────────
-    ws1.merge_cells("A1:E1")
+    ws1.merge_cells("A1:F1")
     t = ws1.cell(row=1, column=1,
                  value="⬡  DATA INTEGRITY MONITOR — COMMAND CENTRE")
     t.font      = Font(name="Calibri", bold=True, size=15, color=C_NAVY)
@@ -12121,7 +12181,7 @@ def dim_build_excel(result: dict, system_name: str, file_name: str,
     ws1.row_dimensions[1].height = 28
 
     # ── Row 2: Metadata ───────────────────────────────────────────────────────
-    ws1.merge_cells("A2:E2")
+    ws1.merge_cells("A2:F2")
     meta = ws1.cell(row=2, column=1,
              value=f"System: {system_name or '(not entered)'}   |   "
                    f"Source: {file_name}   |   "
@@ -12140,7 +12200,7 @@ def dim_build_excel(result: dict, system_name: str, file_name: str,
         "Critical": "🔴", "Deteriorating": "🟠",
         "Stable": "🔵", "Improving": "🟢", "Baseline": "⚪"
     }.get(posture, "⚪")
-    ws1.merge_cells("A4:E4")
+    ws1.merge_cells("A4:F4")
     pos = ws1.cell(row=4, column=1,
                    value=f"{_posture_icon}  DI POSTURE: {posture.upper()}"
                          f"   |   {last_period_label} vs {first_period_label}")
@@ -12150,7 +12210,7 @@ def dim_build_excel(result: dict, system_name: str, file_name: str,
     ws1.row_dimensions[4].height = 32
 
     # ── Row 5: Divider label ──────────────────────────────────────────────────
-    ws1.merge_cells("A5:E5")
+    ws1.merge_cells("A5:F5")
     div = ws1.cell(row=5, column=1,
                    value=f"KEY METRICS — {last_period_label}")
     div.font      = Font(name="Calibri", bold=True, size=9,
@@ -12159,14 +12219,15 @@ def dim_build_excel(result: dict, system_name: str, file_name: str,
     div.alignment = Alignment(horizontal="left", vertical="center")
     ws1.row_dimensions[5].height = 16
 
-    # ── Rows 6-8: KPI tiles (Total, Deletions, Failed Logins, Off-Hours) ──────
+    # ── Rows 6-8: KPI tiles (Total, AT, UAR, Deletions, Failed Logins, Off-Hours) ──
     # H/C removed — always equals Total since DIM only banks H/C events
     last_row = pdf.iloc[-1]
     kpis = [
         ("Total Findings",      "Total_Findings",      C_NAVY),
+        ("AT Findings",         "AT_Findings",         "0369A1"),
+        ("UAR Findings",        "UAR_Findings",        "7C3AED"),
         ("Deletion Events",     "Deletion_Findings",   C_RED),
-        ("Failed Login Events", "Failed_Login",        "7C3AED"),
-        ("Off-Hours Events",    "Off_Hours",           C_AMBER),
+        ("Failed Login Events", "Failed_Login",        "B45309"),
     ]
     for ci, (label, col_key, kpi_color) in enumerate(kpis, 1):
         val  = int(last_row[col_key])
@@ -12192,7 +12253,7 @@ def dim_build_excel(result: dict, system_name: str, file_name: str,
         ws1.row_dimensions[8].height = 16
 
     # ── Row 10: TOP 3 ACTIONS ─────────────────────────────────────────────────
-    ws1.merge_cells("A10:E10")
+    ws1.merge_cells("A10:F10")
     t3h = ws1.cell(row=10, column=1, value="▼  TOP 3 ACTIONS — REVIEW TODAY")
     t3h.font      = Font(name="Calibri", bold=True, size=9, color=C_RED)
     t3h.fill      = _fill("FEF2F2")
@@ -12356,6 +12417,8 @@ def dim_build_excel(result: dict, system_name: str, file_name: str,
     trend_cols = [
         ("Review Period",      "Review_Period",              22),
         ("Total Findings",     "Total_Findings",             14),
+        ("  AT Findings",      "AT_Findings",                12),
+        ("  UAR Findings",     "UAR_Findings",               12),
         ("Deletion Events",    "Deletion_Findings",          16),
         ("Failed Logins",      "Failed_Login",               14),
         ("Off-Hours",          "Off_Hours",                  14),
@@ -12373,8 +12436,8 @@ def dim_build_excel(result: dict, system_name: str, file_name: str,
     ).font = Font(name="Calibri", bold=True, size=12, color=C_NAVY)
     ws2.cell(row=2, column=1,
              value="Note: All findings are High or Critical tier — "
-                   "DIM banks only H/C events from AT. "
-                   "Total Findings = High/Critical count."
+                   "DIM banks H/C events from AT and High/Critical users from UAR. "
+                   "AT Findings = audit trail events. UAR Findings = access review flags."
     ).font = Font(name="Calibri", size=8.5, italic=True, color="5A6A7A")
     ws2.row_dimensions[1].height = 20
     ws2.row_dimensions[2].height = 14
@@ -12441,6 +12504,7 @@ def dim_build_excel(result: dict, system_name: str, file_name: str,
         ("Last Seen",           "Last_Seen",         16),
         ("Total Findings",      "Total_Findings",    14),
         ("Most Common Rule",    "Most_Common_Rule",  45),
+        ("Compound Risk",       "Compound_Risk",     16),
     ]
 
     if rdf.empty:
@@ -12454,17 +12518,22 @@ def dim_build_excel(result: dict, system_name: str, file_name: str,
         for ri, (_, row_data) in enumerate(rdf.iterrows(), 3):
             _pf   = int(row_data.get("Periods_Flagged", 0))
             _pct  = round(_pf / n_periods * 100) if n_periods > 0 else 0
-            row_bg = "FFF0F0" if _pf >= 3 else "FFFBF0" if _pf == 2 else None
+            _compound = str(row_data.get("Compound_Risk", ""))
+            row_bg = "FDE8E8" if _compound else ("FFF0F0" if _pf >= 3 else "FFFBF0" if _pf == 2 else None)
             for ci, (_, col_key, _) in enumerate(repeat_cols, 1):
                 if col_key == "_pct_active":
                     val = f"{_pct}% of periods"
                 else:
                     val = row_data.get(col_key, "")
                 c = ws3.cell(row=ri, column=ci, value=val)
-                c.font      = Font(name="Calibri", size=9,
-                                   bold=(ci == 1),
-                                   color=C_RED if _pf >= 3 else C_NAVY)
-                c.fill      = _fill(row_bg) if row_bg else PatternFill()
+                if col_key == "Compound_Risk" and _compound:
+                    c.font = Font(name="Calibri", size=9, bold=True, color="991B1B")
+                    c.fill = _fill("FDE8E8")
+                else:
+                    c.font = Font(name="Calibri", size=9,
+                                  bold=(ci == 1),
+                                  color=C_RED if _pf >= 3 else C_NAVY)
+                    c.fill = _fill(row_bg) if row_bg else PatternFill()
                 c.alignment = Alignment(horizontal="left", vertical="top",
                                         wrap_text=(ci in (4, 7)))
                 c.border    = bdr
@@ -15928,6 +15997,7 @@ match your system's export column names to the fields above — rename nothing i
                         "Event_Type":     str(_ev.get("action_type", _ev.get("Action", ""))),
                         "Event_Timestamp":str(_ev.get("timestamp",   _ev.get("Timestamp", ""))),
                         "Source_File":    _at_file,
+                        "Source_Module":  "AT",
                     })
                 # Always bank the period even when 0 events are escalated
                 # (clean system is a valid DIM data point — no named rules fired)
@@ -15941,6 +16011,7 @@ match your system's export column names to the fields above — rename nothing i
                         "Event_Type":     "",
                         "Event_Timestamp":"",
                         "Source_File":    _at_file,
+                        "Source_Module":  "AT",
                     })
                 _existing = [r for r in st.session_state.get("dim_accumulated_rows", [])
                              if r["Review_Period"] != _at_period_label]
@@ -16053,22 +16124,45 @@ match your system's export column names to the fields above — rename nothing i
             _dist_tiers.append("Out of Period")
             _dist_counts.append(n_oop)
             _dist_esc.append("Excluded")
-        _dist_df = pd.DataFrame({
-            "Risk Tier":  _dist_tiers,
-            "Count":      _dist_counts,
-            "% of Total": [round(v/n_total*100,1) for v in _dist_counts],
-            "Escalated":  _dist_esc,
-        })
+
+        _tier_colors = {
+            "Critical":      "#7f1d1d",
+            "High":          "#7c2d12",
+            "Medium":        "#713f12",
+            "Low":           "#14532d",
+            "Out of Period": "#1e3a5f",
+        }
+        _rows_html = ""
+        for _t, _c, _e in zip(_dist_tiers, _dist_counts, _dist_esc):
+            _pct = f"{round(_c / n_total * 100, 1)}%" if n_total > 0 else "0%"
+            _col = _tier_colors.get(_t, "#374151")
+            _rows_html += (
+                f"<tr>"
+                f"<td style='padding:7px 12px;text-align:center;font-weight:600;"
+                f"color:{_col};'>{_t}</td>"
+                f"<td style='padding:7px 12px;text-align:center;'>{_c}</td>"
+                f"<td style='padding:7px 12px;text-align:center;'>{_pct}</td>"
+                f"<td style='padding:7px 12px;text-align:center;'>{_e}</td>"
+                f"</tr>"
+            )
         _, _mid, _ = st.columns([1, 2, 1])
         with _mid:
-            st.dataframe(
-                _dist_df.style.set_properties(**{"text-align": "center"})
-                              .set_table_styles([{
-                                  "selector": "th",
-                                  "props": [("text-align", "center")]
-                              }]),
-                hide_index=True,
-                use_container_width=True,
+            st.markdown(
+                f"<table style='width:100%;border-collapse:collapse;"
+                f"font-size:0.88rem;font-family:sans-serif;'>"
+                f"<thead><tr style='background:#1e293b;color:#e2e8f0;'>"
+                f"<th style='padding:8px 12px;text-align:center;font-weight:600;"
+                f"letter-spacing:0.03em;'>Risk Tier</th>"
+                f"<th style='padding:8px 12px;text-align:center;font-weight:600;"
+                f"letter-spacing:0.03em;'>Count</th>"
+                f"<th style='padding:8px 12px;text-align:center;font-weight:600;"
+                f"letter-spacing:0.03em;'>% of Total</th>"
+                f"<th style='padding:8px 12px;text-align:center;font-weight:600;"
+                f"letter-spacing:0.03em;'>Escalated</th>"
+                f"</tr></thead>"
+                f"<tbody>{_rows_html}</tbody>"
+                f"</table>",
+                unsafe_allow_html=True,
             )
 
         # ── Download ──────────────────────────────────────────────────────────
