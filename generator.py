@@ -6275,8 +6275,12 @@ _AT_DOMAIN_TERMS = {
     "sop","stp","woi","protocol","method","validation","qualification","iq","oq","pq",
     "upl","upl","change","control","ticket","cr","deviation","capa","audit",
     "signature","approval","review","version","amendment","addendum","errata",
-    # roles
-    "analyst","chemist","microbiologist","pharmacist","engineer","technician",
+    # lab process / transcription
+    "transcription","transcribed","pipette","pipetting","aliquot","aliquoting",
+    "centrifuge","centrifuged","incubation","incubated","filtration","filtered",
+    "diluted","reconstituted","reconstitution","homogenised","homogenized",
+    "vortex","vortexed","sonication","sonicated","lyophilised","lyophilized",
+    "sterilised","sterilized","autoclaved","autoclave","depyrogenation",
     "supervisor","manager","reviewer","approver","qa","qc","regulatory",
     # units
     "mg","ml","kg","g","mm","cm","nm","um","ppm","ppb","psi","bar","mpa","mbar",
@@ -7422,8 +7426,12 @@ def at_score_events(df: pd.DataFrame, rule_config: dict = None) -> pd.DataFrame:
     # 21 CFR Part 11 §11.10(e); ALCOA+ Original
     # Covers: UPDATE (old≠new, both not null), CREATE (new_value required),
     #         DELETE (old_value required to prove what was removed)
-    _has_old = "old_value" in df.columns
-    _has_new = "new_value" in df.columns
+    _has_old = ("old_value" in df.columns and
+                df["old_value"].astype(str).str.strip()
+                .replace({"nan":"","None":"","NaT":""}).ne("").any())
+    _has_new = ("new_value" in df.columns and
+                df["new_value"].astype(str).str.strip()
+                .replace({"nan":"","None":"","NaT":""}).ne("").any())
     def _rule17(row):
         act = str(row.get("action_type","")).upper()
         is_update = any(k in act for k in ["UPDATE","MODIFY","EDIT","AMEND","CORRECT","REVISE"])
@@ -8343,7 +8351,11 @@ def at_score_events(df: pd.DataFrame, rule_config: dict = None) -> pd.DataFrame:
                       if clean(r) != primary_clean and r]
         return "; ".join(supporting) if supporting else "—"
 
-    # ── Combined rationale — includes dimension rationales ────────────────────
+    # ── Re-assign Primary_Rule using the full 25-rule priority table ─────────
+    # The first assignment (above) used _master_lookup which only knows Rules 1-14.
+    # This second pass uses _RULE_PRIORITY which includes Rules 15-25.
+    df["Primary_Rule"]       = df.apply(_primary_rule, axis=1)
+    df["Supporting_Signals"] = df.apply(_supporting_signals, axis=1)
     def _dim_rationale(row) -> str:
         """Build plain-English rationale for dimension-based findings."""
         parts = []
