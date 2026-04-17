@@ -6410,13 +6410,42 @@ def _at_del_recreate_scores(df: pd.DataFrame) -> pd.Series:
     return scores
 
 
-def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
+def at_score_events(df: pd.DataFrame, rule_config: dict = None) -> pd.DataFrame:
     """
-    Score every event across the original 6 dimensions PLUS
-    4 named AI Skill rules from the GxP Operational Anomaly Detection spec.
-    Returns sorted DataFrame with individual dimension scores, rule flags,
-    rationale strings, and composite Risk_Score.
+    Score every event across 25 named detection rules.
+    rule_config: dict mapping 'at_rN_on' keys to bool. If None, all rules active.
+    Disabled rules still compute scores (for Full Audit Log completeness) but
+    their scores are zeroed before tier assignment so they never drive Events for Review.
+    Returns sorted DataFrame with individual scores, rule flags, and tier.
     """
+    # ── Config-to-score-column mapping ────────────────────────────────────────
+    _CFG_SCORE_MAP = {
+        "at_r1_on":  ["score_rule1_vague_rationale"],
+        "at_r2_on":  ["score_rule2_burst"],
+        "at_r3_on":  ["score_rule3_admin_conflict"],
+        "at_r4_on":  ["score_rule4_drift"],
+        "at_r5_on":  ["score_rule5_failed_login"],
+        "at_r6_on":  ["score_del_recreate"],
+        "at_r7_on":  ["score_record"],
+        "at_r8_on":  ["score_privilege"],
+        "at_r9_on":  ["score_gap"],
+        "at_r10_on": ["score_temporal"],
+        "at_r11_on": ["score_rule12_timestamp_reversal"],
+        "at_r12_on": ["score_rule13_service_account"],
+        "at_r13_on": ["score_rule14_dormant_account"],
+        "at_r14_on": ["score_rule16_first_time_behavior"],
+        "at_r15_on": ["score_rule15_missing_ts"],
+        "at_r16_on": ["score_rule16_missing_user"],
+        "at_r17_on": ["score_rule17_missing_values"],
+        "at_r18_on": ["score_rule18_self_approval"],
+        "at_r19_on": ["score_rule19_mod_after_approval"],
+        "at_r20_on": ["score_rule20_workflow_reversal"],
+        "at_r21_on": ["score_rule21_role_change"],
+        "at_r22_on": ["score_rule22_dup_timestamp"],
+        "at_r23_on": ["score_rule23_missing_record_id"],
+        "at_r24_on": ["score_rule24_dup_rows"],
+        "at_r25_on": ["score_rule25_future_ts"],
+    }
     df = df.copy()
 
     # ── FIX 8: Sequential client-facing rule label map ────────────────────────
@@ -6460,6 +6489,27 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
     df["score_velocity"]     = pd.Series(0.0, index=df.index)  # BQ-007: Rule 9 removed
     df["score_gap"]          = _at_gap_scores(df)
     df["score_del_recreate"] = _at_del_recreate_scores(df)
+
+    # ── Noise action exclusion ────────────────────────────────────────────────
+    # These actions are not GxP data events. They legitimately occur at all hours
+    # and should not inflate temporal (Rule 10) or gap (Rule 9) scores.
+    # Rule 5 (failed login) is the exception — it deliberately needs LOGIN events.
+    _AT_NOISE_ACTIONS = {
+        "login", "logout", "log_in", "log_out", "logon", "logoff",
+        "log on", "log off", "session_start", "session_end",
+        "print", "printed", "export", "exported", "download", "downloaded",
+        "view", "viewed", "read", "select", "query", "search",
+        "report", "report_run", "run_report",
+        "ping", "heartbeat", "keepalive", "keep_alive",
+        "system_event", "sys_event", "config_check", "health_check",
+        "printer", "print_job", "print_queue",
+    }
+    if "action_type" in df.columns:
+        _noise_mask = df["action_type"].astype(str).str.lower().str.strip().isin(_AT_NOISE_ACTIONS)
+        if _noise_mask.any():
+            # Zero temporal and gap for noise — they are not GxP data actions
+            df.loc[_noise_mask, "score_temporal"] = 0.0
+            df.loc[_noise_mask, "score_gap"]      = 0.0
 
     # BQ-004: Rule 8 scope redesigned to eliminate overlap with Rule 3.
     # Rule 3 owns: admin write/delete on core GxP production tables (RESULTS, BATCH etc.)
@@ -7387,26 +7437,25 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
         new_null = not new_v or new_v.lower() in ("nan","none","-","—","n/a","")
         if is_update:
             if not _has_old and not _has_new:
-                return 0.0, ""  # columns absent — skip gracefully
-            if old_null and new_null:
-                return 7.5, (
-                    f"This UPDATE event has neither old_value nor new_value populated. "
-                    "A modification without preserved before/after state provides no "
-                    "evidence of what changed, violating ALCOA+ Original principle "
-                    "(21 CFR Part 11 §11.10(e))."
-                )
-            if old_null:
+                return 0.0, ""  # both columns absent — skip gracefully
+            if not _has_old:
+                # old_value column not in input at all — system-level gap but
+                # not attributable to this specific event; skip to avoid flooding
+                # every UPDATE row. Reviewers should check system export settings.
+                pass
+            elif old_null:
                 return 7.0, (
                     "This UPDATE event has no old_value recorded — the original state "
                     "of the data before modification is unknown. GxP requires preservation "
                     "of the original value for every modification."
                 )
-            if new_null:
+            if _has_new and new_null:
                 return 7.0, (
                     "This UPDATE event has no new_value recorded — what the record was "
                     "changed to cannot be determined from the audit trail alone."
                 )
-            if _has_old and _has_new and not old_null and not new_null and old_v == new_v:
+            if (_has_old and _has_new and not old_null and not new_null
+                    and old_v == new_v):
                 return 6.5, (
                     f"This UPDATE event shows old_value and new_value as identical ('{old_v}'). "
                     "A modification that changes nothing in the record is suspicious and may "
@@ -7662,6 +7711,16 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
     r25s, r25r = zip(*[_rule25(r) for _, r in df.iterrows()]) if len(df) else ([],[])
     df["score_rule25_future_ts"] = list(r25s)
     df["rule25_rationale"]       = list(r25r)
+
+    # ── Apply rule config: zero out disabled rule scores before tier assignment ─
+    # Scores remain in DataFrame for Full Audit Log visibility but do NOT
+    # influence tier, Events for Review admission, or Primary Rule label.
+    if rule_config:
+        for cfg_key, score_cols in _CFG_SCORE_MAP.items():
+            if not rule_config.get(cfg_key, True):
+                for sc in score_cols:
+                    if sc in df.columns:
+                        df[sc] = 0.0
 
     # ── Rule-Priority Tier Assignment (replaces composite additive scoring) ────
     # Each rule has a fixed base tier. Final tier = highest tier among all fired rules.
@@ -8195,39 +8254,65 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
     # Derived from the same priority order as _apply_tier_override so the two
     # are always consistent. Supporting Signals = all remaining triggered rules.
     _RULE_PRIORITY = [
-        ("score_rule12_timestamp_reversal",  9,  "Rule 12 — Timestamp Reversal [CRITICAL]"),
-        ("score_rule13_service_account",     9,  "Rule 13 — Service/Shared Account GxP Action [CRITICAL]"),
-        ("score_rule5_failed_login",         8,  "Rule 5 — Failed Login → Data Manipulation [CRITICAL]"),
-        ("score_rule3_admin_conflict",       8,  "Rule 3 — Admin/GxP Conflict [CRITICAL]"),
-        ("score_del_recreate",               9,  "Rule 6 — Record Reconstruction Pattern [CRITICAL]"),
+        # Critical tier — checked first, highest priority
+        ("score_rule19_mod_after_approval",  8, "Rule 19 — Modification After Approval [CRITICAL]"),
+        ("score_rule18_self_approval",        8, "Rule 18 — Self-Approval SoD Violation [CRITICAL]"),
+        ("score_rule12_timestamp_reversal",   9, "Rule 12 — Timestamp Reversal [CRITICAL]"),
+        ("score_rule13_service_account",      9, "Rule 13 — Service/Shared Account GxP Action [CRITICAL]"),
+        ("score_rule5_failed_login",          8, "Rule 5 — Failed Login → Data Manipulation [CRITICAL]"),
+        ("score_rule3_admin_conflict",        8, "Rule 3 — Admin/GxP Conflict [CRITICAL]"),
+        ("score_del_recreate",                9, "Rule 6 — Record Reconstruction Pattern [CRITICAL]"),
         ("score_record",                     10, "Rule 7 — Audit Trail Integrity Event [CRITICAL]"),
-        ("score_rule4_drift",                7,  "Rule 4 — Change Control Drift [HIGH]"),
-        ("score_rule1_vague_rationale",      7,  "Rule 1 — Vague Rationale [HIGH]"),
-        ("score_rule16_first_time_behavior", 8,  "Rule 16 — First-Time Behavior [HIGH]"),
-        ("score_rule14_dormant_account",     8,  "Rule 14 — Dormant Account Sudden Activity [HIGH]"),
-        ("score_rule2_burst",                6,  "Rule 2 — Contemporaneous Burst [MEDIUM]"),
-        ("score_privilege",                  7,  "Rule 8 — Privileged User on GxP Data [HIGH]"),
-        ("score_record",                     8,  "Rule 7 — Sensitive Record Deletion [HIGH]"),
-        ("score_gap",                        4,  "Rule 10 — Audit Trail Timestamp Gap [MEDIUM]"),
-        ("score_temporal",                   5,  "Rule 11 — Off-Hours/Holiday Activity [MEDIUM]"),
+        # High tier
+        ("score_rule25_future_ts",            8, "Rule 25 — Future Timestamp [HIGH]"),
+        ("score_rule4_drift",                 7, "Rule 4 — Change Control Drift [HIGH]"),
+        ("score_rule1_vague_rationale",       7, "Rule 1 — Vague Rationale [HIGH]"),
+        ("score_rule16_first_time_behavior",  8, "Rule 14 — First-Time Behavior [HIGH]"),
+        ("score_rule14_dormant_account",      8, "Rule 13 — Dormant Account Sudden Activity [HIGH]"),
+        ("score_privilege",                   7, "Rule 8 — Privileged User on GxP Data [HIGH]"),
+        ("score_record",                      8, "Rule 7 — Sensitive Record Deletion [HIGH]"),
+        ("score_rule13_service_account",      6, "Rule 12 — Service/Shared Account Action [HIGH]"),
+        ("score_rule15_missing_ts",           7, "Rule 15 — Missing Timestamp [HIGH]"),
+        ("score_rule16_missing_user",         7, "Rule 16 — Missing User Attribution [HIGH]"),
+        ("score_rule17_missing_values",       6, "Rule 17 — Missing Before/After Value [HIGH]"),
+        ("score_rule20_workflow_reversal",    7, "Rule 20 — Workflow Status Reversal [HIGH]"),
+        ("score_rule21_role_change",          7, "Rule 21 — Role/Permission Change [HIGH]"),
+        ("score_rule23_missing_record_id",    7, "Rule 23 — Missing Record ID [HIGH]"),
+        ("score_rule24_dup_rows",             7, "Rule 24 — Duplicate Rows [HIGH]"),
+        # Medium tier
+        ("score_rule2_burst",                 6, "Rule 2 — Contemporaneous Burst [MEDIUM]"),
+        ("score_rule22_dup_timestamp",        6, "Rule 22 — Duplicate Timestamp Collision [MEDIUM]"),
+        ("score_gap",                         4, "Rule 9 — Audit Trail Timestamp Gap [MEDIUM]"),
+        ("score_temporal",                    5, "Rule 10 — Off-Hours/Holiday Activity [MEDIUM]"),
     ]
 
     # ── Pre-compute fallback labels for _RULE_PRIORITY path ──────────────────────
     _SIGNAL_NAMES_B = {
-        "score_rule1_vague_rationale":      "Vague/missing rationale",
-        "score_rule2_burst":                "High-volume burst activity",
-        "score_rule3_admin_conflict":       "Admin/GxP role conflict",
-        "score_rule4_drift":                "Change-control drift",
-        "score_rule5_failed_login":         "Failed login preceding action",
-        "score_del_recreate":               "Delete-recreate sequence",
-        "score_record":                     "Sensitive record deletion",
-        "score_privilege":                  "Privileged-user action on GxP data",
-        "score_gap":                        "Audit trail timestamp gap",
-        "score_temporal":                   "Off-hours/holiday activity",
-        "score_rule12_timestamp_reversal":  "Timestamp reversal",
-        "score_rule13_service_account":     "Service/shared account action",
-        "score_rule14_dormant_account":     "Dormant account activity",
-        "score_rule16_first_time_behavior": "First-time action type for user",
+        "score_rule1_vague_rationale":       "Vague/missing rationale",
+        "score_rule2_burst":                 "High-volume burst activity",
+        "score_rule3_admin_conflict":        "Admin/GxP role conflict",
+        "score_rule4_drift":                 "Change-control drift",
+        "score_rule5_failed_login":          "Failed login preceding action",
+        "score_del_recreate":                "Delete-recreate sequence",
+        "score_record":                      "Sensitive record deletion",
+        "score_privilege":                   "Privileged-user action on GxP data",
+        "score_gap":                         "Audit trail timestamp gap",
+        "score_temporal":                    "Off-hours/holiday activity",
+        "score_rule12_timestamp_reversal":   "Timestamp reversal",
+        "score_rule13_service_account":      "Service/shared account action",
+        "score_rule14_dormant_account":      "Dormant account activity",
+        "score_rule16_first_time_behavior":  "First-time action type for user",
+        "score_rule15_missing_ts":           "Missing timestamp",
+        "score_rule16_missing_user":         "Missing user attribution",
+        "score_rule17_missing_values":       "Missing before/after value",
+        "score_rule18_self_approval":        "Self-approval SoD violation",
+        "score_rule19_mod_after_approval":   "Modification after approval",
+        "score_rule20_workflow_reversal":    "Workflow status reversal",
+        "score_rule21_role_change":          "Role/permission change",
+        "score_rule22_dup_timestamp":        "Duplicate timestamp collision",
+        "score_rule23_missing_record_id":    "Missing record ID",
+        "score_rule24_dup_rows":             "Duplicate rows detected",
+        "score_rule25_future_ts":            "Future timestamp detected",
     }
     _sig_cols_b = [c for c in _SIGNAL_NAMES_B if c in df.columns]
     _fallback_b = pd.Series("No named rule threshold met", index=df.index)
@@ -8660,11 +8745,11 @@ def at_score_events(df: pd.DataFrame) -> pd.DataFrame:
     df["Suggested_Disposition"]          = sugg_disp
     df["Suggested_Disposition_Rationale"] = sugg_rat
 
-    # ── FIX 8: Apply sequential client label renumbering to all output columns ─
-    # Rewrites Rule 10→9, 11→10, 12→11, 13→12, 14→13, 16→13 in every
-    # human-readable string column. Score columns (score_rule14 etc.) untouched.
+    # ── FIX 8: Apply sequential client label renumbering to Primary_Rule only ──
+    # Triggered_Rules is excluded — _triggered() already writes correct client
+    # labels. Applying _relabel_rule() to it would double-remap (e.g. Rule 10→9).
     _RELABEL_COLS = [
-        "Primary_Rule", "Supporting_Signals", "Triggered_Rules",
+        "Primary_Rule", "Supporting_Signals",
         "rule1_rationale", "Rationale", "System_Narrative",
         "Suggested_Disposition", "Suggested_Disposition_Rationale",
         "Action_Required", "Regulatory_Basis", "Sequence_Context",
@@ -8710,12 +8795,15 @@ def _at_deterministic_justification(row: dict) -> str:
     else:
         record_ref = "an unspecified record"
 
-    # Build comment clause
+    # Build comment clause — don't apply modification language to approval actions
+    _APPROVAL_ACTS = {"approve","approved","approval","sign","signed","release",
+                      "released","authorise","authorize","review","reviewed","certify"}
+    _is_approval = any(k in action.lower() for k in _APPROVAL_ACTS)
     cmt_clean = cmt.strip() if cmt and cmt not in ("nan", "none", "-", "—", "") else ""
     if cmt_clean:
         comment_clause = f"; comment on file reads '{cmt_clean[:60]}'"
     else:
-        comment_clause = "; no change reason was recorded"
+        comment_clause = "; no change reason was recorded" if not _is_approval else ""
 
     # Use Sequence_Context if available (chain/sequence events)
     seq_ctx = str(row.get("Sequence_Context", "")).strip()
@@ -8729,9 +8817,13 @@ def _at_deterministic_justification(row: dict) -> str:
 
     _RULE_CONTEXT = {
         "Rule 1":  lambda u,a,r,c: (
-            f"the single-word comment '{c}' provides no traceable justification "
-            f"for why this record was modified"
-            if c else "no change reason documents why this record was modified"
+            # Don't apply vague-rationale language to approval/review actions
+            None if any(k in a.lower() for k in _APPROVAL_ACTS)
+            else (
+                f"the comment '{c}' does not provide sufficient scientific justification "
+                f"for why this record was modified"
+                if c else "no change reason documents why this record was modified"
+            )
         ),
         "Rule 2":  lambda u,a,r,c: (
             f"{u} performed {len(str(c).split())} or more identical actions in rapid "
@@ -8836,7 +8928,9 @@ def _at_deterministic_justification(row: dict) -> str:
     for rule_key, ctx_fn in _RULE_CONTEXT.items():
         if rule_key.lower() in primary_clean.lower():
             try:
-                context_clause = ctx_fn(user, action, record_ref, cmt_clean)
+                result_clause = ctx_fn(user, action, record_ref, cmt_clean)
+                if result_clause is not None:
+                    context_clause = result_clause
             except Exception:
                 pass
             break
@@ -14110,9 +14204,14 @@ def show_dim(user: str, role: str, model_id: str):
  text-transform:uppercase;letter-spacing:2px;margin:20px 0 8px;}
 </style>"""
     st.markdown(_CSS, unsafe_allow_html=True)
+    # Scroll to top of page on navigation
+    st.markdown("<div id='dim-page-top'></div>", unsafe_allow_html=True)
     st.markdown(
-        "<h1 style='color:#e2e8f0;margin-bottom:4px;'>📊 Data Integrity Monitor</h1>"
-        "<p style='color:#94a3b8;margin-top:0;font-size:0.9rem;'>"
+        "<script>window.scrollTo(0,0);</script>",
+        unsafe_allow_html=True)
+    st.title("📊 Data Integrity Monitor")
+    st.markdown(
+        "<p style='color:#94a3b8;margin-top:-12px;font-size:0.9rem;'>"
         "Multi-period DI trend analysis · ALCOA+ · 21 CFR Part 11 · FDA CSA (Sep 2021)"
         "</p>", unsafe_allow_html=True)
     st.markdown("---")
@@ -14126,17 +14225,21 @@ def show_dim(user: str, role: str, model_id: str):
 
     if _banked < 2 and not _done:
         _needed = 2 - _banked
+        _banked_msg = (
+            f"<div style='color:#7dd3fc;font-size:1.1rem;font-weight:700;margin-bottom:8px;'>"
+            f"{'📊 0 periods banked' if _banked == 0 else f'📊 1 period banked — 1 more needed'}</div>"
+            f"<div style='color:#94a3b8;font-size:0.9rem;'>"
+            f"Run <b style='color:#e2e8f0;'>Audit Trail Review</b> for "
+            f"{_needed} more period{'s' if _needed > 1 else ''} to unlock trend analysis. "
+            f"Minimum 2 periods required. Each AT run automatically banks its findings here."
+            f"</div>"
+        )
         st.markdown(
             f"<div style='background:#0c1a2e;border:1px solid #334155;"
             f"border-radius:10px;padding:24px 28px;text-align:center;'>"
             f"<div style='font-size:2.5rem;margin-bottom:12px;'>📊</div>"
-            f"<div style='color:#7dd3fc;font-size:1.1rem;font-weight:700;"
-            f"margin-bottom:8px;'>DI Monitor — {_banked}/2 periods banked</div>"
-            f"<div style='color:#94a3b8;font-size:0.9rem;'>"
-            f"Run the <b style='color:#e2e8f0;'>Audit Trail Review</b> for "
-            f"{_needed} more period{'s' if _needed > 1 else ''} to unlock "
-            f"trend analysis. Each AT run automatically banks its findings here."
-            f"</div></div>",
+            f"{_banked_msg}"
+            f"</div>",
             unsafe_allow_html=True)
         return
 
@@ -14160,13 +14263,17 @@ def show_dim(user: str, role: str, model_id: str):
 
     # ── Ready to run manually (no autorun) ────────────────────────────────────
     if not _done:
+        _trend_msg = (
+            "Trend analysis unlocked — upload more periods to extend the trend."
+            if _banked == 2 else
+            f"{_banked} periods banked — trend analysis active. Upload more periods to extend the trend."
+        )
         st.markdown(
             f"<div style='background:#0c2d1e;border:1px solid #22c55e;"
             f"border-radius:10px;padding:16px 22px;margin-bottom:16px;'>"
-            f"<b style='color:#4ade80;font-size:1rem;'>✅ {_banked} periods "
+            f"<b style='color:#4ade80;font-size:1rem;'>✅ {_banked} period{'s' if _banked != 1 else ''} "
             f"ready — {_sys_name or 'AT findings'}</b><br>"
-            f"<span style='color:#86efac;font-size:0.85rem;'>"
-            f"Click Run to generate trend analysis.</span></div>",
+            f"<span style='color:#86efac;font-size:0.85rem;'>{_trend_msg}</span></div>",
             unsafe_allow_html=True)
 
         rb_col, rs_col, _ = st.columns([3, 2, 3])
@@ -14269,6 +14376,25 @@ def show_dim(user: str, role: str, model_id: str):
         "**Critical** = up >30%."
     )
 
+    # ── Download Evidence Package — placed directly below period table ─────────
+    _dl_sys   = st.session_state.get("dim_system_name","System")
+    _dl_fname = f"AT auto-feed ({_banked} periods)"
+    _dl_out   = f"DIM_{_dl_sys.replace(' ','_')}_{datetime.datetime.utcnow().strftime('%Y-%m-%d')}.xlsx"
+    with st.spinner("Building evidence package…"):
+        _dl_xlsx = dim_build_excel(result, _dl_sys, _dl_fname, model_id)
+    _dl_col, _ = st.columns([2, 3])
+    with _dl_col:
+        _trial_gate(
+            label="⬇️ Download DIM Evidence Package",
+            data=_dl_xlsx,
+            file_name=_dl_out,
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key="dim_dl_btn_top",
+            use_container_width=True,
+        )
+    st.caption("6 sheets: **Dashboard** · **Period Trends** · **Repeat Users** · **Rule Recurrence** · **Activity Heatmap** · **Narrative Summary**")
+    st.markdown("<div style='margin-bottom:8px;'></div>", unsafe_allow_html=True)
+
     # ── Repeat Users ────────────────────────────────────────────────────────────
     rdf = result["repeat_df"]
     st.markdown(f"<div class='dim-section-hdr'>🔁 Repeat High-Risk Users ({smry['repeat_users']})</div>", unsafe_allow_html=True)
@@ -14351,24 +14477,6 @@ def show_dim(user: str, role: str, model_id: str):
                     f"</span></div>"
                     f"<div style='color:#94a3b8;font-size:0.79rem;line-height:1.5;'>{_rule_narrative}</div>"
                     f"</div>", unsafe_allow_html=True)
-
-    # ── Download ──────────────────────────────────────────────────────────────
-    st.markdown("---")
-    st.markdown("<div class='dim-section-hdr'>📥 Download Evidence Package</div>", unsafe_allow_html=True)
-    sysname  = st.session_state.get("dim_system_name","System")
-    fname_in = f"AT auto-feed ({_banked} periods)"
-    out_name = f"DIM_{sysname.replace(' ','_')}_{datetime.datetime.utcnow().strftime('%Y-%m-%d')}.xlsx"
-    with st.spinner("Building evidence package…"):
-        xlsx_bytes = dim_build_excel(result, sysname, fname_in, model_id)
-    _trial_gate(
-        label="⬇️ Download DIM Evidence Package",
-        data=xlsx_bytes,
-        file_name=out_name,
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        key="dim_dl_btn",
-        use_container_width=False,
-    )
-    st.caption("Output generated with 6 worksheets: **Dashboard** · **Period Trends** · **Repeat Users** · **Rule Recurrence** · **Activity Heatmap** · **Narrative Summary**")
 
     # ── New Analysis — bottom of page ─────────────────────────────────────────
     st.markdown("<div style='margin-top:24px;'></div>", unsafe_allow_html=True)
@@ -14644,149 +14752,217 @@ def show_audit_trail(user: str, role: str, model_id: str):
         "System Name", value=st.session_state.get("at_system_name",""),
         placeholder="e.g. StarLIMS, Veeva Vault, MasterControl",
         key="at_sysname")
-    # Review period is auto-detected from the uploaded file's timestamp range —
-    # shown as a read-only detected period once mapping is confirmed.
 
     st.markdown("---")
 
-    # ── STEP 1: Upload ────────────────────────────────────────────────────────
+    # ── Initialise rule config defaults ───────────────────────────────────────
+    _RULE_DEFAULTS = {
+        "at_r1_on": True,  "at_r2_on": True,  "at_r3_on": True,
+        "at_r5_on": True,  "at_r6_on": True,  "at_r7_on": True,
+        "at_r8_on": True,  "at_r11_on": True, "at_r12_on": True,
+        "at_r15_on": True, "at_r16_on": True, "at_r17_on": True,
+        "at_r18_on": True, "at_r19_on": True, "at_r21_on": True,
+        "at_r23_on": True, "at_r24_on": True, "at_r25_on": True,
+        "at_r4_on":  False, "at_r9_on":  False, "at_r10_on": False,
+        "at_r13_on": False, "at_r14_on": False, "at_r20_on": False,
+        "at_r22_on": False,
+    }
+    for _k, _v in _RULE_DEFAULTS.items():
+        if _k not in st.session_state:
+            st.session_state[_k] = _v
+
+    _AT_RULE_CONFIG   = {k: st.session_state.get(k, v) for k, v in _RULE_DEFAULTS.items()}
+    _at_rules_active  = sum(1 for v in _AT_RULE_CONFIG.values() if v)
+    _config_confirmed = st.session_state.get("at_config_confirmed", False)
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # STEP 0 — Detection Rule Configuration (landing page before upload)
+    # ══════════════════════════════════════════════════════════════════════════
+    if not _config_confirmed and not st.session_state.get("at_mapping_done"):
+
+        # Section colour palette
+        _SEC_COLORS = {
+            "integrity":   ("#1a0a0a","#ef4444","#fca5a5","#7f1d1d"),  # red
+            "change":      ("#0a1220","#3b82f6","#93c5fd","#1e3a5f"),  # blue
+            "user":        ("#0a1a0f","#22c55e","#86efac","#14532d"),  # green
+            "timestamp":   ("#0f0a1a","#a855f7","#d8b4fe","#4c1d95"),  # purple
+            "behaviour":   ("#1a1200","#f59e0b","#fcd34d","#78350f"),  # amber
+            "heuristic":   ("#0a1515","#06b6d4","#67e8f9","#164e63"),  # cyan
+        }
+
+        def _section_header(label, key):
+            bg, ac, txt, dark = _SEC_COLORS[key]
+            st.markdown(
+                f"<div style='background:{bg};border-left:4px solid {ac};"
+                f"border-radius:0 8px 8px 0;padding:10px 16px;margin:20px 0 10px;'>"
+                f"<span style='color:{txt};font-size:0.8rem;font-weight:700;"
+                f"letter-spacing:1.5px;text-transform:uppercase;'>{label}</span></div>",
+                unsafe_allow_html=True)
+
+        def _rule_toggle(cfg_key, label, tier, t_class, reg, default):
+            is_on = st.session_state.get(cfg_key, default)
+            _, ac, txt, _ = _SEC_COLORS.get(_current_section, list(_SEC_COLORS.values())[0])
+            tier_badge = {"Critical":"🔴","High":"🟠","Medium":"🟡"}.get(tier,"⚪")
+            t2_tag = " · T2" if t_class == "Tier 2" else ""
+            val = st.toggle(
+                f"{tier_badge} **{label}** `{tier}{t2_tag}`",
+                value=is_on, key=f"cfg_{cfg_key}",
+                help=f"{reg}"
+            )
+            st.session_state[cfg_key] = val
+            return val
+
+        st.markdown("### ⚙️ Step 1 — Configure Detection Rules")
+        st.caption(
+            "Tier 1 rules are directly testable from your log file. "
+            "Tier 2 rules use heuristics that may need tuning for your system. "
+            "All Tier 1 rules default **ON**. All Tier 2 rules default **OFF**. "
+            "You can change any rule for any run — your config is stamped into the output. "
+            "At least one rule must remain active."
+        )
+
+        _current_section = "integrity"
+        _section_header("🔴 Data Integrity & Record Tampering", "integrity")
+        _ic1, _ic2 = st.columns(2)
+        with _ic1:
+            st.session_state["at_r19_on"] = st.toggle("🔴 **Modification After Approval** `Critical · T1`", value=st.session_state["at_r19_on"], key="cfg_at_r19_on", help="21 CFR Part 11 §11.10(e); ALCOA+ Original")
+            st.session_state["at_r18_on"] = st.toggle("🔴 **Self-Approval SoD Violation** `Critical · T1`", value=st.session_state["at_r18_on"], key="cfg_at_r18_on", help="21 CFR Part 11 §11.10(d); EU Annex 11 Clause 12")
+            st.session_state["at_r3_on"]  = st.toggle("🔴 **Admin/GxP Conflict** `Critical · T1`",          value=st.session_state["at_r3_on"],  key="cfg_at_r3_on",  help="21 CFR Part 11 §11.10(d)")
+        with _ic2:
+            st.session_state["at_r6_on"]  = st.toggle("🔴 **Record Reconstruction** `Critical · T1`",        value=st.session_state["at_r6_on"],  key="cfg_at_r6_on",  help="21 CFR Part 11 §11.10(e); ALCOA+ Original")
+            st.session_state["at_r7_on"]  = st.toggle("🔴 **Audit Trail Integrity Event** `Critical · T1`",  value=st.session_state["at_r7_on"],  key="cfg_at_r7_on",  help="21 CFR Part 11 §11.10(e)")
+
+        _current_section = "change"
+        _section_header("🔵 Change Documentation & Value Integrity", "change")
+        _cc1, _cc2 = st.columns(2)
+        with _cc1:
+            st.session_state["at_r1_on"]  = st.toggle("🟠 **Vague Rationale** `High · T1`",                 value=st.session_state["at_r1_on"],  key="cfg_at_r1_on",  help="21 CFR Part 211.68; ALCOA+ Attributable and Legible")
+            st.session_state["at_r17_on"] = st.toggle("🟠 **Missing Before/After Value** `High · T1`",      value=st.session_state["at_r17_on"], key="cfg_at_r17_on", help="21 CFR Part 11 §11.10(e); ALCOA+ Original")
+            st.session_state["at_r23_on"] = st.toggle("🟠 **Missing Record ID** `High · T1`",               value=st.session_state["at_r23_on"], key="cfg_at_r23_on", help="21 CFR Part 11 §11.10(e); ALCOA+ Original")
+        with _cc2:
+            st.session_state["at_r24_on"] = st.toggle("🟠 **Duplicate Rows** `High · T1`",                  value=st.session_state["at_r24_on"], key="cfg_at_r24_on", help="21 CFR Part 11 §11.10(e); ALCOA+ Original")
+            st.session_state["at_r4_on"]  = st.toggle("🟠 **Change Control Drift** `High · T2`",            value=st.session_state["at_r4_on"],  key="cfg_at_r4_on",  help="21 CFR Part 820.70(b) — Tier 2: requires statistical baseline assumption")
+
+        _current_section = "user"
+        _section_header("🟢 User Attribution & Access", "user")
+        _uc1, _uc2 = st.columns(2)
+        with _uc1:
+            st.session_state["at_r5_on"]  = st.toggle("🔴 **Failed Login → Manipulation** `Critical · T1`", value=st.session_state["at_r5_on"],  key="cfg_at_r5_on",  help="21 CFR Part 11 §11.300")
+            st.session_state["at_r12_on"] = st.toggle("🔴 **Service/Shared Account** `Critical · T1`",      value=st.session_state["at_r12_on"], key="cfg_at_r12_on", help="21 CFR Part 11 §11.300")
+            st.session_state["at_r16_on"] = st.toggle("🟠 **Missing User Attribution** `High · T1`",        value=st.session_state["at_r16_on"], key="cfg_at_r16_on", help="21 CFR Part 11 §11.10(e); ALCOA+ Attributable")
+        with _uc2:
+            st.session_state["at_r8_on"]  = st.toggle("🟠 **Privileged User on GxP Data** `High · T1`",    value=st.session_state["at_r8_on"],  key="cfg_at_r8_on",  help="21 CFR Part 11 §11.10(d)")
+            st.session_state["at_r21_on"] = st.toggle("🟠 **Role/Permission Change** `High · T1`",          value=st.session_state["at_r21_on"], key="cfg_at_r21_on", help="21 CFR Part 11 §11.10(d); EU Annex 11 Clause 12")
+
+        _current_section = "timestamp"
+        _section_header("🟣 Timestamp & Sequencing", "timestamp")
+        _tc1, _tc2 = st.columns(2)
+        with _tc1:
+            st.session_state["at_r11_on"] = st.toggle("🔴 **Timestamp Reversal** `Critical · T1`",          value=st.session_state["at_r11_on"], key="cfg_at_r11_on", help="21 CFR Part 11 §11.10(e); ALCOA+ Contemporaneous")
+            st.session_state["at_r15_on"] = st.toggle("🟠 **Missing Timestamp** `High · T1`",               value=st.session_state["at_r15_on"], key="cfg_at_r15_on", help="21 CFR Part 11 §11.10(e); ALCOA+ Contemporaneous")
+            st.session_state["at_r25_on"] = st.toggle("🟠 **Future Timestamp** `High · T1`",                value=st.session_state["at_r25_on"], key="cfg_at_r25_on", help="21 CFR Part 11 §11.10(e); ALCOA+ Contemporaneous")
+        with _tc2:
+            st.session_state["at_r9_on"]  = st.toggle("🟠 **Timestamp Gap** `High · T2`",                   value=st.session_state["at_r9_on"],  key="cfg_at_r9_on",  help="21 CFR Part 11 §11.10(e) — Tier 2: gaps may be legitimate downtime")
+            st.session_state["at_r22_on"] = st.toggle("🟡 **Duplicate Timestamp Collision** `Medium · T2`", value=st.session_state["at_r22_on"], key="cfg_at_r22_on", help="21 CFR Part 11 §11.10(e) — Tier 2: coarse system clocks produce false positives")
+
+        _current_section = "behaviour"
+        _section_header("🟡 User Behaviour & Patterns", "behaviour")
+        _bc1, _bc2 = st.columns(2)
+        with _bc1:
+            st.session_state["at_r2_on"]  = st.toggle("🟡 **Contemporaneous Burst** `Medium · T1`",         value=st.session_state["at_r2_on"],  key="cfg_at_r2_on",  help="ALCOA+ Contemporaneous; 21 CFR Part 11 §11.10(e)")
+            st.session_state["at_r13_on"] = st.toggle("🟠 **Dormant Account Sudden Activity** `High · T2`", value=st.session_state["at_r13_on"], key="cfg_at_r13_on", help="21 CFR Part 11 §11.10(d) — Tier 2: requires 90-day history window")
+        with _bc2:
+            st.session_state["at_r14_on"] = st.toggle("🟠 **First-Time Behavior** `High · T2`",             value=st.session_state["at_r14_on"], key="cfg_at_r14_on", help="21 CFR Part 11 §11.10(d) — Tier 2: noisy on short audit trail exports")
+
+        _current_section = "heuristic"
+        _section_header("🔵 Heuristics & Statistical", "heuristic")
+        _hc1, _hc2 = st.columns(2)
+        with _hc1:
+            st.session_state["at_r10_on"] = st.toggle("🟡 **Off-Hours / Holiday Activity** `Medium · T2`",  value=st.session_state["at_r10_on"], key="cfg_at_r10_on", help="21 CFR Part 211.68 — Tier 2: assumes all timestamps in same timezone")
+        with _hc2:
+            st.session_state["at_r20_on"] = st.toggle("🟠 **Workflow Status Reversal** `High · T2`",        value=st.session_state["at_r20_on"], key="cfg_at_r20_on", help="21 CFR Part 11 §11.10(e) — Tier 2: requires workflow status column in log")
+
+        # ── Guard rail ────────────────────────────────────────────────────────
+        st.markdown("---")
+        _active_count = sum(1 for k in _RULE_DEFAULTS if st.session_state.get(k, False))
+        if _active_count == 0:
+            st.error("⚠️ At least one detection rule must be active. Enable at least one rule above.")
+        else:
+            _c1, _c2, _c3 = st.columns([2, 3, 2])
+            with _c2:
+                if st.button(
+                    f"✅ Confirm {_active_count} Rules & Continue to Upload →",
+                    type="primary", use_container_width=True, key="at_confirm_config"
+                ):
+                    st.session_state["at_config_confirmed"] = True
+                    # Rebuild config after toggles
+                    st.session_state["_AT_RULE_CONFIG"] = {
+                        k: st.session_state.get(k, v) for k, v in _RULE_DEFAULTS.items()
+                    }
+                    st.rerun()
+        return   # Don't render upload step until config confirmed
+
+    # ── Rebuild config from session (post-confirmation) ───────────────────────
+    _AT_RULE_CONFIG  = st.session_state.get("_AT_RULE_CONFIG") or \
+                       {k: st.session_state.get(k, v) for k, v in _RULE_DEFAULTS.items()}
+    _at_rules_active = sum(1 for v in _AT_RULE_CONFIG.values() if v)
+
+    # ── Config summary pill (shown on all subsequent steps) ───────────────────
+    _cfg_col, _edit_col = st.columns([5, 1])
+    with _cfg_col:
+        st.caption(f"⚙️ {_at_rules_active}/25 rules active for this run")
+    with _edit_col:
+        if st.button("Edit Rules", key="at_edit_rules", use_container_width=True):
+            st.session_state["at_config_confirmed"] = False
+            st.rerun()
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # STEP 1: Upload ──────────────────────────────────────────────────────────
+    # ══════════════════════════════════════════════════════════════════════════
     if not st.session_state.get("at_mapping_done"):
-        st.markdown("### Step 1 — Upload Audit Trail Export")
+        st.markdown("### Step 2 — Upload Audit Trail Export")
         st.caption(
             "CSV or Excel export from any GxP system — Veeva Vault, SAP, "
             "MasterControl, LIMS, or any custom system. No integration required."
         )
 
-        # ── Rule Config Screen — Step 0 (always visible before upload) ─────────
-        # Initialise session state defaults on first load
-        _RULE_DEFAULTS = {
-            # Tier 1 — default ON
-            "at_r1_on": True,  "at_r2_on": True,  "at_r3_on": True,
-            "at_r5_on": True,  "at_r6_on": True,  "at_r7_on": True,
-            "at_r8_on": True,  "at_r11_on": True, "at_r12_on": True,
-            "at_r15_on": True, "at_r16_on": True, "at_r17_on": True,
-            "at_r18_on": True, "at_r19_on": True, "at_r21_on": True,
-            "at_r23_on": True, "at_r24_on": True, "at_r25_on": True,
-            # Tier 2 — default OFF
-            "at_r4_on":  False, "at_r9_on":  False, "at_r10_on": False,
-            "at_r13_on": False, "at_r14_on": False, "at_r20_on": False,
-            "at_r22_on": False,
-        }
-        for _k, _v in _RULE_DEFAULTS.items():
-            if _k not in st.session_state:
-                st.session_state[_k] = _v
+        # ── Active rules summary (dynamic, replaces old static expander) ──────
+        _ALL_RULES_META = [
+            ("at_r1_on",  "1",  "High",     "Vague Rationale",                "UPDATE/DELETE with blank or non-specific change reason. Exempt if SOP ref or 3+ words with domain context.", "21 CFR Part 211.68; ALCOA+ Attributable and Legible",   "Clause 9",  "Tier 1"),
+            ("at_r2_on",  "2",  "Medium",   "Contemporaneous Burst",           "Same user >10 INSERT/CREATE/UPDATE in 15-min window. Service accounts excluded.",                            "ALCOA+ Contemporaneous; 21 CFR Part 11 §11.10(e)",       "Clause 9",  "Tier 1"),
+            ("at_r3_on",  "3",  "Critical", "Admin/GxP Conflict",              "Admin/DBA/Sysadmin role performs INSERT/UPDATE/CREATE on SAMPLE_DATA, BATCH_RELEASE, BATCH, RESULTS.",      "21 CFR Part 11 §11.10(d)",                               "Clause 12", "Tier 1"),
+            ("at_r4_on",  "4",  "High",     "Change Control Drift",            "Numeric new_value >3 SD from mean for same record_type in file.",                                           "21 CFR Part 820.70(b); validated state requirements",    "Clause 10", "Tier 2"),
+            ("at_r5_on",  "5",  "Critical", "Failed Login → Data Manipulation","3+ LOGIN_FAILED within 120 min then GxP data modification within 30 min of login.",                        "21 CFR Part 11 §11.300; ALCOA+ Original and Attributable","Clause 12", "Tier 1"),
+            ("at_r6_on",  "6",  "Critical", "Record Reconstruction",           "Same user deletes then recreates the same record_id within 4 hours.",                                       "21 CFR Part 11 §11.10(e); ALCOA+ Original",              "Clause 9",  "Tier 1"),
+            ("at_r7_on",  "7",  "Critical", "Audit Trail Integrity Event",     "Any action on audit trail config table. High: DELETE on GxP-sensitive record type.",                       "21 CFR Part 11 §11.10(e)",                               "Clause 9",  "Tier 1"),
+            ("at_r8_on",  "8",  "High",     "Privileged User on GxP Data",    "Admin-role user modifies/deletes GxP-sensitive record type (outside Rule 3 scope).",                        "21 CFR Part 11 §11.10(d)",                               "Clause 12", "Tier 1"),
+            ("at_r9_on",  "9",  "High",     "Timestamp Gap",                  "Gap >2 hours between consecutive entries. Critical: gap during business hours + nearby rule ≥7.",           "21 CFR Part 11 §11.10(e)",                               "Clause 9",  "Tier 2"),
+            ("at_r10_on", "10", "Medium",   "Off-Hours / Holiday Activity",    "GxP data actions outside Mon–Fri 07:00–20:00 or on US Federal Holidays.",                                  "21 CFR Part 211.68",                                     "Clause 9",  "Tier 2"),
+            ("at_r11_on", "11", "Critical", "Timestamp Reversal",              "Approval timestamp earlier than creation timestamp for same record_id.",                                    "21 CFR Part 11 §11.10(e); ALCOA+ Contemporaneous",       "Clause 9",  "Tier 1"),
+            ("at_r12_on", "12", "Critical", "Service/Shared Account",          "Non-personal account (svc_, batch_, api_, root, daemon, guest, test_) performs GxP action.",               "21 CFR Part 11 §11.300",                                 "Clause 12", "Tier 1"),
+            ("at_r13_on", "13", "High",     "Dormant Account Sudden Activity", "User inactive 90+ days then performs a GxP data action.",                                                  "21 CFR Part 11 §11.10(d)",                               "Clause 12", "Tier 2"),
+            ("at_r14_on", "14", "High",     "First-Time Behavior",             "Established user (5+ events) performs action_type never performed before.",                                 "21 CFR Part 11 §11.10(d); ALCOA+ Attributable",          "Clause 12", "Tier 2"),
+            ("at_r15_on", "15", "High",     "Missing Timestamp",               "Null or unparseable timestamp on any event.",                                                               "21 CFR Part 11 §11.10(e); ALCOA+ Contemporaneous",       "—",         "Tier 1"),
+            ("at_r16_on", "16", "High",     "Missing User Attribution",        "Null or blank user_id on any event.",                                                                      "21 CFR Part 11 §11.10(e); ALCOA+ Attributable",          "—",         "Tier 1"),
+            ("at_r17_on", "17", "High",     "Missing Before/After Value",      "UPDATE with null new_value, or old_value=new_value when both present. CREATE: null new_value. DELETE: null old_value.", "21 CFR Part 11 §11.10(e); ALCOA+ Original", "Clause 9",  "Tier 1"),
+            ("at_r18_on", "18", "Critical", "Self-Approval SoD Violation",     "Same user is creator AND approver on the same record_id.",                                                  "21 CFR Part 11 §11.10(d); EU Annex 11 Clause 12",        "Clause 12", "Tier 1"),
+            ("at_r19_on", "19", "Critical", "Modification After Approval",     "UPDATE or DELETE on record_id after an APPROVE or RELEASE already exists for that record.",                 "21 CFR Part 11 §11.10(e); ALCOA+ Original",              "Clause 9",  "Tier 1"),
+            ("at_r20_on", "20", "High",     "Workflow Status Reversal",        "Status field moves backwards (e.g. Approved→Draft). Requires status/workflow column.",                      "21 CFR Part 11 §11.10(e); GAMP 5 (2nd Ed, 2022)",        "Clause 9",  "Tier 2"),
+            ("at_r21_on", "21", "High",     "Role/Permission Change",          "Action on a role, permission, or access control record type.",                                               "21 CFR Part 11 §11.10(d); EU Annex 11 Clause 12",        "Clause 12", "Tier 1"),
+            ("at_r22_on", "22", "Medium",   "Duplicate Timestamp Collision",   "2+ events share exact timestamp for critical actions (APPROVE, DELETE, MODIFY, CREATE).",                   "21 CFR Part 11 §11.10(e); ALCOA+ Contemporaneous",       "Clause 9",  "Tier 2"),
+            ("at_r23_on", "23", "High",     "Missing Record ID",               "UPDATE/DELETE/APPROVE/CREATE event with null or blank record_id.",                                          "21 CFR Part 11 §11.10(e); ALCOA+ Original",              "Clause 9",  "Tier 1"),
+            ("at_r24_on", "24", "High",     "Duplicate Rows",                  "Exact duplicate row (user + timestamp + action + record_id + values all identical).",                      "21 CFR Part 11 §11.10(e); ALCOA+ Original",              "Clause 9",  "Tier 1"),
+            ("at_r25_on", "25", "High",     "Future Timestamp",                "Event timestamp is after current UTC time (±1 hour buffer).",                                              "21 CFR Part 11 §11.10(e); ALCOA+ Contemporaneous",       "—",         "Tier 1"),
+        ]
+        _active_rules_meta = [r for r in _ALL_RULES_META if _AT_RULE_CONFIG.get(r[0], False)]
 
-        with st.expander("⚙️ Detection Rule Configuration — Active for this run (click to configure)", expanded=False):
+        with st.expander(f"🔬 Active Rules for this run ({len(_active_rules_meta)} of 25)", expanded=False):
             st.caption(
                 "Tier 1 rules (directly testable from log data alone) default ON. "
                 "Tier 2 rules (heuristic — require assumptions about your system) default OFF. "
                 "At least one rule must be active to run the analysis. "
                 "Your configuration is stamped into the Excel output for audit trail purposes."
             )
-
-            # ── Section 1: Data Integrity & Record Tampering ──────────────────
-            st.markdown("**🔴 Data Integrity & Record Tampering**")
-            c1, c2, c3 = st.columns(3)
-            with c1:
-                st.session_state["at_r3_on"]  = st.toggle("Rule 3 — Admin/GxP Conflict [Critical | T1]",  value=st.session_state["at_r3_on"],  key="cfg_r3",  help="21 CFR Part 11 §11.10(d)")
-                st.session_state["at_r6_on"]  = st.toggle("Rule 6 — Record Reconstruction [Critical | T1]", value=st.session_state["at_r6_on"],  key="cfg_r6",  help="21 CFR Part 11 §11.10(e); ALCOA+ Original")
-            with c2:
-                st.session_state["at_r7_on"]  = st.toggle("Rule 7 — Audit Trail Integrity [Critical | T1]",  value=st.session_state["at_r7_on"],  key="cfg_r7",  help="21 CFR Part 11 §11.10(e)")
-                st.session_state["at_r18_on"] = st.toggle("Rule 18 — Self-Approval SoD [Critical | T1]",   value=st.session_state["at_r18_on"], key="cfg_r18", help="21 CFR Part 11 §11.10(d); EU Annex 11 Clause 12")
-            with c3:
-                st.session_state["at_r19_on"] = st.toggle("Rule 19 — Modification After Approval [Critical | T1]", value=st.session_state["at_r19_on"], key="cfg_r19", help="21 CFR Part 11 §11.10(e); ALCOA+ Original")
-
-            st.markdown("**📝 Change Documentation & Value Integrity**")
-            c1, c2, c3 = st.columns(3)
-            with c1:
-                st.session_state["at_r1_on"]  = st.toggle("Rule 1 — Vague Rationale [High | T1]",         value=st.session_state["at_r1_on"],  key="cfg_r1",  help="21 CFR Part 211.68; ALCOA+ Legible")
-                st.session_state["at_r17_on"] = st.toggle("Rule 17 — Missing Before/After [High | T1]",   value=st.session_state["at_r17_on"], key="cfg_r17", help="21 CFR Part 11 §11.10(e); ALCOA+ Original")
-            with c2:
-                st.session_state["at_r23_on"] = st.toggle("Rule 23 — Missing Record ID [High | T1]",      value=st.session_state["at_r23_on"], key="cfg_r23", help="21 CFR Part 11 §11.10(e); ALCOA+ Original")
-                st.session_state["at_r24_on"] = st.toggle("Rule 24 — Duplicate Rows [High | T1]",         value=st.session_state["at_r24_on"], key="cfg_r24", help="21 CFR Part 11 §11.10(e); ALCOA+ Original")
-            with c3:
-                st.session_state["at_r4_on"]  = st.toggle("Rule 4 — Change Control Drift [High | T2]",    value=st.session_state["at_r4_on"],  key="cfg_r4",  help="21 CFR Part 820.70(b) — Tier 2: requires statistical baseline")
-
-            st.markdown("**👤 User Attribution & Access**")
-            c1, c2, c3 = st.columns(3)
-            with c1:
-                st.session_state["at_r5_on"]  = st.toggle("Rule 5 — Failed Login → Manipulation [Critical | T1]", value=st.session_state["at_r5_on"],  key="cfg_r5",  help="21 CFR Part 11 §11.300")
-                st.session_state["at_r8_on"]  = st.toggle("Rule 8 — Privileged User on GxP [High | T1]",         value=st.session_state["at_r8_on"],  key="cfg_r8",  help="21 CFR Part 11 §11.10(d)")
-            with c2:
-                st.session_state["at_r12_on"] = st.toggle("Rule 12 — Service/Shared Account [Critical | T1]",     value=st.session_state["at_r12_on"], key="cfg_r12", help="21 CFR Part 11 §11.300")
-                st.session_state["at_r16_on"] = st.toggle("Rule 16 — Missing User Attribution [High | T1]",       value=st.session_state["at_r16_on"], key="cfg_r16", help="21 CFR Part 11 §11.10(e); ALCOA+ Attributable")
-            with c3:
-                st.session_state["at_r21_on"] = st.toggle("Rule 21 — Role/Permission Change [High | T1]",         value=st.session_state["at_r21_on"], key="cfg_r21", help="21 CFR Part 11 §11.10(d); EU Annex 11 Clause 12")
-
-            st.markdown("**🕐 Timestamp & Sequencing**")
-            c1, c2, c3 = st.columns(3)
-            with c1:
-                st.session_state["at_r11_on"] = st.toggle("Rule 11 — Timestamp Reversal [Critical | T1]",  value=st.session_state["at_r11_on"], key="cfg_r11", help="21 CFR Part 11 §11.10(e); ALCOA+ Contemporaneous")
-                st.session_state["at_r15_on"] = st.toggle("Rule 15 — Missing Timestamp [High | T1]",       value=st.session_state["at_r15_on"], key="cfg_r15", help="21 CFR Part 11 §11.10(e); ALCOA+ Contemporaneous")
-            with c2:
-                st.session_state["at_r25_on"] = st.toggle("Rule 25 — Future Timestamp [High | T1]",        value=st.session_state["at_r25_on"], key="cfg_r25", help="21 CFR Part 11 §11.10(e); ALCOA+ Contemporaneous")
-                st.session_state["at_r9_on"]  = st.toggle("Rule 9 — Timestamp Gap [High | T2]",            value=st.session_state["at_r9_on"],  key="cfg_r9",  help="21 CFR Part 11 §11.10(e) — Tier 2: gaps may be legitimate")
-            with c3:
-                st.session_state["at_r22_on"] = st.toggle("Rule 22 — Duplicate Timestamp [Medium | T2]",   value=st.session_state["at_r22_on"], key="cfg_r22", help="21 CFR Part 11 §11.10(e) — Tier 2: coarse clocks produce false positives")
-
-            st.markdown("**📊 User Behaviour & Patterns**")
-            c1, c2, c3 = st.columns(3)
-            with c1:
-                st.session_state["at_r2_on"]  = st.toggle("Rule 2 — Contemporaneous Burst [Medium | T1]",  value=st.session_state["at_r2_on"],  key="cfg_r2",  help="ALCOA+ Contemporaneous; 21 CFR Part 11 §11.10(e)")
-            with c2:
-                st.session_state["at_r13_on"] = st.toggle("Rule 13 — Dormant Account [High | T2]",         value=st.session_state["at_r13_on"], key="cfg_r13", help="21 CFR Part 11 §11.10(d) — Tier 2: needs 90-day history")
-            with c3:
-                st.session_state["at_r14_on"] = st.toggle("Rule 14 — First-Time Behavior [High | T2]",     value=st.session_state["at_r14_on"], key="cfg_r14", help="21 CFR Part 11 §11.10(d) — Tier 2: noisy on short exports")
-
-            st.markdown("**📈 Heuristics & Statistical**")
-            c1, c2, c3 = st.columns(3)
-            with c1:
-                st.session_state["at_r10_on"] = st.toggle("Rule 10 — Off-Hours Activity [Medium | T2]",    value=st.session_state["at_r10_on"], key="cfg_r10", help="21 CFR Part 211.68 — Tier 2: timezone assumption required")
-            with c2:
-                st.session_state["at_r20_on"] = st.toggle("Rule 20 — Workflow Status Reversal [High | T2]", value=st.session_state["at_r20_on"], key="cfg_r20", help="21 CFR Part 11 §11.10(e) — Tier 2: needs workflow status column")
-            with c3:
-                pass  # placeholder
-
-            # ── Guard rail: at least one rule must be ON ──────────────────────
-            _active_count = sum(1 for k in _RULE_DEFAULTS if st.session_state.get(k, False))
-            if _active_count == 0:
-                st.error("⚠️ At least one detection rule must be active to run Audit Trail analysis. Enable at least one rule above.")
-            else:
-                st.success(f"✅ {_active_count} of {len(_RULE_DEFAULTS)} rules active for this run.")
-
-        # ── Build active-rules config dict for scoring engine ─────────────────
-        _AT_RULE_CONFIG = {k: st.session_state.get(k, v) for k, v in _RULE_DEFAULTS.items()}
-        _at_rules_active = sum(1 for v in _AT_RULE_CONFIG.values() if v)
-
-        # ── Dynamic Detection Logic — active rules only ───────────────────────
-        _ALL_RULES_META = [
-            ("at_r1_on",  "1",  "High",     "Vague Rationale",                "UPDATE/DELETE on GxP record with blank or non-specific change reason. Exempt if SOP reference present or 3+ words with domain context.",    "21 CFR Part 211.68; ALCOA+ Attributable and Legible",                   "Clause 9",  "Tier 1"),
-            ("at_r2_on",  "2",  "Medium",   "Contemporaneous Burst",           "Same user performs >10 INSERT/CREATE/UPDATE actions in any 15-min window. Service accounts excluded.",                                       "ALCOA+ Contemporaneous; 21 CFR Part 11 §11.10(e)",                      "Clause 9",  "Tier 1"),
-            ("at_r3_on",  "3",  "Critical", "Admin/GxP Conflict",              "User with Admin/DBA/Sysadmin role performs INSERT/UPDATE/CREATE/MODIFY on SAMPLE_DATA, BATCH_RELEASE, BATCH, or RESULTS.",                  "21 CFR Part 11 §11.10(d)",                                              "Clause 12", "Tier 1"),
-            ("at_r4_on",  "4",  "High",     "Change Control Drift",            "Numeric new_value deviates >3 SD from mean of all values for same record_type in the uploaded file.",                                       "21 CFR Part 820.70(b); validated state requirements",                   "Clause 10", "Tier 2"),
-            ("at_r5_on",  "5",  "Critical", "Failed Login → Data Manipulation","3+ LOGIN_FAILED within 120 min before a successful login, followed by DELETE/UPDATE/INSERT on a GxP record within 30 min.",                "21 CFR Part 11 §11.300; ALCOA+ Original and Attributable",              "Clause 12", "Tier 1"),
-            ("at_r6_on",  "6",  "Critical", "Record Reconstruction",           "Same user deletes a record_id then creates a new record with the same record_id within 4 hours.",                                           "21 CFR Part 11 §11.10(e); ALCOA+ Original",                             "Clause 9",  "Tier 1"),
-            ("at_r7_on",  "7",  "Critical", "Audit Trail Integrity Event",     "Any action on the audit trail configuration table. High: DELETE action on a GxP-sensitive record type.",                                   "21 CFR Part 11 §11.10(e)",                                              "Clause 9",  "Tier 1"),
-            ("at_r8_on",  "8",  "High",     "Privileged User on GxP Data",    "User with admin-type role performs modify or delete on GxP-sensitive record type (outside Rule 3 scope).",                                  "21 CFR Part 11 §11.10(d)",                                              "Clause 12", "Tier 1"),
-            ("at_r9_on",  "9",  "High",     "Timestamp Gap",                  "Gap >2 hours between consecutive audit trail entries. Escalated to Critical when gap occurs during business hours + nearby rule ≥7.",       "21 CFR Part 11 §11.10(e) — audit trail completeness",                   "Clause 9",  "Tier 2"),
-            ("at_r10_on", "10", "Medium",   "Off-Hours / Holiday Activity",    "GxP data actions outside Mon–Fri 07:00–20:00, on US Federal Holidays, or between 00:00–04:59.",                                            "21 CFR Part 211.68",                                                    "Clause 9",  "Tier 2"),
-            ("at_r11_on", "11", "Critical", "Timestamp Reversal",              "Approval timestamp is earlier than creation timestamp for the same record_id. Chronologically impossible in a correctly functioning system.","21 CFR Part 11 §11.10(e); ALCOA+ Contemporaneous",                      "Clause 9",  "Tier 1"),
-            ("at_r12_on", "12", "Critical", "Service/Shared Account",          "Non-personal account (svc_, dba_, sys_, batch_, auto_, robot_, api_, root, daemon, guest, test_) performs GxP data action.",               "21 CFR Part 11 §11.300",                                                "Clause 12", "Tier 1"),
-            ("at_r13_on", "13", "High",     "Dormant Account Sudden Activity", "User with 4+ prior events has no activity for 90+ consecutive days, then performs a data action.",                                          "21 CFR Part 11 §11.10(d) — access controls",                           "Clause 12", "Tier 2"),
-            ("at_r14_on", "14", "High",     "First-Time Behavior",             "Established user (5+ prior events) performs an action_type they have never performed before.",                                              "21 CFR Part 11 §11.10(d); ALCOA+ Attributable",                        "Clause 12", "Tier 2"),
-            ("at_r15_on", "15", "High",     "Missing Timestamp",               "Null or unparseable timestamp on any audit trail event.",                                                                                   "21 CFR Part 11 §11.10(e); ALCOA+ Contemporaneous",                     "—",         "Tier 1"),
-            ("at_r16_on", "16", "High",     "Missing User Attribution",        "Null or blank user_id on any audit trail event.",                                                                                           "21 CFR Part 11 §11.10(e); ALCOA+ Attributable",                        "—",         "Tier 1"),
-            ("at_r17_on", "17", "High",     "Missing Before/After Value",      "UPDATE: old_value = new_value, or either null. CREATE: new_value null. DELETE: old_value null. Optional columns — skipped if absent.",     "21 CFR Part 11 §11.10(e); ALCOA+ Original",                             "Clause 9",  "Tier 1"),
-            ("at_r18_on", "18", "Critical", "Self-Approval SoD Violation",     "Same user appears as creator and approver on the same record_id.",                                                                          "21 CFR Part 11 §11.10(d); EU Annex 11 Clause 12",                      "Clause 12", "Tier 1"),
-            ("at_r19_on", "19", "Critical", "Modification After Approval",     "UPDATE or DELETE on a record_id after an APPROVE or RELEASE action already exists for that record_id.",                                    "21 CFR Part 11 §11.10(e); ALCOA+ Original",                             "Clause 9",  "Tier 1"),
-            ("at_r20_on", "20", "High",     "Workflow Status Reversal",        "Status field moves backwards in approved workflow order (e.g. Approved → Draft). Requires status/workflow column in log.",                 "21 CFR Part 11 §11.10(e); GAMP 5 (2nd Ed, 2022)",                      "Clause 9",  "Tier 2"),
-            ("at_r21_on", "21", "High",     "Role/Permission Change",          "Action on a role, permission, privilege, or access control record type by any user.",                                                       "21 CFR Part 11 §11.10(d); EU Annex 11 Clause 12",                      "Clause 12", "Tier 1"),
-            ("at_r22_on", "22", "Medium",   "Duplicate Timestamp Collision",   "2+ events share exact same timestamp and involve critical actions (APPROVE, DELETE, MODIFY, CREATE). Indicates possible batch insertion.", "21 CFR Part 11 §11.10(e); ALCOA+ Contemporaneous",                      "Clause 9",  "Tier 2"),
-            ("at_r23_on", "23", "High",     "Missing Record ID",               "UPDATE/DELETE/APPROVE/CREATE event has null or blank record_id.",                                                                           "21 CFR Part 11 §11.10(e); ALCOA+ Original",                             "Clause 9",  "Tier 1"),
-            ("at_r24_on", "24", "High",     "Duplicate Rows",                  "Exact duplicate row (user + timestamp + action + record_id + values all identical).",                                                       "21 CFR Part 11 §11.10(e); ALCOA+ Original",                             "Clause 9",  "Tier 1"),
-            ("at_r25_on", "25", "High",     "Future Timestamp",                "Event timestamp is after the current UTC time (±1 hour buffer for timezone drift).",                                                       "21 CFR Part 11 §11.10(e); ALCOA+ Contemporaneous",                     "—",         "Tier 1"),
-        ]
-        _active_rules_meta = [r for r in _ALL_RULES_META if st.session_state.get(r[0], False)]
 
         with st.expander("🔬 Active Detection Rules — Rules active for this run (click to view)", expanded=False):
             if not _active_rules_meta:
@@ -16094,27 +16270,66 @@ match your system's export column names to the fields above — rename nothing i
 
         # ── Column mapper ─────────────────────────────────────────────────────
         if st.session_state.get("at_raw_df") is not None:
-            st.markdown("### Step 2 — Map Your Columns")
-            st.caption("Match your file's column names to the required fields. "
-                       "★ = required.")
-            df      = st.session_state["at_raw_df"]
-            avail   = ["(not in file)"] + list(df.columns)
-            mapping = {}
-            cols3   = st.columns(3)
-            for i,(field,desc) in enumerate(_AT_REQUIRED_COLS.items()):
-                req  = field in ("timestamp","user_id","action_type")
-                auto = "(not in file)"
+            st.markdown("### Step 3 — Map Your Columns")
+            st.caption("Match your file's column names to the required fields. ★ = required.")
+            df    = st.session_state["at_raw_df"]
+            avail = ["(not in file)"] + list(df.columns)
+
+            def _autodetect(field):
                 for col in df.columns:
                     cl = col.lower().replace(" ","_").replace("-","_")
                     if field in cl or cl in field:
-                        auto = col; break
-                with cols3[i%3]:
-                    st.caption(desc)
-                    mapping[field] = st.selectbox(
-                        f"{'★ ' if req else ''}{field.replace('_',' ').title()}",
+                        return col
+                return "(not in file)"
+
+            mapping = {}
+
+            # Row 1 — Required (timestamp, user_id, action_type)
+            st.markdown("**★ Required fields**")
+            _r1c1, _r1c2, _r1c3 = st.columns(3)
+            for _fld, _col in zip(
+                ["timestamp",  "user_id",          "action_type"],
+                [_r1c1,        _r1c2,               _r1c3]
+            ):
+                _auto = _autodetect(_fld)
+                with _col:
+                    mapping[_fld] = st.selectbox(
+                        f"★ {_fld.replace('_',' ').title()}",
                         avail,
-                        index=avail.index(auto) if auto in avail else 0,
-                        key=f"at_map_{field}"
+                        index=avail.index(_auto) if _auto in avail else 0,
+                        key=f"at_map_{_fld}"
+                    )
+
+            # Row 2 — Record context (record_id, record_type, role)
+            st.markdown("**Optional — record context**")
+            _r2c1, _r2c2, _r2c3 = st.columns(3)
+            for _fld, _col in zip(
+                ["record_id",  "record_type",       "role"],
+                [_r2c1,        _r2c2,               _r2c3]
+            ):
+                _auto = _autodetect(_fld)
+                with _col:
+                    mapping[_fld] = st.selectbox(
+                        _fld.replace("_"," ").title(),
+                        avail,
+                        index=avail.index(_auto) if _auto in avail else 0,
+                        key=f"at_map_{_fld}"
+                    )
+
+            # Row 3 — Value fields (comments, new_value, old_value)
+            st.markdown("**Optional — value fields**")
+            _r3c1, _r3c2, _r3c3 = st.columns(3)
+            for _fld, _col in zip(
+                ["comments",   "new_value",         "old_value"],
+                [_r3c1,        _r3c2,               _r3c3]
+            ):
+                _auto = _autodetect(_fld)
+                with _col:
+                    mapping[_fld] = st.selectbox(
+                        _fld.replace("_"," ").title(),
+                        avail,
+                        index=avail.index(_auto) if _auto in avail else 0,
+                        key=f"at_map_{_fld}"
                     )
 
             req_ok = all(
@@ -16122,8 +16337,32 @@ match your system's export column names to the fields above — rename nothing i
                 for f in ("timestamp","user_id","action_type")
             )
             if not req_ok:
-                st.warning("⚠️ Map the three required fields to continue.")
+                st.warning("⚠️ Map the three required fields (Timestamp, User Id, Action Type) to continue.")
             else:
+                # ── Plausibility warnings (non-blocking) ──────────────────────
+                _warn_msgs = []
+                _ts_mapped = mapping.get("timestamp","(not in file)")
+                _uid_mapped = mapping.get("user_id","(not in file)")
+                _act_mapped = mapping.get("action_type","(not in file)")
+                if _ts_mapped != "(not in file)":
+                    _ts_sample = pd.to_datetime(df[_ts_mapped], errors="coerce")
+                    if _ts_sample.isna().mean() > 0.5:
+                        _warn_msgs.append(f"⚠️ **Timestamp**: more than 50% of values in '{_ts_mapped}' could not be parsed as dates. Check you've mapped the right column.")
+                if _uid_mapped != "(not in file)":
+                    _uid_n = df[_uid_mapped].nunique()
+                    if _uid_n > 500:
+                        _warn_msgs.append(f"⚠️ **User ID**: '{_uid_mapped}' has {_uid_n} unique values — this looks more like a record ID than a user field. Double-check the mapping.")
+                if _act_mapped != "(not in file)":
+                    _act_n = df[_act_mapped].nunique()
+                    if _act_n > 50:
+                        _warn_msgs.append(f"⚠️ **Action Type**: '{_act_mapped}' has {_act_n} unique values — action type fields typically have fewer than 20. Check you haven't mapped a description field.")
+                # Warn if same column mapped to two different fields
+                _mapped_vals = [v for v in mapping.values() if v != "(not in file)"]
+                if len(_mapped_vals) != len(set(_mapped_vals)):
+                    _warn_msgs.append("⚠️ The same column has been mapped to more than one field. Each column should map to only one field.")
+                for _wm in _warn_msgs:
+                    st.warning(_wm)
+
                 _, bc, _ = st.columns([3,4,3])
                 with bc:
                     if st.button("✅ Confirm Mapping & Continue",
@@ -16132,7 +16371,8 @@ match your system's export column names to the fields above — rename nothing i
                         rename = {v:k for k,v in mapping.items()
                                   if v != "(not in file)"}
                         mdf = df.rename(columns=rename)
-                        for c in _AT_REQUIRED_COLS:
+                        # Ensure all required and optional cols exist
+                        for c in list(_AT_REQUIRED_COLS.keys()) + ["old_value"]:
                             if c not in mdf.columns:
                                 mdf[c] = ""
                         st.session_state["at_mapped_df"]   = mdf
@@ -16209,7 +16449,7 @@ match your system's export column names to the fields above — rename nothing i
             with st.status("🔍 Audit Trail Analysis", expanded=True) as atstat:
                 st.write("📊 Step 1: Parsing timestamps...")
                 _ = prog.progress(0.15)
-                scored = at_score_events(df)
+                scored = at_score_events(df, rule_config=_AT_RULE_CONFIG)
 
                 # ── FIX 7: Tag out-of-period events ───────────────────────────
                 # Events whose timestamp falls outside the declared review window
@@ -16265,10 +16505,10 @@ match your system's export column names to the fields above — rename nothing i
                 # Filter 1: exclude out-of-period rows
                 in_period = scored[scored["Risk_Tier"] != "Out of Period"]
 
-                # Separate Critical/High (always in) from Medium/Low (can dedup)
+                # Separate Critical/High (always in) from Medium (can dedup); Low never shown
                 _hc_mask = in_period["Risk_Tier"].isin(["Critical", "High"])
                 hc_events = in_period[_hc_mask].copy()
-                med_low    = in_period[~_hc_mask].copy()
+                med_low    = in_period[in_period["Risk_Tier"] == "Medium"].copy()
 
                 # Filter 2: Dedup burst events — Medium/Low only
                 med_low = med_low[~med_low.get(
@@ -16478,55 +16718,6 @@ match your system's export column names to the fields above — rename nothing i
 
         st.markdown("<br>", unsafe_allow_html=True)
 
-        # ── Risk Distribution — compact, centred ──────────────────────────────
-        _dist_tiers  = ["Critical", "High", "Medium", "Low"]
-        _dist_counts = [n_crit, n_high, n_med, n_low]
-        _dist_esc    = ["Yes", "Yes" if n_high > 0 else "No", "No", "No"]
-        if n_oop > 0:
-            _dist_tiers.append("Out of Period")
-            _dist_counts.append(n_oop)
-            _dist_esc.append("Excluded")
-
-        _tier_colors = {
-            "Critical":      "#7f1d1d",
-            "High":          "#7c2d12",
-            "Medium":        "#713f12",
-            "Low":           "#14532d",
-            "Out of Period": "#1e3a5f",
-        }
-        _rows_html = ""
-        for _t, _c, _e in zip(_dist_tiers, _dist_counts, _dist_esc):
-            _pct = f"{round(_c / n_total * 100, 1)}%" if n_total > 0 else "0%"
-            _col = _tier_colors.get(_t, "#374151")
-            _rows_html += (
-                f"<tr>"
-                f"<td style='padding:7px 12px;text-align:center;font-weight:600;"
-                f"color:{_col};'>{_t}</td>"
-                f"<td style='padding:7px 12px;text-align:center;'>{_c}</td>"
-                f"<td style='padding:7px 12px;text-align:center;'>{_pct}</td>"
-                f"<td style='padding:7px 12px;text-align:center;'>{_e}</td>"
-                f"</tr>"
-            )
-        _, _mid, _ = st.columns([1, 2, 1])
-        with _mid:
-            st.markdown(
-                f"<table style='width:100%;border-collapse:collapse;"
-                f"font-size:0.88rem;font-family:sans-serif;'>"
-                f"<thead><tr style='background:#1e293b;color:#e2e8f0;'>"
-                f"<th style='padding:8px 12px;text-align:center;font-weight:600;"
-                f"letter-spacing:0.03em;'>Risk Tier</th>"
-                f"<th style='padding:8px 12px;text-align:center;font-weight:600;"
-                f"letter-spacing:0.03em;'>Count</th>"
-                f"<th style='padding:8px 12px;text-align:center;font-weight:600;"
-                f"letter-spacing:0.03em;'>% of Total</th>"
-                f"<th style='padding:8px 12px;text-align:center;font-weight:600;"
-                f"letter-spacing:0.03em;'>Escalated</th>"
-                f"</tr></thead>"
-                f"<tbody>{_rows_html}</tbody>"
-                f"</table>",
-                unsafe_allow_html=True,
-            )
-
         # ── Download ──────────────────────────────────────────────────────────
         st.markdown("---")
         sys_name = st.session_state.get("at_system_name","").strip()
@@ -16608,10 +16799,11 @@ match your system's export column names to the fields above — rename nothing i
                 f"<span style='font-size:1.6rem;'>📊</span>"
                 f"<div style='flex:1;'>"
                 f"<b style='color:#15803d;font-size:1.05rem;'>"
-                f"{_banked} periods banked — Data Integrity Monitor ready</b><br>"
+                f"{_banked} period{'s' if _banked != 1 else ''} banked — Data Integrity Monitor ready</b><br>"
                 f"<span style='color:#166534;font-size:0.83rem;'>"
-                f"Both periods have been auto-fed. Open the DI Monitor to run "
-                f"multi-period trend analysis.</span>"
+                f"{'Trend analysis unlocked.' if _banked == 2 else f'{_banked} periods analysed — trend analysis active.'}"
+                f" Open the DI Monitor to run multi-period trend analysis."
+                f" Upload more AT periods to extend the trend.</span>"
                 f"</div></div>",
                 unsafe_allow_html=True,
             )
