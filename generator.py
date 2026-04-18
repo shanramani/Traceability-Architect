@@ -6586,7 +6586,8 @@ def at_score_events(df: pd.DataFrame, rule_config: dict = None) -> pd.DataFrame:
         combined = act + " " + rec
         # Direct record_type name check — any modification to a table named
         # audit_trail is a critical integrity event.
-        if "audit_trail" in rec or "audit trail" in rec:
+        if any(k in rec for k in ["audit_trail", "audit trail", "audit_config",
+                                   "audit_log", "audit log", "auditlog"]):
             return 10.0
         if any(k in combined for k in _AT_AUDIT_CTRL):
             return 10.0
@@ -9382,12 +9383,21 @@ def at_build_excel(top_df, scored_df, system_name, r_start, r_end, fname) -> byt
         row += 1   # spacer after critical box
 
     elif n_crit == 0 and n_high == 0:
-        # Green all-clear box
+        # Green/amber box — green only if truly zero escalated events
         ws.merge_cells(f"A{row}:B{row}")
-        ok_cell = ws.cell(row=row, column=1,
-                          value="✓  NO CRITICAL OR HIGH-RISK EVENTS IDENTIFIED")
-        ok_cell.font      = Font(bold=True, color="166534", name="Calibri", size=11)
-        ok_cell.fill      = _fill("DCFCE7")
+        if n_esc == 0:
+            _ok_text  = "✓  NO EVENTS REQUIRED ESCALATION — ALL RECORDS AUTO-CLEARED"
+            _ok_color = "166534"
+            _ok_fill  = "DCFCE7"
+        else:
+            # Medium events present — accurate, non-contradictory message
+            _n_med = int((top_df["Risk_Tier"] == "Medium").sum()) if not top_df.empty else 0
+            _ok_text  = f"ℹ  NO CRITICAL OR HIGH-RISK EVENTS — {_n_med} MEDIUM EVENT(S) FOR REVIEW"
+            _ok_color = "92400E"
+            _ok_fill  = "FEF3C7"
+        ok_cell = ws.cell(row=row, column=1, value=_ok_text)
+        ok_cell.font      = Font(bold=True, color=_ok_color, name="Calibri", size=11)
+        ok_cell.fill      = _fill(_ok_fill)
         ok_cell.alignment = Alignment(horizontal="center", vertical="center")
         ws.row_dimensions[row].height = 22
         row += 2
@@ -9837,10 +9847,18 @@ def at_build_excel(top_df, scored_df, system_name, r_start, r_end, fname) -> byt
             f"To see all events, refer to the Full Audit Log sheet."
         )
     else:
+        _banner_crit = int((top_df["Risk_Tier"] == "Critical").sum()) if not top_df.empty else 0
+        _banner_high = int((top_df["Risk_Tier"] == "High").sum())     if not top_df.empty else 0
+        _banner_med  = int((top_df["Risk_Tier"] == "Medium").sum())   if not top_df.empty else 0
+        _tier_parts  = []
+        if _banner_crit: _tier_parts.append(f"{_banner_crit} Critical")
+        if _banner_high: _tier_parts.append(f"{_banner_high} High")
+        if _banner_med:  _tier_parts.append(f"{_banner_med} Medium")
+        _tier_str = " · ".join(_tier_parts) if _tier_parts else "no findings"
         note_text = (
-            f"ℹ️  Showing all {n_shown} High/Critical events from the Full Audit Log. "
-            f"Each event was escalated because at least one named detection rule (Rules 1–25) "
-            f"fired at or above its threshold. All events remain visible in the Full Audit Log sheet."
+            f"Showing {n_shown} escalated event(s) from the Full Audit Log "
+            f"({_tier_str}). Each event triggered at least one named detection rule "
+            f"(Rules 1–25) at or above its threshold. All events remain visible in the Full Audit Log sheet."
         )
     ws2.merge_cells(f"A1:{get_column_letter(len(reviewer_cols))}1")
     note_cell = ws2.cell(row=1, column=1, value=note_text)
@@ -10050,39 +10068,23 @@ def at_build_excel(top_df, scored_df, system_name, r_start, r_end, fname) -> byt
     _TIER_FILL = {"Critical": "FEE2E2", "High": "FEF3C7", "Medium": "DBEAFE"}
     _TIER_FG   = {"Critical": "991B1B", "High": "92400E", "Medium": "1E40AF"}
 
-    # Title row
-    t4 = ws4.cell(row=1, column=1, value="Audit Trail Intelligence — Detection Logic Reference")
-    t4.font      = Font(bold=True, color="FFFFFF", name="Calibri", size=13)
-    t4.fill      = _fill(C_HEADER_BG)
-    t4.alignment = Alignment(horizontal="left", vertical="center")
-    ws4.merge_cells("A1:H1")
-    ws4.row_dimensions[1].height = 26
-
-    # Config summary row
+    # Column headers on ROW 1 — required for autofilter on Status column
     _n_active = sum(1 for r in _dl_all_rules
                     if st.session_state.get(r[0], _dl_rule_defaults.get(r[0], True)))
-    cfg_cell = ws4.cell(row=2, column=1,
-        value=f"Run configuration: {_n_active} of 25 rules active. "
-              f"Disabled rules are shown below but did not influence scoring for this run. "
-              f"Generated: {datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}")
-    cfg_cell.font      = Font(italic=True, color="374151", name="Calibri", size=9)
-    cfg_cell.fill      = _fill("F8FAFC")
-    cfg_cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
-    ws4.merge_cells("A2:H2")
-    ws4.row_dimensions[2].height = 20
-
-    # Column headers
     _dl_headers = ["#", "Tier", "Class", "Rule Name", "Trigger Condition",
                    "FDA Regulation", "EU Annex 11", "Status"]
     for ci, hdr in enumerate(_dl_headers, 1):
-        hc = ws4.cell(row=3, column=ci, value=hdr)
+        hc = ws4.cell(row=1, column=ci, value=hdr)
         hc.font      = Font(bold=True, color="FFFFFF", name="Calibri", size=10)
         hc.fill      = _fill("334155")
         hc.alignment = Alignment(horizontal="left", vertical="center")
-    ws4.row_dimensions[3].height = 18
+    ws4.row_dimensions[1].height = 18
 
-    # Rule rows
-    row_num = 4
+    # Add autofilter on header row so Status (col H) is immediately filterable
+    ws4.auto_filter.ref = "A1:H1"
+
+    # Rule rows start at row 2
+    row_num = 2
     for cfg_key, rnum, tier, t_class, name, trigger, fda, eu in _dl_all_rules:
         _active = st.session_state.get(cfg_key, _dl_rule_defaults.get(cfg_key, True))
         _status = "ACTIVE" if _active else "DISABLED FOR THIS RUN"
@@ -12813,18 +12815,20 @@ def dim_score_periods(df: pd.DataFrame) -> dict:
             recur_pct = round((last_cnt - first_cnt) / first_cnt * 100, 1)
         else:
             recur_pct = 0.0
-        rule_rows.append({
-            "Rule":             rule,
-            "Periods_Seen":     len(periods_seen),
-            "Period_List":      ", ".join(str(p) for p in periods_seen),
-            "Total_Occurrences":len(grp),
-            "First_Period_Cnt": first_cnt,
-            "Last_Period_Cnt":  last_cnt,
-            "Trend_pct":        recur_pct,
-            "Trend_Label":      _dim_trend_label(recur_pct),
-            "Trend_Arrow":      _dim_trend_arrow(recur_pct),
-            "High_Crit_Count":  int(grp["is_high_crit"].sum()),
-        })
+        # Only include rules that fired in 2+ periods — single-period is not recurrence
+        if len(periods_seen) >= 2:
+            rule_rows.append({
+                "Rule":             rule,
+                "Periods_Seen":     len(periods_seen),
+                "Period_List":      ", ".join(str(p) for p in periods_seen),
+                "Total_Occurrences":len(grp),
+                "First_Period_Cnt": first_cnt,
+                "Last_Period_Cnt":  last_cnt,
+                "Trend_pct":        recur_pct,
+                "Trend_Label":      _dim_trend_label(recur_pct),
+                "Trend_Arrow":      _dim_trend_arrow(recur_pct),
+                "High_Crit_Count":  int(grp["is_high_crit"].sum()),
+            })
     if rule_rows:
         import re as _re
         def _rule_num_key(r: str) -> int:
@@ -14303,11 +14307,18 @@ def show_dim(user: str, role: str, model_id: str):
         )
     with _dim_col2:
         if _banked > 0:
-            if st.button("🗑 Clear All", key="dim_clear_all", help="Remove all banked periods and start fresh"):
+            if st.button("🗑 Clear All", key="dim_clear_all", help="Remove all banked periods and previous AT run — start fresh"):
+                # Clear DIM banking
                 st.session_state["dim_accumulated_rows"] = []
                 st.session_state["dim_periods_banked"]   = 0
                 st.session_state["dim_analysis_done"]    = False
                 st.session_state["dim_autorun_pending"]  = False
+                # Clear AT previous run so navigating back shows a clean state
+                for _k in ["at_raw_df","at_mapped_df","at_scored_df","at_top20_df",
+                           "at_file_name","at_mapping_done","at_analysis_done",
+                           "at_total_events","at_review_start","at_review_end",
+                           "at_config_confirmed","at_force_config"]:
+                    st.session_state[_k] = None if "df" in _k else ("" if "name" in _k or "start" in _k or "end" in _k else False)
                 st.rerun()
 
     if _banked >= _DIM_MAX_PERIODS:
@@ -18360,7 +18371,7 @@ def show_app():
             "<div style='background:#1e3a5f;border-left:3px solid #3b82f6;"
             "border-radius:0 6px 6px 0;padding:7px 12px;margin:4px 0;'>"
             "<span style='color:#93c5fd;font-size:0.82rem;font-weight:600;'>"
-            "🔬 Review Intelligence</span></div>",
+            "🔬 Periodic Review Intelligence</span></div>",
             unsafe_allow_html=True
         )
 
