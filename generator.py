@@ -6245,7 +6245,8 @@ _AT_REQUIRED_COLS = {
     "record_type": "Record Type / Table Name (e.g. RESULTS, BATCH, SAMPLE_DATA)",
     "role":        "User Role / Permission Level (e.g. Admin, DBA, Analyst)",
     "comments":    "Comments / Rationale / Change Reason field (optional — Rule 1)",
-    "new_value":   "New Value / Changed Value (optional — Rule 4 drift detection)",
+    "new_value":   "New Value / Changed Value (optional — Rule 4, Rule 17)",
+    "old_value":   "Old Value / Previous Value (optional — Rule 17 before/after check)",
 }
 
 # Vague rationale terms that trigger Rule 1 (standalone = High; 2-word combos = Medium)
@@ -6254,6 +6255,29 @@ _AT_VAGUE_TERMS = {"fixed","update","updated","error","changed","change","test",
                    "modified","mod","ok","done","see above","as per","per request",
                    "revised","revision","adjustment","adjusted","amended","amendment",
                    "recheck","rechecked","redo","redone","retry"}
+
+def _dim_event_category(rule_triggered: str) -> str:
+    """Classify a Rule_Triggered label into a DIM Event_Category for keyword grouping."""
+    r = str(rule_triggered).lower()
+    if any(x in r for x in ("vague rationale", "change control", "missing before", "missing record id",
+                              "duplicate row", "record reconstruction", "audit trail integrity")):
+        return "Data Integrity"
+    if any(x in r for x in ("admin/gxp", "privileged user", "self-approval", "modification after approval",
+                              "workflow status")):
+        return "Change Control"
+    if any(x in r for x in ("missing user", "service/shared", "failed login", "dormant account",
+                              "first-time", "role/permission")):
+        return "User Attribution"
+    if any(x in r for x in ("timestamp reversal", "missing timestamp", "future timestamp",
+                              "timestamp gap", "duplicate timestamp", "contemporaneous")):
+        return "Timestamp"
+    if any(x in r for x in ("off-hours", "holiday", "burst")):
+        return "Behaviour"
+    if "uar" in r or "access_review" in r or "access review" in r:
+        return "User Access"
+    return "Other"
+
+
 
 # Domain-specific / scientific terms — presence of ANY of these in a 3+ word comment
 # clears the vague-rationale flag. "pH adjustment correction" has "pH" → cleared.
@@ -9006,6 +9030,15 @@ Rule 5 (Failed login): "jsmith performed an UPDATE on RESULTS/RES-LOGIN at 14:15
 Rule 9 (Timestamp gap): "svc_lims_batch inserted RESULTS/RES-SVC-3 at 10:33 with comment 'Automated entry' — a gap in audit trail coverage immediately precedes this entry with no documented explanation."
 Rule 10 (Off-hours): "shared_qc_lab inserted RESULTS/RES-SVC-4 at 21:24 with comment 'Automated entry' — this GxP system action occurred outside approved working hours with no documented maintenance window."
 Rule 12 (Service account): "shared_qc_lab inserted RESULTS/RES-SVC-1 at 12:50 with comment 'Automated entry' — actions performed by a shared account cannot be attributed to a specific individual."
+Rule 15 (Missing timestamp): "analyst_b modified RESULTS/RES-099 but the event carries no timestamp — without a timestamp this record cannot be placed in sequence and the contemporaneous principle cannot be verified."
+Rule 16 (Missing user): "An UPDATE was performed on BATCH/BAT-014 with comment 'Batch adjustment' but no user ID was recorded — this action cannot be attributed to any individual, breaching individual accountability."
+Rule 17 (Missing before/after): "analyst_c updated SAMPLE_DATA/SMP-207 at 11:35 with comment 'Value corrected' but no old or new value was captured — there is no audit-able record of what changed or what it changed to."
+Rule 18 (Self-approval SoD): "jsmith both created and approved RESULTS/RES-301 — a single individual completing both roles removes the independent verification required for segregation of duties."
+Rule 19 (Modification after approval): "analyst_d updated BATCH/BAT-022 at 15:42 after it had already been approved — a modification to an approved record reopens the integrity of the approval decision."
+Rule 21 (Role/permission change): "admin_sys modified a role or permission record at 09:17 with comment 'Access update' — changes to access control configuration require documented justification and independent review."
+Rule 23 (Missing record ID): "A DELETE was performed at 13:22 with comment 'Cleanup' but no record ID was captured — it is impossible to determine which record was removed."
+Rule 24 (Duplicate rows): "analyst_e has an exact duplicate row — identical user, timestamp, action, record ID, and values — indicating either a system logging fault or a double-submission that must be reconciled."
+Rule 25 (Future timestamp): "An INSERT event on RESULTS/RES-500 carries a timestamp of 2026-08-15, which is in the future — this timestamp cannot be contemporaneous and suggests clock misconfiguration or manual backdating."
 
 BAD (never do this): "analyst_x performed DELETE on RESULTS/RES-042 at 02:14; comment on file reads 'none'." — NO second clause, no context.
 
@@ -10094,6 +10127,79 @@ def at_build_excel(top_df, scored_df, system_name, r_start, r_end, fname) -> byt
     # SHEET 6 — COMPLIANCE CHECKLIST (Approach A)
     # Auto-populated from AT findings against the standard 7-item regulatory
     # baseline. MANUAL items cannot be determined from log analysis alone.
+    # ── Sheet 5 — Integrity Audit ─────────────────────────────────────────────
+    # Row count reconciliation + dataset hash for tamper-evidence.
+    # Regulators and auditors can verify the uploaded file was not altered.
+    # =========================================================================
+    import hashlib as _hl
+    ws5 = wb.create_sheet("Integrity Audit")
+    ws5.column_dimensions["A"].width = 36
+    ws5.column_dimensions["B"].width = 52
+
+    def _ia_hdr(label):
+        c = ws5.cell(row=_ia_r[0], column=1, value=label)
+        c.font = Font(name="Calibri", bold=True, size=10, color="FFFFFF")
+        c.fill = PatternFill("solid", fgColor="1E3A5F")
+        ws5.merge_cells(f"A{_ia_r[0]}:B{_ia_r[0]}")
+        c.alignment = Alignment(horizontal="left", indent=1)
+        ws5.row_dimensions[_ia_r[0]].height = 18
+        _ia_r[0] += 1
+
+    def _ia_row(key, val, note=""):
+        kc = ws5.cell(row=_ia_r[0], column=1, value=key)
+        kc.font = Font(name="Calibri", bold=True, size=9, color="1E3A5F")
+        kc.fill = PatternFill("solid", fgColor="EBF3FB")
+        kc.alignment = Alignment(indent=1)
+        vc = ws5.cell(row=_ia_r[0], column=2, value=str(val))
+        vc.font = Font(name="Calibri", size=9)
+        vc.alignment = Alignment(wrap_text=True)
+        ws5.row_dimensions[_ia_r[0]].height = 16
+        _ia_r[0] += 1
+
+    _ia_r = [1]
+    _ia_hdr("VALINTEL.AI — Integrity Audit Record")
+    _ia_row("Report Generated (UTC)", datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC"))
+    _ia_row("Review Period", f"{r_start} → {r_end}")
+    _ia_row("System / Source File", fname)
+    _ia_r[0] += 1  # blank row
+
+    _ia_hdr("Dataset Row Counts")
+    _total_rows   = len(scored_df)
+    _reviewed_rows = len(top_df)
+    _cleared_rows  = _total_rows - int((scored_df["Risk_Tier"].isin(["Critical","High","Medium"])).sum())                      if "Risk_Tier" in scored_df.columns else 0
+    _crit_rows = int((scored_df["Risk_Tier"] == "Critical").sum()) if "Risk_Tier" in scored_df.columns else 0
+    _high_rows = int((scored_df["Risk_Tier"] == "High").sum()) if "Risk_Tier" in scored_df.columns else 0
+    _med_rows  = int((scored_df["Risk_Tier"] == "Medium").sum()) if "Risk_Tier" in scored_df.columns else 0
+    _ia_row("Total Events in Upload", _total_rows, "All rows in the uploaded file after parsing")
+    _ia_row("Critical Events", _crit_rows)
+    _ia_row("High Events", _high_rows)
+    _ia_row("Medium Events", _med_rows)
+    _ia_row("Auto-Cleared (Low / No Risk)", _cleared_rows)
+    _ia_row("Events for Review (shown in Sheet 2)", _reviewed_rows)
+    _ia_r[0] += 1
+
+    _ia_hdr("Dataset Hash (Tamper Evidence)")
+    try:
+        _cols_sorted = sorted(scored_df.columns.tolist())
+        _hash_str = scored_df[_cols_sorted].astype(str).to_csv(index=False)
+        _sha256   = _hl.sha256(_hash_str.encode("utf-8")).hexdigest()
+        _md5      = _hl.md5(_hash_str.encode("utf-8")).hexdigest()
+    except Exception:
+        _sha256, _md5 = "HASH ERROR", "HASH ERROR"
+    _ia_row("SHA-256 (full dataset)", _sha256)
+    _ia_row("MD5 (full dataset)",     _md5)
+    _ia_row("Hash Scope", "All scored columns, sorted alphabetically, CSV-serialised before hashing")
+    _ia_r[0] += 1
+
+    _ia_hdr("Reconciliation Statement")
+    _ia_row(
+        "Reviewer confirmation required",
+        f"Confirm that the total event count ({_total_rows} rows) matches your source system "
+        f"export. SHA-256 hash above can be recomputed from the Full Audit Log sheet to detect "
+        f"any post-export modification. This record was generated automatically by VALINTEL.AI "
+        f"and must be signed by the reviewing QA officer before filing as regulatory evidence."
+    )
+
     # Regulatory basis: 21 CFR Part 11, EU Annex 11, ALCOA+, FDA Data
     # Integrity Guidance (2018).
     # =========================================================================
@@ -12134,11 +12240,13 @@ def show_user_access_review(user: str, role: str, model_id: str):
         ] if not result["top_users"].empty else pd.DataFrame()
         _uar_dim_rows = []
         for _, _urow in _uar_hc.iterrows():
+            _uar_rule_str = str(_urow.get("Rule_Pattern", _urow.get("Triggered_Rules", "UAR finding")))[:120]
             _uar_dim_rows.append({
                 "Review_Period":  _uar_period_label,
                 "Username":       str(_urow.get("username", _urow.get("user_id", "unknown"))),
                 "Risk_Level":     str(_urow.get("Risk_Level", "High")),
-                "Rule_Triggered": str(_urow.get("Rule_Pattern", _urow.get("Triggered_Rules", "UAR finding")))[:120],
+                "Rule_Triggered": _uar_rule_str,
+                "Event_Category": _dim_event_category(_uar_rule_str),
                 "System_Name":    _uar_sys,
                 "Event_Type":     "ACCESS_REVIEW",
                 "Event_Timestamp":str(datetime.datetime.utcnow()),
@@ -12623,6 +12731,15 @@ def dim_score_periods(df: pd.DataFrame) -> dict:
     _at_flagged_users  = set(
         hc_df[hc_df["Source_Module"] == "AT"]["Username"].str.lower().unique()
     )
+    # Within-AT compound: users with BOTH Rule 5 (failed login) AND Rule 6 (record reconstruction)
+    _at_df = hc_df[hc_df["Source_Module"] == "AT"].copy()
+    _at_r5_users = set(
+        _at_df[_at_df["Rule_Triggered"].str.lower().str.contains("rule 5|failed login", na=False)]["Username"].str.lower().unique()
+    )
+    _at_r6_users = set(
+        _at_df[_at_df["Rule_Triggered"].str.lower().str.contains("rule 6|record reconstruction", na=False)]["Username"].str.lower().unique()
+    )
+    _at_r5r6_compound_users = _at_r5_users & _at_r6_users  # same user has both
     repeat_rows = []
     for uname, grp in user_grp:
         # Sort periods chronologically using actual event timestamps per period
@@ -12637,8 +12754,17 @@ def dim_score_periods(df: pd.DataFrame) -> dict:
             continue
         rule_counts = grp["Rule_Triggered"].value_counts()
         top_rule    = rule_counts.index[0] if len(rule_counts) else "—"
-        _is_compound = (str(uname).lower() in _uar_flagged_users and
-                        str(uname).lower() in _at_flagged_users)
+        _uname_lower = str(uname).lower()
+        _is_cross_module = (_uname_lower in _uar_flagged_users and _uname_lower in _at_flagged_users)
+        _is_r5r6 = _uname_lower in _at_r5r6_compound_users
+        if _is_cross_module and _is_r5r6:
+            _compound_label = "⚠ AT+UAR · R5+R6"
+        elif _is_cross_module:
+            _compound_label = "⚠ AT + UAR"
+        elif _is_r5r6:
+            _compound_label = "⚠ R5 + R6"
+        else:
+            _compound_label = ""
         repeat_rows.append({
             "Username":        uname,
             "Periods_Flagged": len(periods_flagged),
@@ -12647,7 +12773,7 @@ def dim_score_periods(df: pd.DataFrame) -> dict:
             "Total_Findings":  len(grp),
             "Most_Common_Rule":str(top_rule)[:80],
             "Risk_Levels":     ", ".join(sorted(grp["Risk_Level_Norm"].unique())),
-            "Compound_Risk":   "⚠ AT + UAR" if _is_compound else "",
+            "Compound_Risk":   _compound_label,
         })
     repeat_df = pd.DataFrame(repeat_rows).sort_values(
         ["Periods_Flagged", "Total_Findings"], ascending=False
@@ -13635,6 +13761,14 @@ def dim_build_excel(result: dict, system_name: str, file_name: str,
         _hdr(ws1, 12, 2, "Current Count", bold=True)
         _hdr(ws1, 12, 3, "Change vs Prior", bold=True)
         _hdr(ws1, 12, 4, "Trend", bold=True)
+        _hdr(ws1, 12, 5, "Status", bold=True)
+        from openpyxl.worksheet.datavalidation import DataValidation as _DV
+        _status_dv = _DV(
+            type="list", formula1='"Open,In Progress,Closed,Escalated"',
+            allow_blank=True, showDropDown=False,
+            sqref="E13:E15"
+        )
+        ws1.add_data_validation(_status_dv)
         for ri, item in enumerate(top3, 13):
             trend_color = _TREND_COLORS.get(item["Trend"], C_RED)
             _cell(ws1, ri, 1, item["Metric"], bold=True, fg=C_NAVY)
@@ -13642,7 +13776,12 @@ def dim_build_excel(result: dict, system_name: str, file_name: str,
             _cell(ws1, ri, 3, f"{item['Pct_Change']:+.1f}%",
                   bold=True, fg=C_RED, align="center")
             _cell(ws1, ri, 4, item["Trend"], fg=trend_color, bold=True)
+            _sc = ws1.cell(row=ri, column=5, value="Open")
+            _sc.font = Font(name="Calibri", size=9, color="64748B")
+            _sc.alignment = Alignment(horizontal="center")
+            _sc.fill = PatternFill("solid", fgColor="F8FAFC")
             ws1.row_dimensions[ri].height = 16
+        ws1.column_dimensions["E"].width = 14
     else:
         ws1.cell(row=13, column=1,
                  value="✓ No significant worsening metrics detected in the latest period."
@@ -14034,9 +14173,8 @@ def _dim_generate_narrative(smry: dict, period_df: pd.DataFrame,
          f"DI Posture in the latest period: {posture.upper()}."),
         "",
         "## Finding Trend",
-        (f"High and Critical findings: {tf_last} in the latest period "
-         f"({overall:+.1f}% vs Period 1). "
-         + _dim_trend_label(overall) + " trend across the review window."),
+        (f"{tf_last} High/Critical finding(s) in the latest period "
+         f"({overall:+.1f}% vs Period 1, {_dim_trend_label(overall).lower()} trend)."),
         "",
         "## Repeat High-Risk Users",
         (f"{n_repeat} user(s) appeared as High/Critical in two or more review periods, "
@@ -14113,90 +14251,6 @@ Write the executive summary now. Start with "## Review Scope" heading."""
                  "You write data-grounded executive summaries for pharmaceutical QA teams. "
                  "Every sentence cites a specific number. Include CAPA suggestions. "
                  "No vague language. No speculation."},
-                {"role": "user", "content": prompt},
-            ]
-        )
-        candidate = resp.choices[0].message.content.strip()
-        if len(candidate) > 100:
-            return candidate
-    except Exception:
-        pass
-
-    return "\n".join(fallback_lines)
-
-    # Deterministic fallback — always available
-    fallback_lines = [
-        f"## Data Integrity Monitor — Executive Summary",
-        f"",
-        f"## Review Scope",
-        (f"This report covers {n_periods} review periods from {first_p} to {last_p}. "
-         f"Total findings moved from {tf_first} in {first_p} to {tf_last} in {last_p} "
-         f"({overall:+.1f}% overall change). "
-         f"DI Posture in the latest period: {posture.upper()}."),
-        f"",
-        f"## High/Critical Finding Trend",
-        (f"High and Critical findings moved from {hc_first} in {first_p} to "
-         f"{hc_last} in {last_p}. "
-         + (_dim_trend_label((hc_last - hc_first) / max(hc_first, 1) * 100)
-            + " trend across the review window.")
-         if hc_first > 0 else
-         f"High and Critical findings: {hc_last} in the latest period."),
-        f"",
-        f"## Repeat High-Risk Users",
-        (f"{n_repeat} user(s) appeared as High/Critical in two or more review periods, "
-         f"indicating persistent access or behavioural risk rather than isolated events."
-         + (f" Most persistent user: {top_repeat}." if top_repeat else "")
-         if n_repeat > 0 else
-         "No users appeared as High/Critical in multiple review periods."),
-        f"",
-        f"## Rule Recurrence",
-        (f"The most frequently recurring rule across periods is '{top_rule}'. "
-         f"Recurring rules indicate systemic control gaps requiring CAPA rather "
-         f"than event-level review."
-         if top_rule else "No rule recurrence data available."),
-    ]
-
-    if top3:
-        fallback_lines += ["", "## Priority Actions (Top 3)"]
-        for i, item in enumerate(top3, 1):
-            fallback_lines.append(
-                f"{i}. {item['Metric']}: {item['Current']} findings in latest period "
-                f"({item['Pct_Change']:+.1f}% vs prior period — {item['Trend']}).")
-
-    fallback_lines += [
-        "",
-        "## Reviewer Statement",
-        ("This summary was generated from calculated metrics. All counts and "
-         "percentages are derived deterministically from the uploaded data. "
-         "Narrative text does not influence risk classification. "
-         "Human reviewer confirmation is required before this document is used "
-         "as regulatory evidence."),
-    ]
-
-    # Try AI narrative
-    try:
-        ctx = "\n".join(fallback_lines)
-        prompt = f"""You are writing an executive summary for a pharmaceutical QA periodic review.
-
-RULES — strict:
-1. Every sentence MUST cite a specific number, count, or percentage from the data below.
-2. Do NOT speculate, infer causes, or use vague language.
-3. Do NOT use regulatory citation language (no "21 CFR", "ALCOA+", "GAMP").
-4. Structure: Review Scope / High-Critical Trend / Repeat Users / Rule Recurrence / Priority Actions.
-5. Max 250 words total. Plain English. No bullet points in narrative paragraphs.
-6. Use the exact counts and percentages provided — do not round or paraphrase numbers.
-
-CALCULATED DATA:
-{ctx}
-
-Write the executive summary now. Start with "## Review Scope" heading."""
-
-        resp = _comp(
-            model=model_id, stream=False, temperature=0.05, max_tokens=400,
-            messages=[
-                {"role": "system", "content":
-                 "You write data-grounded executive summaries for pharmaceutical QA teams. "
-                 "Every sentence cites a specific number. No vague language. No speculation."},
                 {"role": "user", "content": prompt},
             ]
         )
@@ -14811,18 +14865,6 @@ def show_audit_trail(user: str, role: str, model_id: str):
                 f"letter-spacing:1.5px;text-transform:uppercase;'>{label}</span></div>",
                 unsafe_allow_html=True)
 
-        def _rule_toggle(cfg_key, label, tier, t_class, reg, default):
-            is_on = st.session_state.get(cfg_key, default)
-            _, ac, txt, _ = _SEC_COLORS.get(_current_section, list(_SEC_COLORS.values())[0])
-            tier_badge = {"Critical":"🔴","High":"🟠","Medium":"🟡"}.get(tier,"⚪")
-            t2_tag = " · T2" if t_class == "Tier 2" else ""
-            val = st.toggle(
-                f"{tier_badge} **{label}** `{tier}{t2_tag}`",
-                value=is_on, key=f"cfg_{cfg_key}",
-                help=f"{reg}"
-            )
-            st.session_state[cfg_key] = val
-            return val
 
         st.markdown("### ⚙️ Step 1 — Configure Detection Rules")
         st.caption(
@@ -14833,66 +14875,56 @@ def show_audit_trail(user: str, role: str, model_id: str):
             "At least one rule must remain active."
         )
 
-        _current_section = "integrity"
+        def _rule_row(cfg_key, rule_num, label, tier_tag, reg_text):
+            _rc, _regc = st.columns([3, 2])
+            with _rc:
+                st.session_state[cfg_key] = st.toggle(
+                    f"**{rule_num}. {label}** `{tier_tag}`",
+                    value=st.session_state[cfg_key], key=f"cfg_{cfg_key}"
+                )
+            with _regc:
+                st.markdown(
+                    f"<div style='padding:6px 0 0 4px;color:#94a3b8;font-size:0.78rem;line-height:1.4;'>"
+                    f"{reg_text}</div>",
+                    unsafe_allow_html=True
+                )
+
         _section_header("🔴 Data Integrity & Record Tampering", "integrity")
-        _ic1, _ic2 = st.columns(2)
-        with _ic1:
-            st.session_state["at_r19_on"] = st.toggle("🔴 **Modification After Approval** `Critical · T1`", value=st.session_state["at_r19_on"], key="cfg_at_r19_on", help="21 CFR Part 11 §11.10(e); ALCOA+ Original")
-            st.session_state["at_r18_on"] = st.toggle("🔴 **Self-Approval SoD Violation** `Critical · T1`", value=st.session_state["at_r18_on"], key="cfg_at_r18_on", help="21 CFR Part 11 §11.10(d); EU Annex 11 Clause 12")
-            st.session_state["at_r3_on"]  = st.toggle("🔴 **Admin/GxP Conflict** `Critical · T1`",          value=st.session_state["at_r3_on"],  key="cfg_at_r3_on",  help="21 CFR Part 11 §11.10(d)")
-        with _ic2:
-            st.session_state["at_r6_on"]  = st.toggle("🔴 **Record Reconstruction** `Critical · T1`",        value=st.session_state["at_r6_on"],  key="cfg_at_r6_on",  help="21 CFR Part 11 §11.10(e); ALCOA+ Original")
-            st.session_state["at_r7_on"]  = st.toggle("🔴 **Audit Trail Integrity Event** `Critical · T1`",  value=st.session_state["at_r7_on"],  key="cfg_at_r7_on",  help="21 CFR Part 11 §11.10(e)")
+        _rule_row("at_r19_on", 19, "Modification After Approval",  "Critical · T1", "21 CFR Part 11 §11.10(e) · ALCOA+ Original")
+        _rule_row("at_r18_on", 18, "Self-Approval SoD Violation",  "Critical · T1", "21 CFR Part 11 §11.10(d) · EU Annex 11 Clause 12")
+        _rule_row("at_r3_on",   3, "Admin/GxP Conflict",           "Critical · T1", "21 CFR Part 11 §11.10(d)")
+        _rule_row("at_r6_on",   6, "Record Reconstruction",        "Critical · T1", "21 CFR Part 11 §11.10(e) · ALCOA+ Original")
+        _rule_row("at_r7_on",   7, "Audit Trail Integrity Event",  "Critical · T1", "21 CFR Part 11 §11.10(e)")
 
-        _current_section = "change"
         _section_header("🔵 Change Documentation & Value Integrity", "change")
-        _cc1, _cc2 = st.columns(2)
-        with _cc1:
-            st.session_state["at_r1_on"]  = st.toggle("🟠 **Vague Rationale** `High · T1`",                 value=st.session_state["at_r1_on"],  key="cfg_at_r1_on",  help="21 CFR Part 211.68; ALCOA+ Attributable and Legible")
-            st.session_state["at_r17_on"] = st.toggle("🟠 **Missing Before/After Value** `High · T1`",      value=st.session_state["at_r17_on"], key="cfg_at_r17_on", help="21 CFR Part 11 §11.10(e); ALCOA+ Original")
-            st.session_state["at_r23_on"] = st.toggle("🟠 **Missing Record ID** `High · T1`",               value=st.session_state["at_r23_on"], key="cfg_at_r23_on", help="21 CFR Part 11 §11.10(e); ALCOA+ Original")
-        with _cc2:
-            st.session_state["at_r24_on"] = st.toggle("🟠 **Duplicate Rows** `High · T1`",                  value=st.session_state["at_r24_on"], key="cfg_at_r24_on", help="21 CFR Part 11 §11.10(e); ALCOA+ Original")
-            st.session_state["at_r4_on"]  = st.toggle("🟠 **Change Control Drift** `High · T2`",            value=st.session_state["at_r4_on"],  key="cfg_at_r4_on",  help="21 CFR Part 820.70(b) — Tier 2: requires statistical baseline assumption")
+        _rule_row("at_r1_on",   1, "Vague Rationale",              "High · T1", "21 CFR Part 211.68 · ALCOA+ Attributable and Legible")
+        _rule_row("at_r17_on", 17, "Missing Before/After Value",   "High · T1", "21 CFR Part 11 §11.10(e) · ALCOA+ Original")
+        _rule_row("at_r23_on", 23, "Missing Record ID",            "High · T1", "21 CFR Part 11 §11.10(e) · ALCOA+ Original")
+        _rule_row("at_r24_on", 24, "Duplicate Rows",               "High · T1", "21 CFR Part 11 §11.10(e) · ALCOA+ Original")
+        _rule_row("at_r4_on",   4, "Change Control Drift",         "High · T2", "21 CFR Part 820.70(b)")
 
-        _current_section = "user"
         _section_header("🟢 User Attribution & Access", "user")
-        _uc1, _uc2 = st.columns(2)
-        with _uc1:
-            st.session_state["at_r5_on"]  = st.toggle("🔴 **Failed Login → Manipulation** `Critical · T1`", value=st.session_state["at_r5_on"],  key="cfg_at_r5_on",  help="21 CFR Part 11 §11.300")
-            st.session_state["at_r12_on"] = st.toggle("🔴 **Service/Shared Account** `Critical · T1`",      value=st.session_state["at_r12_on"], key="cfg_at_r12_on", help="21 CFR Part 11 §11.300")
-            st.session_state["at_r16_on"] = st.toggle("🟠 **Missing User Attribution** `High · T1`",        value=st.session_state["at_r16_on"], key="cfg_at_r16_on", help="21 CFR Part 11 §11.10(e); ALCOA+ Attributable")
-        with _uc2:
-            st.session_state["at_r8_on"]  = st.toggle("🟠 **Privileged User on GxP Data** `High · T1`",    value=st.session_state["at_r8_on"],  key="cfg_at_r8_on",  help="21 CFR Part 11 §11.10(d)")
-            st.session_state["at_r21_on"] = st.toggle("🟠 **Role/Permission Change** `High · T1`",          value=st.session_state["at_r21_on"], key="cfg_at_r21_on", help="21 CFR Part 11 §11.10(d); EU Annex 11 Clause 12")
+        _rule_row("at_r5_on",   5, "Failed Login → Manipulation",  "Critical · T1", "21 CFR Part 11 §11.300")
+        _rule_row("at_r12_on", 12, "Service/Shared Account",       "Critical · T1", "21 CFR Part 11 §11.300")
+        _rule_row("at_r16_on", 16, "Missing User Attribution",     "High · T1",     "21 CFR Part 11 §11.10(e) · ALCOA+ Attributable")
+        _rule_row("at_r8_on",   8, "Privileged User on GxP Data",  "High · T1",     "21 CFR Part 11 §11.10(d)")
+        _rule_row("at_r21_on", 21, "Role/Permission Change",       "High · T1",     "21 CFR Part 11 §11.10(d) · EU Annex 11 Clause 12")
 
-        _current_section = "timestamp"
         _section_header("🟣 Timestamp & Sequencing", "timestamp")
-        _tc1, _tc2 = st.columns(2)
-        with _tc1:
-            st.session_state["at_r11_on"] = st.toggle("🔴 **Timestamp Reversal** `Critical · T1`",          value=st.session_state["at_r11_on"], key="cfg_at_r11_on", help="21 CFR Part 11 §11.10(e); ALCOA+ Contemporaneous")
-            st.session_state["at_r15_on"] = st.toggle("🟠 **Missing Timestamp** `High · T1`",               value=st.session_state["at_r15_on"], key="cfg_at_r15_on", help="21 CFR Part 11 §11.10(e); ALCOA+ Contemporaneous")
-            st.session_state["at_r25_on"] = st.toggle("🟠 **Future Timestamp** `High · T1`",                value=st.session_state["at_r25_on"], key="cfg_at_r25_on", help="21 CFR Part 11 §11.10(e); ALCOA+ Contemporaneous")
-        with _tc2:
-            st.session_state["at_r9_on"]  = st.toggle("🟠 **Timestamp Gap** `High · T2`",                   value=st.session_state["at_r9_on"],  key="cfg_at_r9_on",  help="21 CFR Part 11 §11.10(e) — Tier 2: gaps may be legitimate downtime")
-            st.session_state["at_r22_on"] = st.toggle("🟡 **Duplicate Timestamp Collision** `Medium · T2`", value=st.session_state["at_r22_on"], key="cfg_at_r22_on", help="21 CFR Part 11 §11.10(e) — Tier 2: coarse system clocks produce false positives")
+        _rule_row("at_r11_on", 11, "Timestamp Reversal",            "Critical · T1", "21 CFR Part 11 §11.10(e) · ALCOA+ Contemporaneous")
+        _rule_row("at_r15_on", 15, "Missing Timestamp",             "High · T1",     "21 CFR Part 11 §11.10(e) · ALCOA+ Contemporaneous")
+        _rule_row("at_r25_on", 25, "Future Timestamp",              "High · T1",     "21 CFR Part 11 §11.10(e) · ALCOA+ Contemporaneous")
+        _rule_row("at_r9_on",   9, "Timestamp Gap",                 "High · T2",     "21 CFR Part 11 §11.10(e)")
+        _rule_row("at_r22_on", 22, "Duplicate Timestamp Collision", "Medium · T2",   "21 CFR Part 11 §11.10(e)")
 
-        _current_section = "behaviour"
         _section_header("🟡 User Behaviour & Patterns", "behaviour")
-        _bc1, _bc2 = st.columns(2)
-        with _bc1:
-            st.session_state["at_r2_on"]  = st.toggle("🟡 **Contemporaneous Burst** `Medium · T1`",         value=st.session_state["at_r2_on"],  key="cfg_at_r2_on",  help="ALCOA+ Contemporaneous; 21 CFR Part 11 §11.10(e)")
-            st.session_state["at_r13_on"] = st.toggle("🟠 **Dormant Account Sudden Activity** `High · T2`", value=st.session_state["at_r13_on"], key="cfg_at_r13_on", help="21 CFR Part 11 §11.10(d) — Tier 2: requires 90-day history window")
-        with _bc2:
-            st.session_state["at_r14_on"] = st.toggle("🟠 **First-Time Behavior** `High · T2`",             value=st.session_state["at_r14_on"], key="cfg_at_r14_on", help="21 CFR Part 11 §11.10(d) — Tier 2: noisy on short audit trail exports")
+        _rule_row("at_r2_on",   2, "Contemporaneous Burst",          "Medium · T1", "ALCOA+ Contemporaneous · 21 CFR Part 11 §11.10(e)")
+        _rule_row("at_r13_on", 13, "Dormant Account Sudden Activity","High · T2",   "21 CFR Part 11 §11.10(d)")
+        _rule_row("at_r14_on", 14, "First-Time Behavior",            "High · T2",   "21 CFR Part 11 §11.10(d)")
 
-        _current_section = "heuristic"
         _section_header("🔵 Heuristics & Statistical", "heuristic")
-        _hc1, _hc2 = st.columns(2)
-        with _hc1:
-            st.session_state["at_r10_on"] = st.toggle("🟡 **Off-Hours / Holiday Activity** `Medium · T2`",  value=st.session_state["at_r10_on"], key="cfg_at_r10_on", help="21 CFR Part 211.68 — Tier 2: assumes all timestamps in same timezone")
-        with _hc2:
-            st.session_state["at_r20_on"] = st.toggle("🟠 **Workflow Status Reversal** `High · T2`",        value=st.session_state["at_r20_on"], key="cfg_at_r20_on", help="21 CFR Part 11 §11.10(e) — Tier 2: requires workflow status column in log")
+        _rule_row("at_r10_on", 10, "Off-Hours / Holiday Activity",  "Medium · T2", "21 CFR Part 211.68")
+        _rule_row("at_r20_on", 20, "Workflow Status Reversal",      "High · T2",   "21 CFR Part 11 §11.10(e)")
 
         # ── Guard rail ────────────────────────────────────────────────────────
         st.markdown("---")
@@ -14937,83 +14969,6 @@ def show_audit_trail(user: str, role: str, model_id: str):
             "CSV or Excel export from any GxP system — Veeva Vault, SAP, "
             "MasterControl, LIMS, or any custom system. No integration required."
         )
-
-        # ── Active rules summary (dynamic, replaces old static expander) ──────
-        _ALL_RULES_META = [
-            ("at_r1_on",  "1",  "High",     "Vague Rationale",                "UPDATE/DELETE with blank or non-specific change reason. Exempt if SOP ref or 3+ words with domain context.", "21 CFR Part 211.68; ALCOA+ Attributable and Legible",   "Clause 9",  "Tier 1"),
-            ("at_r2_on",  "2",  "Medium",   "Contemporaneous Burst",           "Same user >10 INSERT/CREATE/UPDATE in 15-min window. Service accounts excluded.",                            "ALCOA+ Contemporaneous; 21 CFR Part 11 §11.10(e)",       "Clause 9",  "Tier 1"),
-            ("at_r3_on",  "3",  "Critical", "Admin/GxP Conflict",              "Admin/DBA/Sysadmin role performs INSERT/UPDATE/CREATE on SAMPLE_DATA, BATCH_RELEASE, BATCH, RESULTS.",      "21 CFR Part 11 §11.10(d)",                               "Clause 12", "Tier 1"),
-            ("at_r4_on",  "4",  "High",     "Change Control Drift",            "Numeric new_value >3 SD from mean for same record_type in file.",                                           "21 CFR Part 820.70(b); validated state requirements",    "Clause 10", "Tier 2"),
-            ("at_r5_on",  "5",  "Critical", "Failed Login → Data Manipulation","3+ LOGIN_FAILED within 120 min then GxP data modification within 30 min of login.",                        "21 CFR Part 11 §11.300; ALCOA+ Original and Attributable","Clause 12", "Tier 1"),
-            ("at_r6_on",  "6",  "Critical", "Record Reconstruction",           "Same user deletes then recreates the same record_id within 4 hours.",                                       "21 CFR Part 11 §11.10(e); ALCOA+ Original",              "Clause 9",  "Tier 1"),
-            ("at_r7_on",  "7",  "Critical", "Audit Trail Integrity Event",     "Any action on audit trail config table. High: DELETE on GxP-sensitive record type.",                       "21 CFR Part 11 §11.10(e)",                               "Clause 9",  "Tier 1"),
-            ("at_r8_on",  "8",  "High",     "Privileged User on GxP Data",    "Admin-role user modifies/deletes GxP-sensitive record type (outside Rule 3 scope).",                        "21 CFR Part 11 §11.10(d)",                               "Clause 12", "Tier 1"),
-            ("at_r9_on",  "9",  "High",     "Timestamp Gap",                  "Gap >2 hours between consecutive entries. Critical: gap during business hours + nearby rule ≥7.",           "21 CFR Part 11 §11.10(e)",                               "Clause 9",  "Tier 2"),
-            ("at_r10_on", "10", "Medium",   "Off-Hours / Holiday Activity",    "GxP data actions outside Mon–Fri 07:00–20:00 or on US Federal Holidays.",                                  "21 CFR Part 211.68",                                     "Clause 9",  "Tier 2"),
-            ("at_r11_on", "11", "Critical", "Timestamp Reversal",              "Approval timestamp earlier than creation timestamp for same record_id.",                                    "21 CFR Part 11 §11.10(e); ALCOA+ Contemporaneous",       "Clause 9",  "Tier 1"),
-            ("at_r12_on", "12", "Critical", "Service/Shared Account",          "Non-personal account (svc_, batch_, api_, root, daemon, guest, test_) performs GxP action.",               "21 CFR Part 11 §11.300",                                 "Clause 12", "Tier 1"),
-            ("at_r13_on", "13", "High",     "Dormant Account Sudden Activity", "User inactive 90+ days then performs a GxP data action.",                                                  "21 CFR Part 11 §11.10(d)",                               "Clause 12", "Tier 2"),
-            ("at_r14_on", "14", "High",     "First-Time Behavior",             "Established user (5+ events) performs action_type never performed before.",                                 "21 CFR Part 11 §11.10(d); ALCOA+ Attributable",          "Clause 12", "Tier 2"),
-            ("at_r15_on", "15", "High",     "Missing Timestamp",               "Null or unparseable timestamp on any event.",                                                               "21 CFR Part 11 §11.10(e); ALCOA+ Contemporaneous",       "—",         "Tier 1"),
-            ("at_r16_on", "16", "High",     "Missing User Attribution",        "Null or blank user_id on any event.",                                                                      "21 CFR Part 11 §11.10(e); ALCOA+ Attributable",          "—",         "Tier 1"),
-            ("at_r17_on", "17", "High",     "Missing Before/After Value",      "UPDATE with null new_value, or old_value=new_value when both present. CREATE: null new_value. DELETE: null old_value.", "21 CFR Part 11 §11.10(e); ALCOA+ Original", "Clause 9",  "Tier 1"),
-            ("at_r18_on", "18", "Critical", "Self-Approval SoD Violation",     "Same user is creator AND approver on the same record_id.",                                                  "21 CFR Part 11 §11.10(d); EU Annex 11 Clause 12",        "Clause 12", "Tier 1"),
-            ("at_r19_on", "19", "Critical", "Modification After Approval",     "UPDATE or DELETE on record_id after an APPROVE or RELEASE already exists for that record.",                 "21 CFR Part 11 §11.10(e); ALCOA+ Original",              "Clause 9",  "Tier 1"),
-            ("at_r20_on", "20", "High",     "Workflow Status Reversal",        "Status field moves backwards (e.g. Approved→Draft). Requires status/workflow column.",                      "21 CFR Part 11 §11.10(e); GAMP 5 (2nd Ed, 2022)",        "Clause 9",  "Tier 2"),
-            ("at_r21_on", "21", "High",     "Role/Permission Change",          "Action on a role, permission, or access control record type.",                                               "21 CFR Part 11 §11.10(d); EU Annex 11 Clause 12",        "Clause 12", "Tier 1"),
-            ("at_r22_on", "22", "Medium",   "Duplicate Timestamp Collision",   "2+ events share exact timestamp for critical actions (APPROVE, DELETE, MODIFY, CREATE).",                   "21 CFR Part 11 §11.10(e); ALCOA+ Contemporaneous",       "Clause 9",  "Tier 2"),
-            ("at_r23_on", "23", "High",     "Missing Record ID",               "UPDATE/DELETE/APPROVE/CREATE event with null or blank record_id.",                                          "21 CFR Part 11 §11.10(e); ALCOA+ Original",              "Clause 9",  "Tier 1"),
-            ("at_r24_on", "24", "High",     "Duplicate Rows",                  "Exact duplicate row (user + timestamp + action + record_id + values all identical).",                      "21 CFR Part 11 §11.10(e); ALCOA+ Original",              "Clause 9",  "Tier 1"),
-            ("at_r25_on", "25", "High",     "Future Timestamp",                "Event timestamp is after current UTC time (±1 hour buffer).",                                              "21 CFR Part 11 §11.10(e); ALCOA+ Contemporaneous",       "—",         "Tier 1"),
-        ]
-        _active_rules_meta = [r for r in _ALL_RULES_META if _AT_RULE_CONFIG.get(r[0], False)]
-
-        with st.expander(f"🔬 Active Rules for this run ({len(_active_rules_meta)} of 25)", expanded=False):
-            st.caption(
-                "Tier 1 rules (directly testable from log data alone) default ON. "
-                "Tier 2 rules (heuristic — require assumptions about your system) default OFF. "
-                "At least one rule must be active to run the analysis. "
-                "Your configuration is stamped into the Excel output for audit trail purposes."
-            )
-
-        with st.expander("🔬 Active Detection Rules — Rules active for this run (click to view)", expanded=False):
-            if not _active_rules_meta:
-                st.warning("No rules are currently active. Enable at least one rule in the configuration above.")
-            else:
-                _tier_colors = {"Critical": "#fee2e2", "High": "#fef3c7", "Medium": "#dbeafe"}
-                _rows_html = ""
-                for cfg_key, rnum, tier, name, trigger, fda, eu, t_class in _active_rules_meta:
-                    _bg = _tier_colors.get(tier, "#f8fafc")
-                    _badge = f"<span style='background:{_bg};color:#1e293b;padding:2px 7px;border-radius:4px;font-size:0.75rem;font-weight:600;'>{tier}</span>"
-                    _t2_badge = f"<span style='background:#f1f5f9;color:#64748b;padding:2px 6px;border-radius:4px;font-size:0.7rem;margin-left:4px;'>T2</span>" if t_class == "Tier 2" else ""
-                    _rows_html += f"""
-                    <tr style='border-bottom:1px solid #e2e8f0;'>
-                      <td style='padding:6px 8px;font-weight:600;color:#0f172a;white-space:nowrap;'>{rnum}</td>
-                      <td style='padding:6px 8px;'>{_badge}{_t2_badge}</td>
-                      <td style='padding:6px 8px;font-weight:500;color:#1e293b;'>{name}</td>
-                      <td style='padding:6px 8px;color:#475569;font-size:0.82rem;'>{trigger}</td>
-                      <td style='padding:6px 8px;color:#64748b;font-size:0.78rem;'>{fda}</td>
-                      <td style='padding:6px 8px;color:#64748b;font-size:0.78rem;'>{eu}</td>
-                    </tr>"""
-                st.markdown(f"""
-<table style='width:100%;border-collapse:collapse;font-family:Inter,sans-serif;font-size:0.83rem;'>
-  <thead>
-    <tr style='background:#f8fafc;border-bottom:2px solid #e2e8f0;'>
-      <th style='padding:8px;text-align:left;color:#64748b;'>#</th>
-      <th style='padding:8px;text-align:left;color:#64748b;'>Tier</th>
-      <th style='padding:8px;text-align:left;color:#64748b;'>Rule Name</th>
-      <th style='padding:8px;text-align:left;color:#64748b;'>Trigger Condition</th>
-      <th style='padding:8px;text-align:left;color:#64748b;'>FDA Regulation</th>
-      <th style='padding:8px;text-align:left;color:#64748b;'>EU Annex 11</th>
-    </tr>
-  </thead>
-  <tbody>{_rows_html}</tbody>
-</table>
-<p style='color:#64748b;font-size:0.75rem;margin-top:8px;'>
-  Showing {len(_active_rules_meta)} of 25 rules active for this run. 
-  T2 = Tier 2 heuristic rule. Disabled rules are excluded from scoring and will not appear in Events for Review.
-  This table is stamped into the Detection Logic sheet of the Excel output.
-</p>""", unsafe_allow_html=True)
 
         # ── Column guidance card + sample download ────────────────────────────
         with st.expander("📋 What columns do I need? (click to expand)", expanded=False):
@@ -16384,7 +16339,7 @@ match your system's export column names to the fields above — rename nothing i
                                   if v != "(not in file)"}
                         mdf = df.rename(columns=rename)
                         # Ensure all required and optional cols exist
-                        for c in list(_AT_REQUIRED_COLS.keys()) + ["old_value"]:
+                        for c in _AT_REQUIRED_COLS.keys():
                             if c not in mdf.columns:
                                 mdf[c] = ""
                         st.session_state["at_mapped_df"]   = mdf
@@ -16601,11 +16556,13 @@ match your system's export column names to the fields above — rename nothing i
                 _config_hash = _hashlib.md5(
                     ",".join(_cfg_active).encode()).hexdigest()[:8]
                 for _, _ev in _hc_scored.iterrows():
+                    _at_rule_str = str(_ev.get("Primary_Rule", ""))
                     _dim_rows.append({
                         "Review_Period":  _at_period_label,
                         "Username":       str(_ev.get("user_id", _ev.get("User", "unknown"))),
                         "Risk_Level":     str(_ev.get("Risk_Tier", "Medium")),
-                        "Rule_Triggered": str(_ev.get("Primary_Rule", "")),
+                        "Rule_Triggered": _at_rule_str,
+                        "Event_Category": _dim_event_category(_at_rule_str),
                         "System_Name":    _at_sys,
                         "Event_Type":     str(_ev.get("action_type", _ev.get("Action", ""))),
                         "Event_Timestamp":str(_ev.get("timestamp",   _ev.get("Timestamp", ""))),
@@ -16620,6 +16577,7 @@ match your system's export column names to the fields above — rename nothing i
                         "Username":       "(no escalations)",
                         "Risk_Level":     "Low",
                         "Rule_Triggered": "No named rules triggered",
+                        "Event_Category": "Other",
                         "System_Name":    _at_sys,
                         "Event_Type":     "",
                         "Event_Timestamp":"",
@@ -17267,54 +17225,62 @@ def show_app():
         st.markdown(
             '<p style="color:#94a3b8;font-size:0.68rem;margin:-6px 0 4px;'
             'letter-spacing:0.5px;font-family:\'IBM Plex Mono\',monospace;">'
-            'Build v85</p>',
+            'Build v93</p>',
             unsafe_allow_html=True)
         st.divider()
-        st.markdown('<p class="sb-sub">🔧 Analysis Mode</p>', unsafe_allow_html=True)
+        st.markdown('<p class="sb-sub">🔧 Modules</p>', unsafe_allow_html=True)
         _modes = [
-            "CSA Change Impact",
-            "CSA Test Optimisation",
             "Review Intelligence",
         ]
-        # Migrate any stale app_mode values to new labels
-        _cur_mode = st.session_state.get("app_mode", "Review Intelligence")
-        if _cur_mode not in _modes:
-            _cur_mode = "Review Intelligence"
-        app_mode = st.radio(
-            "Mode", _modes,
-            index=_modes.index(_cur_mode),
-            label_visibility="collapsed",
-            key="app_mode_radio",
+        _cur_mode = "Review Intelligence"
+        st.session_state["app_mode"] = "Review Intelligence"
+        app_mode = "Review Intelligence"
+
+        # Active module button
+        st.markdown(
+            "<div style='background:#1e3a5f;border-left:3px solid #3b82f6;"
+            "border-radius:0 6px 6px 0;padding:7px 12px;margin:4px 0;'>"
+            "<span style='color:#93c5fd;font-size:0.82rem;font-weight:600;'>"
+            "🔬 Review Intelligence</span></div>",
+            unsafe_allow_html=True
         )
-        st.session_state["app_mode"] = app_mode
+
+        # DCI placeholder — coming soon
+        st.markdown(
+            "<div style='background:#0f172a;border-left:3px solid #334155;"
+            "border-radius:0 6px 6px 0;padding:7px 12px;margin:4px 0;"
+            "opacity:0.55;'>"
+            "<span style='color:#64748b;font-size:0.82rem;font-weight:500;'>"
+            "📋 Deviation &amp; CAPA Intelligence</span>"
+            "<span style='display:block;color:#475569;font-size:0.68rem;"
+            "margin-top:2px;letter-spacing:0.3px;'>Coming soon</span>"
+            "</div>",
+            unsafe_allow_html=True
+        )
 
         # ── Evidence Pack section ───────────────────────────────────────────
         st.divider()
         _at_done  = bool(st.session_state.get("at_analysis_done"))
         _uar_done = bool(st.session_state.get("uar_analysis_done"))
-        _cia_done = False   # CSA Change Impact not built yet
-        _cto_done = False   # CSA Test Optimisation not built yet
-        _pack_complete = sum([_at_done, _uar_done, _cia_done, _cto_done])
-        if _pack_complete == 4:
+        _pack_complete = sum([_at_done, _uar_done])
+        if _pack_complete == 2:
             _pack_label = "📦 Build Inspection Evidence Pack →"
-            _pack_help  = "All 4 modules complete. Build the full evidence pack."
+            _pack_help  = "Both modules complete. Build the full evidence pack."
             _pack_disabled = False
             _pack_color_style = "color:#4ade80;font-size:0.78rem;font-weight:700;"
         elif _pack_complete > 0:
-            _pack_label = f"📦 Evidence Pack ({_pack_complete}/4 modules)"
-            _pack_help  = "Complete all 4 modules to build the full pack."
+            _pack_label = f"📦 Evidence Pack ({_pack_complete}/2 modules)"
+            _pack_help  = "Complete AT and UAR reviews to build the full pack."
             _pack_disabled = False
             _pack_color_style = "color:#fbbf24;font-size:0.78rem;font-weight:600;"
         else:
-            _pack_label = "📦 Evidence Pack (0/4 modules)"
-            _pack_help  = "Run any analysis module to begin building the pack."
+            _pack_label = "📦 Evidence Pack (0/2 modules)"
+            _pack_help  = "Run AT or UAR review to begin building the pack."
             _pack_disabled = True
             _pack_color_style = "color:#475569;font-size:0.78rem;"
         _mod_icons = (
             f"<span style='font-size:0.72rem;'>{'✅' if _at_done else '○'} AT &nbsp;"
-            f"{'✅' if _uar_done else '○'} UAR &nbsp;"
-            f"{'✅' if _cia_done else '○'} CIA &nbsp;"
-            f"{'✅' if _cto_done else '○'} CTO</span>"
+            f"{'✅' if _uar_done else '○'} UAR</span>"
         )
         st.markdown(
             f"<p style='{_pack_color_style}margin:0 0 4px;'>Inspection Evidence Pack</p>"
@@ -17453,24 +17419,6 @@ def show_app():
     _mode = st.session_state.get("app_mode", "Review Intelligence")
     # Use first model in cascade as nominal model_id for functions that still need a string
     _model_id = _get_ai_cascade()[0]
-
-    if _mode == "CSA Change Impact":
-        show_change_impact(user, role, _model_id)
-        return
-
-    if _mode == "CSA Test Optimisation":
-        st.title("🧪 CSA Test Optimisation")
-        st.markdown(
-            "<p style='color:#94a3b8;margin-top:-10px;'>Risk-based test script optimisation "
-            "for computer system validation — coming soon.</p>",
-            unsafe_allow_html=True
-        )
-        st.info(
-            "**CSA Test Optimisation** will analyse your existing OQ/PQ test scripts against "
-            "your risk register and change history to identify redundant tests, coverage gaps, "
-            "and optimal test sequencing. This module is on the build roadmap."
-        )
-        return
 
     if _mode == "Review Intelligence":
         show_periodic_review(user, role, _model_id)
