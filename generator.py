@@ -14869,11 +14869,12 @@ def show_audit_trail(user: str, role: str, model_id: str):
     _AT_RULE_CONFIG   = {k: st.session_state.get(k, v) for k, v in _RULE_DEFAULTS.items()}
     _at_rules_active  = sum(1 for v in _AT_RULE_CONFIG.values() if v)
     _config_confirmed = st.session_state.get("at_config_confirmed", False)
+    _force_config     = st.session_state.get("at_force_config", False)
 
     # ══════════════════════════════════════════════════════════════════════════
     # STEP 0 — Detection Rule Configuration (landing page before upload)
     # ══════════════════════════════════════════════════════════════════════════
-    if not _config_confirmed and not st.session_state.get("at_mapping_done"):
+    if (not _config_confirmed and not st.session_state.get("at_mapping_done")) or _force_config:
 
         # Section colour palette
         _SEC_COLORS = {
@@ -14918,42 +14919,70 @@ def show_audit_trail(user: str, role: str, model_id: str):
                     unsafe_allow_html=True
                 )
 
-        _section_header("🔴 Data Integrity & Record Tampering", "integrity")
-        _rule_row("at_r3_on",   3, "Admin/GxP Conflict",           "Critical · T1", "21 CFR Part 11 §11.10(d)")
-        _rule_row("at_r6_on",   6, "Record Reconstruction",        "Critical · T1", "21 CFR Part 11 §11.10(e) · ALCOA+ Original")
-        _rule_row("at_r7_on",   7, "Audit Trail Integrity Event",  "Critical · T1", "21 CFR Part 11 §11.10(e)")
-        _rule_row("at_r18_on", 18, "Self-Approval SoD Violation",  "Critical · T1", "21 CFR Part 11 §11.10(d) · EU Annex 11 Clause 12")
-        _rule_row("at_r19_on", 19, "Modification After Approval",  "Critical · T1", "21 CFR Part 11 §11.10(e) · ALCOA+ Original")
+        # ── Flat global sequence 1–25 with inline category badges ──────────
+        _CAT_BADGE = {
+            "integrity":  ("<span style='background:#7f1d1d;color:#fca5a5;font-size:0.66rem;"
+                           "font-weight:700;padding:1px 6px;border-radius:3px;margin-left:6px;"
+                           "letter-spacing:0.5px;'>DATA INTEGRITY</span>"),
+            "change":     ("<span style='background:#1e3a5f;color:#93c5fd;font-size:0.66rem;"
+                           "font-weight:700;padding:1px 6px;border-radius:3px;margin-left:6px;"
+                           "letter-spacing:0.5px;'>CHANGE DOC</span>"),
+            "user":       ("<span style='background:#14532d;color:#86efac;font-size:0.66rem;"
+                           "font-weight:700;padding:1px 6px;border-radius:3px;margin-left:6px;"
+                           "letter-spacing:0.5px;'>USER</span>"),
+            "timestamp":  ("<span style='background:#4c1d95;color:#d8b4fe;font-size:0.66rem;"
+                           "font-weight:700;padding:1px 6px;border-radius:3px;margin-left:6px;"
+                           "letter-spacing:0.5px;'>TIMESTAMP</span>"),
+            "behaviour":  ("<span style='background:#78350f;color:#fcd34d;font-size:0.66rem;"
+                           "font-weight:700;padding:1px 6px;border-radius:3px;margin-left:6px;"
+                           "letter-spacing:0.5px;'>BEHAVIOUR</span>"),
+            "heuristic":  ("<span style='background:#164e63;color:#67e8f9;font-size:0.66rem;"
+                           "font-weight:700;padding:1px 6px;border-radius:3px;margin-left:6px;"
+                           "letter-spacing:0.5px;'>HEURISTIC</span>"),
+        }
 
-        _section_header("🔵 Change Documentation & Value Integrity", "change")
-        _rule_row("at_r1_on",   1, "Vague Rationale",              "High · T1", "21 CFR Part 211.68 · ALCOA+ Attributable and Legible")
-        _rule_row("at_r4_on",   4, "Change Control Drift",         "High · T2", "21 CFR Part 820.70(b)")
-        _rule_row("at_r17_on", 17, "Missing Before/After Value",   "High · T1", "21 CFR Part 11 §11.10(e) · ALCOA+ Original")
-        _rule_row("at_r23_on", 23, "Missing Record ID",            "High · T1", "21 CFR Part 11 §11.10(e) · ALCOA+ Original")
-        _rule_row("at_r24_on", 24, "Duplicate Rows",               "High · T1", "21 CFR Part 11 §11.10(e) · ALCOA+ Original")
+        def _rule_row_b(cfg_key, rule_num, label, tier_tag, reg_text, cat):
+            _rc, _regc = st.columns([3, 2])
+            with _rc:
+                _badge_html = _CAT_BADGE.get(cat, "")
+                st.session_state[cfg_key] = st.toggle(
+                    f"**{rule_num}. {label}** `{tier_tag}`",
+                    value=st.session_state[cfg_key], key=f"cfg_{cfg_key}"
+                )
+                st.markdown(_badge_html, unsafe_allow_html=True)
+            with _regc:
+                st.markdown(
+                    f"<div style='padding:6px 0 0 4px;color:#94a3b8;font-size:0.78rem;"
+                    f"line-height:1.4;'>{reg_text}</div>",
+                    unsafe_allow_html=True
+                )
 
-        _section_header("🟢 User Attribution & Access", "user")
-        _rule_row("at_r5_on",   5, "Failed Login → Manipulation",  "Critical · T1", "21 CFR Part 11 §11.300")
-        _rule_row("at_r8_on",   8, "Privileged User on GxP Data",  "High · T1",     "21 CFR Part 11 §11.10(d)")
-        _rule_row("at_r12_on", 12, "Service/Shared Account",       "Critical · T1", "21 CFR Part 11 §11.300")
-        _rule_row("at_r16_on", 16, "Missing User Attribution",     "High · T1",     "21 CFR Part 11 §11.10(e) · ALCOA+ Attributable")
-        _rule_row("at_r21_on", 21, "Role/Permission Change",       "High · T1",     "21 CFR Part 11 §11.10(d) · EU Annex 11 Clause 12")
-
-        _section_header("🟣 Timestamp & Sequencing", "timestamp")
-        _rule_row("at_r9_on",   9, "Timestamp Gap",                 "High · T2",     "21 CFR Part 11 §11.10(e)")
-        _rule_row("at_r11_on", 11, "Timestamp Reversal",            "Critical · T1", "21 CFR Part 11 §11.10(e) · ALCOA+ Contemporaneous")
-        _rule_row("at_r15_on", 15, "Missing Timestamp",             "High · T1",     "21 CFR Part 11 §11.10(e) · ALCOA+ Contemporaneous")
-        _rule_row("at_r22_on", 22, "Duplicate Timestamp Collision", "Medium · T2",   "21 CFR Part 11 §11.10(e)")
-        _rule_row("at_r25_on", 25, "Future Timestamp",              "High · T1",     "21 CFR Part 11 §11.10(e) · ALCOA+ Contemporaneous")
-
-        _section_header("🟡 User Behaviour & Patterns", "behaviour")
-        _rule_row("at_r2_on",   2, "Contemporaneous Burst",          "Medium · T1", "ALCOA+ Contemporaneous · 21 CFR Part 11 §11.10(e)")
-        _rule_row("at_r13_on", 13, "Dormant Account Sudden Activity","High · T2",   "21 CFR Part 11 §11.10(d)")
-        _rule_row("at_r14_on", 14, "First-Time Behavior",            "High · T2",   "21 CFR Part 11 §11.10(d)")
-
-        _section_header("🔵 Heuristics & Statistical", "heuristic")
-        _rule_row("at_r10_on", 10, "Off-Hours / Holiday Activity",  "Medium · T2", "21 CFR Part 211.68")
-        _rule_row("at_r20_on", 20, "Workflow Status Reversal",      "High · T2",   "21 CFR Part 11 §11.10(e)")
+        # Globally sequential 1–25
+        _rule_row_b("at_r1_on",   1, "Vague Rationale",                "High · T1",     "21 CFR Part 211.68 · ALCOA+ Attributable and Legible",    "change")
+        _rule_row_b("at_r2_on",   2, "Contemporaneous Burst",           "Medium · T1",   "ALCOA+ Contemporaneous · 21 CFR Part 11 §11.10(e)",       "behaviour")
+        _rule_row_b("at_r3_on",   3, "Admin/GxP Conflict",             "Critical · T1", "21 CFR Part 11 §11.10(d)",                                "integrity")
+        _rule_row_b("at_r4_on",   4, "Change Control Drift",           "High · T2",     "21 CFR Part 820.70(b)",                                   "change")
+        _rule_row_b("at_r5_on",   5, "Failed Login → Manipulation",    "Critical · T1", "21 CFR Part 11 §11.300",                                  "user")
+        _rule_row_b("at_r6_on",   6, "Record Reconstruction",          "Critical · T1", "21 CFR Part 11 §11.10(e) · ALCOA+ Original",              "integrity")
+        _rule_row_b("at_r7_on",   7, "Audit Trail Integrity Event",    "Critical · T1", "21 CFR Part 11 §11.10(e)",                                "integrity")
+        _rule_row_b("at_r8_on",   8, "Privileged User on GxP Data",   "High · T1",     "21 CFR Part 11 §11.10(d)",                                "user")
+        _rule_row_b("at_r9_on",   9, "Timestamp Gap",                  "High · T2",     "21 CFR Part 11 §11.10(e)",                                "timestamp")
+        _rule_row_b("at_r10_on", 10, "Off-Hours / Holiday Activity",   "Medium · T2",   "21 CFR Part 211.68",                                      "heuristic")
+        _rule_row_b("at_r11_on", 11, "Timestamp Reversal",             "Critical · T1", "21 CFR Part 11 §11.10(e) · ALCOA+ Contemporaneous",       "timestamp")
+        _rule_row_b("at_r12_on", 12, "Service/Shared Account",         "Critical · T1", "21 CFR Part 11 §11.300",                                  "user")
+        _rule_row_b("at_r13_on", 13, "Dormant Account Sudden Activity","High · T2",     "21 CFR Part 11 §11.10(d)",                                "behaviour")
+        _rule_row_b("at_r14_on", 14, "First-Time Behavior",            "High · T2",     "21 CFR Part 11 §11.10(d)",                                "behaviour")
+        _rule_row_b("at_r15_on", 15, "Missing Timestamp",              "High · T1",     "21 CFR Part 11 §11.10(e) · ALCOA+ Contemporaneous",       "timestamp")
+        _rule_row_b("at_r16_on", 16, "Missing User Attribution",       "High · T1",     "21 CFR Part 11 §11.10(e) · ALCOA+ Attributable",          "user")
+        _rule_row_b("at_r17_on", 17, "Missing Before/After Value",     "High · T1",     "21 CFR Part 11 §11.10(e) · ALCOA+ Original",              "change")
+        _rule_row_b("at_r18_on", 18, "Self-Approval SoD Violation",    "Critical · T1", "21 CFR Part 11 §11.10(d) · EU Annex 11 Clause 12",        "integrity")
+        _rule_row_b("at_r19_on", 19, "Modification After Approval",    "Critical · T1", "21 CFR Part 11 §11.10(e) · ALCOA+ Original",              "integrity")
+        _rule_row_b("at_r20_on", 20, "Workflow Status Reversal",       "High · T2",     "21 CFR Part 11 §11.10(e)",                                "heuristic")
+        _rule_row_b("at_r21_on", 21, "Role/Permission Change",         "High · T1",     "21 CFR Part 11 §11.10(d) · EU Annex 11 Clause 12",        "user")
+        _rule_row_b("at_r22_on", 22, "Duplicate Timestamp Collision",  "Medium · T2",   "21 CFR Part 11 §11.10(e)",                                "timestamp")
+        _rule_row_b("at_r23_on", 23, "Missing Record ID",              "High · T1",     "21 CFR Part 11 §11.10(e) · ALCOA+ Original",              "change")
+        _rule_row_b("at_r24_on", 24, "Duplicate Rows",                 "High · T1",     "21 CFR Part 11 §11.10(e) · ALCOA+ Original",              "change")
+        _rule_row_b("at_r25_on", 25, "Future Timestamp",               "High · T1",     "21 CFR Part 11 §11.10(e) · ALCOA+ Contemporaneous",       "timestamp")
 
         # ── Guard rail ────────────────────────────────────────────────────────
         st.markdown("---")
@@ -14968,6 +14997,7 @@ def show_audit_trail(user: str, role: str, model_id: str):
                     type="primary", use_container_width=True, key="at_confirm_config"
                 ):
                     st.session_state["at_config_confirmed"] = True
+                    st.session_state["at_force_config"]     = False
                     # Rebuild config after toggles
                     st.session_state["_AT_RULE_CONFIG"] = {
                         k: st.session_state.get(k, v) for k, v in _RULE_DEFAULTS.items()
@@ -14987,6 +15017,7 @@ def show_audit_trail(user: str, role: str, model_id: str):
     with _edit_col:
         if st.button("Edit Rules", key="at_edit_rules", use_container_width=True):
             st.session_state["at_config_confirmed"] = False
+            st.session_state["at_force_config"]     = True
             st.rerun()
 
     # ══════════════════════════════════════════════════════════════════════════
@@ -15112,39 +15143,82 @@ match your system's export column names to the fields above — rename nothing i
             r += 1
 
             scenarios = [
-                ("Rule 1 — Vague Rationale",
-                 "4 UPDATE events where comments = 'Error', 'Correction', 'fixed', 'ok'. "
-                 "These should surface as High risk in the escalated events list."),
-                ("Rule 2 — Contemporaneous Burst",
-                 "12 RESULT_INSERT actions by analyst_jones within 2 minutes (23:00–23:01). "
-                 "Threshold is >10 inserts in any 15-minute window by the same user."),
-                ("Rule 3 — Admin / GxP Conflict",
-                 "admin_sys performs INSERT on BATCH_RELEASE — admin accounts should never "
-                 "write directly to production GxP tables (segregation of duties)."),
-                ("Rule 4 — Change Control Drift",
-                 "A new_value of 147.3 is >3 standard deviations above the dataset mean (~7.4). "
-                 "Flags statistically anomalous numeric changes."),
-                ("Rule 5 — Failed Login → Data Manipulation",
-                 "analyst_x has 3 LOGIN_FAILED events at 10:03, 10:05, 10:08, successful login at 10:10, "
-                 "then a DELETE on RESULTS (RES-5050) just 7 minutes later."),
-                ("Rule 6 — Delete → Recreate Same Record",
-                 "analyst_y DELETEs RES-8888 at 18:00 then creates a new entry for RES-8888 "
-                 "at 18:15 — a known method of modifying locked GxP records."),
-                ("Rule 7 — Audit Trail Integrity Event",
-                 "dba_prod performs UPDATE on AUDIT_TRAIL at 13:00 — any modification of the "
-                 "audit trail itself is Critical by definition."),
-                ("Rule 8 — Privileged User on GxP Data",
-                 "admin_sys and dba_prod (Admin role) act directly on GxP tables. "
-                 "Complements Rule 3 with broader record-type coverage."),
-                ("Off-Hours Activity",
-                 "Entry at 02:14 and multiple entries after 20:00. The engine flags activity "
-                 "outside standard business hours (08:00–20:00) as elevated risk."),
-                ("Weekend + Holiday Activity",
-                 "2026-03-28 (Saturday) and 2026-07-04 (Saturday + US federal holiday July 4th). "
-                 "Both are flagged — holiday detection is independent of weekend detection."),
-                ("Timestamp Gap",
-                 "A 5h 46m gap between 02:14 and 08:00, and a 98-day gap before the July 4 entry. "
-                 "Gaps > 2 hours during expected activity periods may indicate audit trail tampering."),
+                ("Rule 1 — Vague Rationale  [High · T1]",
+                 "UPDATE/DELETE with a single generic word as change reason (e.g. 'Error', 'fixed', 'ok'). "
+                 "3+ words containing a domain term (e.g. 'pH adjustment correction') are auto-cleared. "
+                 "Requires: comments column."),
+                ("Rule 2 — Contemporaneous Burst  [Medium · T1]",
+                 "Same user performs >10 INSERT/CREATE/UPDATE actions within any 15-minute window. "
+                 "Service and shared accounts are excluded. Requires: timestamp + user_id + action_type."),
+                ("Rule 3 — Admin/GxP Conflict  [Critical · T1]",
+                 "Admin, DBA or Sysadmin role performs INSERT/UPDATE/CREATE on a GxP production table "
+                 "(SAMPLE_DATA, BATCH_RELEASE, RESULTS, BATCH). Requires: role + record_type."),
+                ("Rule 4 — Change Control Drift  [High · T2]",
+                 "Numeric new_value deviates >3 standard deviations from the mean for the same "
+                 "record_type in the file. Tier 2 — may need tuning; requires: new_value + record_type."),
+                ("Rule 5 — Failed Login → Manipulation  [Critical · T1]",
+                 "3+ LOGIN_FAILED events within 120 minutes, then a GxP data modification within "
+                 "30 minutes of a successful login. Requires: action_type with LOGIN_FAILED values."),
+                ("Rule 6 — Record Reconstruction  [Critical · T1]",
+                 "Same user deletes then recreates the same record_id within 4 hours — "
+                 "a known method of modifying locked records. Requires: record_id + action_type."),
+                ("Rule 7 — Audit Trail Integrity Event  [Critical · T1]",
+                 "Any INSERT/UPDATE/DELETE on the AUDIT_TRAIL table itself, or DELETE on a "
+                 "GxP-sensitive record type. Requires: record_type."),
+                ("Rule 8 — Privileged User on GxP Data  [High · T1]",
+                 "Admin-role user modifies or deletes a GxP-sensitive record type outside the "
+                 "scope of Rule 3. Requires: role + record_type."),
+                ("Rule 9 — Timestamp Gap  [High · T2]",
+                 "Gap >2 hours between consecutive audit trail entries. Critical if gap falls "
+                 "during business hours and nearby events score ≥7. Tier 2 — gaps may be legitimate downtime."),
+                ("Rule 10 — Off-Hours / Holiday Activity  [Medium · T2]",
+                 "GxP data action outside Mon–Fri 07:00–20:00, or on a US Federal Holiday. "
+                 "Tier 2 — assumes all timestamps share the same timezone. Requires: timestamp."),
+                ("Rule 11 — Timestamp Reversal  [Critical · T1]",
+                 "Approval timestamp is earlier than creation timestamp for the same record_id. "
+                 "Requires: record_id + action_type (CREATE/APPROVE)."),
+                ("Rule 12 — Service/Shared Account  [Critical · T1]",
+                 "Non-personal account prefix (svc_, batch_, api_, root, daemon, guest, test_) "
+                 "performs a GxP data action. Actions cannot be attributed to an individual."),
+                ("Rule 13 — Dormant Account Sudden Activity  [High · T2]",
+                 "User inactive for 90+ days suddenly performs a GxP data action. "
+                 "Tier 2 — requires 90+ days of history in the upload."),
+                ("Rule 14 — First-Time Behavior  [High · T2]",
+                 "Established user (5+ events in file) performs an action_type they have never "
+                 "performed before. Tier 2 — noisy on short audit trail exports."),
+                ("Rule 15 — Missing Timestamp  [High · T1]",
+                 "Any event with a null or unparseable timestamp. Without a timestamp the "
+                 "contemporaneous principle cannot be verified."),
+                ("Rule 16 — Missing User Attribution  [High · T1]",
+                 "Any event where user_id is null or blank. The action cannot be attributed "
+                 "to a specific individual, breaching individual accountability."),
+                ("Rule 17 — Missing Before/After Value  [High · T1]",
+                 "UPDATE with null new_value, or old_value = new_value when both present. "
+                 "CREATE with null new_value. DELETE with null old_value. Requires: new_value / old_value."),
+                ("Rule 18 — Self-Approval SoD Violation  [Critical · T1]",
+                 "Same user_id appears as both creator and approver on the same record_id. "
+                 "Breaches segregation of duties. Requires: record_id + action_type."),
+                ("Rule 19 — Modification After Approval  [Critical · T1]",
+                 "UPDATE or DELETE on a record_id after an APPROVE or RELEASE already exists "
+                 "for that record. Reopens the integrity of the approval decision."),
+                ("Rule 20 — Workflow Status Reversal  [High · T2]",
+                 "Status field moves backwards (e.g. Approved → Draft). "
+                 "Tier 2 — requires a status or workflow column in your log."),
+                ("Rule 21 — Role/Permission Change  [High · T1]",
+                 "Action performed on a role, permission, or access control record type. "
+                 "Changes to access configuration require documented justification."),
+                ("Rule 22 — Duplicate Timestamp Collision  [Medium · T2]",
+                 "Two or more events share an exact timestamp for critical actions "
+                 "(APPROVE, DELETE, MODIFY, CREATE). Tier 2 — coarse system clocks produce false positives."),
+                ("Rule 23 — Missing Record ID  [High · T1]",
+                 "UPDATE/DELETE/APPROVE/CREATE event with a null or blank record_id. "
+                 "It is impossible to determine which record was affected."),
+                ("Rule 24 — Duplicate Rows  [High · T1]",
+                 "Exact duplicate row — identical user, timestamp, action, record_id, and values. "
+                 "Indicates a system logging fault or double-submission."),
+                ("Rule 25 — Future Timestamp  [High · T1]",
+                 "Event timestamp is after current UTC time (±1 hour buffer). "
+                 "Cannot be contemporaneous — indicates clock misconfiguration or manual backdating."),
             ]
             for name, detail in scenarios:
                 _uw(r, 1, name,   key_font, wrap=True)
@@ -17430,7 +17504,7 @@ match your system's export column names to the fields above — rename nothing i
             padding:8px 16px;margin-bottom:16px;">
   <span style="color:#16a34a;font-size:0.88rem;">●</span>
   <span style="color:#15803d;font-size:0.82rem;font-weight:600;">
-    14-Rule Detection Engine Ready
+    25-Rule Detection Engine Ready
   </span>
 </div>""", unsafe_allow_html=True)
 
