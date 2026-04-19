@@ -14772,118 +14772,156 @@ def show_periodic_review(user: str, role: str, model_id: str):
         return
 
     # ── Landing page ──────────────────────────────────────────────────────────
-    st.title("🔬 Review Intelligence")
-    st.markdown(
-        "<p style='color:#94a3b8;margin-top:-12px;'>Select a module below. "
-        "Each module applies a deterministic scoring engine to produce "
-        "GxP-grade evidence output per 21 CFR Part 11, EU Annex 11, and GAMP 5.</p>",
-        unsafe_allow_html=True
-    )
-    st.markdown("<br>", unsafe_allow_html=True)
-
-    # ── Module cards ──────────────────────────────────────────────────────────
-    modules = [
-        {
-            "key":     "audit_trail",
-            "title":   "Audit Trail Review",
-            "section": "21 CFR Part 11 §11.10(e) · EU Annex 11 Cl. 9",
-            "desc":    (
-                "Upload your audit trail log file to run the 25-rule detection engine. "
-                "Escalates the 20 highest-risk events with an evidence package for "
-                "your Periodic Review Report."
-            ),
-            "status":  "live",
-            "btn_label": "Launch →",
-            "color":   "#0284c7",
-            "bg":      "#0c1f36",
-            "border":  "#1e3a5f",
-        },
-        {
-            "key":     "access_review",
-            "title":   "User Access Review",
-            "section": "21 CFR Part 11 §11.300 · EU Annex 11 Cl. 12",
-            "desc":    (
-                "Upload your user access export to flag SoD conflicts, dormant "
-                "accounts, admin roles on non-admin functions, ghost accounts, "
-                "privilege accumulation, and cross-module AT correlation. "
-                "10 deterministic rules. GxP evidence package output."
-            ),
-            "status":  "live",
-            "btn_label": "Launch →",
-            "color":   "#0284c7",
-            "bg":      "#0c1f36",
-            "border":  "#1e3a5f",
-        },
-    ]
-
-    # ── All 3 cards in one HTML grid — guarantees equal height ───────────────
-    cards_html = ""
-    for mod in modules:
-        live         = mod["status"] == "live"
-        accent_color = mod["color"] if live else "#d2d2d7"
-        badge_cls    = "pr-card-badge-live" if live else "pr-card-badge-soon"
-        badge_text   = "Live" if live else "Coming Soon"
-        title_color  = "#1d1d1f" if live else "#a1a1a6"
-        desc_color   = "#3d3d3f" if live else "#a1a1a6"
-        cards_html += f"""
-  <div class="pr-card">
-    <div class="pr-card-accent" style="background:{accent_color};"></div>
-    <span class="pr-card-badge {badge_cls}">{badge_text}</span>
-    <p class="pr-card-title" style="color:{title_color};">{mod['title']}</p>
-    <p class="pr-card-ref">{mod['section']}</p>
-    <p class="pr-card-desc" style="color:{desc_color};">{mod['desc']}</p>
-  </div>"""
-
-    st.markdown(f"""
+    st.markdown("""
 <style>
-.pr-grid {{
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 16px;
-    margin-bottom: 12px;
-}}
-.pr-card {{
-    background: #ffffff;
-    border: 1px solid #d2d2d7;
-    border-radius: 14px;
-    padding: 24px 22px 20px 22px;
-    font-family: 'Inter', -apple-system, sans-serif;
-    display: flex;
-    flex-direction: column;
-    box-shadow: 0 1px 4px rgba(0,0,0,0.06);
-    transition: box-shadow 0.18s ease;
-}}
-.pr-card:hover {{ box-shadow: 0 4px 16px rgba(0,0,0,0.10); }}
-.pr-card-accent {{ height: 3px; border-radius: 2px; margin-bottom: 18px; flex-shrink:0; }}
-.pr-card-badge {{
-    display: inline-block; font-size: 0.62rem; font-weight: 600;
+/* ── Landing page global ── */
+.vl-hero-title {
+    font-family: -apple-system, 'SF Pro Display', 'Inter', sans-serif;
+    font-size: 2rem; font-weight: 700; color: #f1f5f9;
+    margin: 0 0 6px 0; letter-spacing: -0.5px;
+}
+.vl-hero-sub {
+    font-size: 0.9rem; color: #64748b; margin: 0 0 40px 0; line-height: 1.6;
+}
+/* ── Module cards ── */
+.vl-card {
+    background: linear-gradient(145deg, #0f172a 0%, #111827 100%);
+    border: 1px solid #1e293b;
+    border-radius: 18px;
+    padding: 28px 24px 24px 24px;
+    height: 100%;
+    box-sizing: border-box;
+    font-family: -apple-system, 'Inter', sans-serif;
+    transition: border-color 0.2s ease, transform 0.15s ease;
+    position: relative;
+    overflow: hidden;
+}
+.vl-card:hover { border-color: #2563eb; transform: translateY(-2px); }
+.vl-card-soon { opacity: 0.65; }
+.vl-card-soon:hover { transform: none; border-color: #1e293b; }
+.vl-card-glow {
+    position: absolute; top: 0; left: 0; right: 0; height: 3px;
+    border-radius: 18px 18px 0 0;
+}
+.vl-card-icon { font-size: 1.8rem; margin-bottom: 16px; display: block; }
+.vl-badge {
+    display: inline-block; font-size: 0.6rem; font-weight: 700;
     letter-spacing: 1.5px; text-transform: uppercase;
-    padding: 2px 8px; border-radius: 20px; margin-bottom: 10px;
-    flex-shrink: 0;
-}}
-.pr-card-badge-live {{ background: #e8f9f0; color: #1a7f4b; border: 1px solid #a3e4c1; }}
-.pr-card-badge-soon {{ background: #f5f5f7; color: #a1a1a6; border: 1px solid #d2d2d7; }}
-.pr-card-title {{ font-size: 1.05rem; font-weight: 700; margin: 0 0 4px 0; flex-shrink:0; }}
-.pr-card-ref   {{ font-size: 0.69rem; color: #a1a1a6; font-family: 'Courier New', monospace;
-                  margin: 0 0 12px 0; flex-shrink:0; }}
-.pr-card-desc  {{ font-size: 0.81rem; line-height: 1.55; margin: 0; flex: 1; }}
+    padding: 3px 10px; border-radius: 20px; margin-bottom: 14px;
+}
+.vl-badge-live { background: rgba(16,185,129,0.12); color: #10b981; border: 1px solid rgba(16,185,129,0.25); }
+.vl-badge-soon { background: rgba(100,116,139,0.12); color: #64748b; border: 1px solid rgba(100,116,139,0.2); }
+.vl-card-title { font-size: 1.05rem; font-weight: 700; color: #f1f5f9; margin: 0 0 4px 0; }
+.vl-card-ref {
+    font-size: 0.65rem; color: #475569; font-family: 'SF Mono', 'IBM Plex Mono', monospace;
+    margin: 0 0 14px 0; letter-spacing: 0.3px;
+}
+.vl-card-desc { font-size: 0.82rem; line-height: 1.6; color: #94a3b8; margin: 0; }
+/* ── Launch buttons ── */
+div.vl-btn-live > div.stButton > button {
+    background: linear-gradient(135deg, #1d4ed8 0%, #2563eb 100%) !important;
+    border: none !important;
+    border-radius: 12px !important;
+    color: #ffffff !important;
+    font-size: 0.82rem !important;
+    font-weight: 600 !important;
+    padding: 10px 20px !important;
+    letter-spacing: 0.3px !important;
+    box-shadow: 0 4px 14px rgba(37,99,235,0.35) !important;
+    transition: all 0.15s ease !important;
+    width: 100% !important;
+}
+div.vl-btn-live > div.stButton > button:hover {
+    background: linear-gradient(135deg, #1e40af 0%, #1d4ed8 100%) !important;
+    box-shadow: 0 6px 20px rgba(37,99,235,0.5) !important;
+    transform: translateY(-1px) !important;
+}
+div.vl-btn-soon > div.stButton > button {
+    background: #1e293b !important;
+    border: 1px solid #334155 !important;
+    border-radius: 12px !important;
+    color: #475569 !important;
+    font-size: 0.82rem !important;
+    font-weight: 500 !important;
+    cursor: not-allowed !important;
+    width: 100% !important;
+}
 </style>
-<div class="pr-grid">{cards_html}</div>
 """, unsafe_allow_html=True)
 
-    # ── Button row — separate st.columns so Streamlit click handling works ───
-    btn_col1, btn_col2 = st.columns(2)
-    for btn_col, mod in zip([btn_col1, btn_col2], modules):
-        live = mod["status"] == "live"
-        with btn_col:
-            if live:
-                if st.button(mod["btn_label"], key=f"pr_open_{mod['key']}",
-                             type="primary", use_container_width=True):
-                    st.session_state["pr_active_module"] = mod["key"]
-                    st.rerun()
-            else:
-                st.button(mod["btn_label"], key=f"pr_open_{mod['key']}",
-                          disabled=True, use_container_width=True)
+    st.markdown(
+        "<p class='vl-hero-title'>🔬 Periodic Review Intelligence</p>"
+        "<p class='vl-hero-sub'>Deterministic scoring engines · GxP-grade evidence output · "
+        "21 CFR Part 11 · EU Annex 11 · GAMP 5</p>",
+        unsafe_allow_html=True
+    )
+
+    # ── Sub-module routing ────────────────────────────────────────────────────
+    active = st.session_state.get("pr_active_module")
+    if active == "audit_trail":
+        show_audit_trail(user, role, model_id)
+        return
+    if active == "access_review":
+        show_user_access_review(user, role, model_id)
+        return
+
+    # ── 3 module cards ────────────────────────────────────────────────────────
+    col1, col2, col3 = st.columns(3, gap="medium")
+
+    # Card 1 — Audit Trail Review
+    with col1:
+        st.markdown("""
+<div class="vl-card">
+  <div class="vl-card-glow" style="background:linear-gradient(90deg,#2563eb,#0ea5e9);"></div>
+  <span class="vl-card-icon">🔍</span>
+  <span class="vl-badge vl-badge-live">Live</span>
+  <p class="vl-card-title">Audit Trail Review</p>
+  <p class="vl-card-ref">21 CFR Part 11 §11.10(e) · EU Annex 11 Cl. 9</p>
+  <p class="vl-card-desc">Upload your audit trail log to run the 25-rule detection engine.
+Escalates the 20 highest-risk events with a GxP evidence package.</p>
+</div>
+""", unsafe_allow_html=True)
+        st.markdown('<div class="vl-btn-live">', unsafe_allow_html=True)
+        if st.button("Launch Audit Trail Review", key="pr_open_audit_trail", use_container_width=True):
+            st.session_state["pr_active_module"] = "audit_trail"
+            st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    # Card 2 — User Access Review
+    with col2:
+        st.markdown("""
+<div class="vl-card">
+  <div class="vl-card-glow" style="background:linear-gradient(90deg,#7c3aed,#6366f1);"></div>
+  <span class="vl-card-icon">👥</span>
+  <span class="vl-badge vl-badge-live">Live</span>
+  <p class="vl-card-title">User Access Review</p>
+  <p class="vl-card-ref">21 CFR Part 11 §11.300 · EU Annex 11 Cl. 12</p>
+  <p class="vl-card-desc">Upload your user access export to flag SoD conflicts, dormant accounts,
+admin misuse, and privilege accumulation. 10 deterministic rules.</p>
+</div>
+""", unsafe_allow_html=True)
+        st.markdown('<div class="vl-btn-live">', unsafe_allow_html=True)
+        if st.button("Launch User Access Review", key="pr_open_access_review", use_container_width=True):
+            st.session_state["pr_active_module"] = "access_review"
+            st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    # Card 3 — Deviation & CAPA Review (DCI — Coming Soon)
+    with col3:
+        st.markdown("""
+<div class="vl-card vl-card-soon">
+  <div class="vl-card-glow" style="background:linear-gradient(90deg,#334155,#475569);"></div>
+  <span class="vl-card-icon">📋</span>
+  <span class="vl-badge vl-badge-soon">Coming Soon</span>
+  <p class="vl-card-title">Deviation &amp; CAPA Review</p>
+  <p class="vl-card-ref">21 CFR Part 820.100 · ICH Q10 §3.2</p>
+  <p class="vl-card-desc">Upload your CAPA log to detect weak investigations, vague root causes,
+repeat failures after closure, and SLA breaches. 14 deterministic rules.</p>
+</div>
+""", unsafe_allow_html=True)
+        st.markdown('<div class="vl-btn-soon">', unsafe_allow_html=True)
+        st.button("Coming Soon", key="pr_open_dci", use_container_width=True, disabled=True)
+        st.markdown('</div>', unsafe_allow_html=True)
 
 
 def show_audit_trail(user: str, role: str, model_id: str):
@@ -18393,95 +18431,120 @@ def show_app():
 
     # ── Sidebar ──
     with st.sidebar:
-        st.markdown('<p class="sb-title">VALINTEL.AI — Validation Intelligence</p>', unsafe_allow_html=True)
+        # ── CSS — nav buttons styled as iOS-style nav rows ────────────────
+        st.markdown("""
+<style>
+.sb-nav-wrap { margin: 3px 0; }
+.sb-nav-wrap button, .sb-nav-active-wrap button {
+    background: #111827 !important;
+    border: 1px solid #1f2937 !important;
+    border-radius: 10px !important;
+    color: #6b7280 !important;
+    font-size: 0.82rem !important;
+    font-weight: 500 !important;
+    text-align: left !important;
+    padding: 10px 14px !important;
+    height: auto !important;
+    min-height: 52px !important;
+    line-height: 1.45 !important;
+    width: 100% !important;
+    box-shadow: none !important;
+    transition: all 0.15s ease !important;
+    white-space: pre-wrap !important;
+}
+.sb-nav-wrap button:hover {
+    background: #1f2937 !important;
+    border-color: #374151 !important;
+    color: #d1d5db !important;
+}
+.sb-nav-active-wrap button {
+    background: #1e3a5f !important;
+    border: 1px solid #2563eb !important;
+    border-left: 3px solid #3b82f6 !important;
+    color: #93c5fd !important;
+    font-weight: 600 !important;
+}
+.sb-nav-active-wrap button:hover {
+    background: #1e3a5f !important;
+    color: #bfdbfe !important;
+}
+div[data-testid="stSidebar"] .sb-terminate button {
+    background: transparent !important;
+    border: 1px solid #374151 !important;
+    border-radius: 8px !important;
+    color: #6b7280 !important;
+    font-size: 0.78rem !important;
+}
+div[data-testid="stSidebar"] .sb-terminate button:hover {
+    border-color: #ef4444 !important;
+    color: #f87171 !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
+        st.markdown('<p class="sb-title">VALINTEL.AI \u2014 Validation Intelligence</p>', unsafe_allow_html=True)
         st.markdown(
             '<p style="color:#94a3b8;font-size:0.68rem;margin:-6px 0 4px;'
             'letter-spacing:0.5px;font-family:\'IBM Plex Mono\',monospace;">'
             'Build v94</p>',
             unsafe_allow_html=True)
         st.divider()
-        st.markdown('<p class="sb-sub">🔧 Modules</p>', unsafe_allow_html=True)
+        st.markdown('<p class="sb-sub" style="color:#9ca3af;font-size:0.7rem;font-weight:600;letter-spacing:1px;text-transform:uppercase;margin-bottom:6px;">\U0001f527 Modules</p>', unsafe_allow_html=True)
         st.session_state["app_mode"] = "Review Intelligence"
         app_mode = "Review Intelligence"
 
         _main_view = st.session_state.get("main_view", "periodic_review")
 
         # ── 1. Periodic Review Intelligence ───────────────────────────────
-        _pr_active = _main_view == "periodic_review"
-        _pr_bg     = "#1e3a5f" if _pr_active else "#0f172a"
-        _pr_border = "#3b82f6" if _pr_active else "#334155"
-        _pr_color  = "#93c5fd" if _pr_active else "#64748b"
-        st.markdown(
-            f"<div style='background:{_pr_bg};border-left:3px solid {_pr_border};"
-            f"border-radius:0 6px 6px 0;padding:7px 12px;margin:4px 0;'>"
-            f"<span style='color:{_pr_color};font-size:0.82rem;font-weight:600;'>"
-            f"🔬 Periodic Review Intelligence</span>"
-            f"<span style='display:block;color:#475569;font-size:0.68rem;margin-top:2px;'>"
-            f"AT · UAR · DCI</span></div>",
-            unsafe_allow_html=True
-        )
-        if st.button("Open →", key="nav_pr", use_container_width=True,
-                     help="Audit Trail, User Access, Deviation & CAPA reviews"):
+        _pr_cls = "sb-nav-active-wrap" if _main_view == "periodic_review" else "sb-nav-wrap"
+        st.markdown(f'<div class="{_pr_cls}">', unsafe_allow_html=True)
+        if st.button(
+            "\U0001f52c  Periodic Review\nAT \u00b7 UAR \u00b7 DCI",
+            key="nav_pr", use_container_width=True
+        ):
             st.session_state["main_view"] = "periodic_review"
             st.rerun()
-
-        st.markdown("<div style='margin:4px 0;'></div>", unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
 
         # ── 2. Data Integrity Monitor ──────────────────────────────────────
-        _dim_active = _main_view == "dim"
-        _dim_bg     = "#1e3a5f" if _dim_active else "#0f172a"
-        _dim_border = "#3b82f6" if _dim_active else "#334155"
-        _dim_color  = "#93c5fd" if _dim_active else "#64748b"
+        _dim_cls    = "sb-nav-active-wrap" if _main_view == "dim" else "sb-nav-wrap"
         _banked_sb  = st.session_state.get("dim_periods_banked", 0)
-        _dim_sub    = f"{_banked_sb} period{'s' if _banked_sb != 1 else ''} banked" if _banked_sb else "No periods banked yet"
-        st.markdown(
-            f"<div style='background:{_dim_bg};border-left:3px solid {_dim_border};"
-            f"border-radius:0 6px 6px 0;padding:7px 12px;margin:4px 0;'>"
-            f"<span style='color:{_dim_color};font-size:0.82rem;font-weight:600;'>"
-            f"📊 Data Integrity Monitor</span>"
-            f"<span style='display:block;color:#475569;font-size:0.68rem;margin-top:2px;'>"
-            f"{_dim_sub}</span></div>",
-            unsafe_allow_html=True
-        )
-        if st.button("Open →", key="nav_dim", use_container_width=True,
-                     help="Multi-period trend analysis across AT and UAR"):
+        _dim_sub    = f"{_banked_sb} period{'s' if _banked_sb != 1 else ''} banked" if _banked_sb else "No periods banked"
+        st.markdown(f'<div class="{_dim_cls}">', unsafe_allow_html=True)
+        if st.button(
+            f"\U0001f4ca  Data Integrity Monitor\n{_dim_sub}",
+            key="nav_dim", use_container_width=True
+        ):
             st.session_state["main_view"] = "dim"
             st.rerun()
-
-        st.markdown("<div style='margin:4px 0;'></div>", unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
 
         # ── 3. Evidence Pack ───────────────────────────────────────────────
-        _ep_active = _main_view == "evidence_pack"
-        _ep_bg     = "#1e3a5f" if _ep_active else "#0f172a"
-        _ep_border = "#3b82f6" if _ep_active else "#334155"
-        _ep_color  = "#93c5fd" if _ep_active else "#64748b"
-        _at_done   = bool(st.session_state.get("at_analysis_done"))
-        _uar_done  = bool(st.session_state.get("uar_analysis_done"))
-        _ep_sub    = f"{'\u2705' if _at_done else '\u25cb'} AT  {'\u2705' if _uar_done else '\u25cb'} UAR  \u25cb DCI"
-        st.markdown(
-            f"<div style='background:{_ep_bg};border-left:3px solid {_ep_border};"
-            f"border-radius:0 6px 6px 0;padding:7px 12px;margin:4px 0;'>"
-            f"<span style='color:{_ep_color};font-size:0.82rem;font-weight:600;'>"
-            f"📁 Evidence Pack</span>"
-            f"<span style='display:block;color:#475569;font-size:0.68rem;margin-top:2px;'>"
-            f"{_ep_sub}</span></div>",
-            unsafe_allow_html=True
-        )
-        if st.button("Open →", key="nav_ep", use_container_width=True,
-                     help="Combine AT + UAR + DCI outputs into one inspection dossier"):
+        _ep_cls   = "sb-nav-active-wrap" if _main_view == "evidence_pack" else "sb-nav-wrap"
+        _at_done  = bool(st.session_state.get("at_analysis_done"))
+        _uar_done = bool(st.session_state.get("uar_analysis_done"))
+        _ep_sub   = f"{'✅' if _at_done else '○'} AT  {'✅' if _uar_done else '○'} UAR  ○ DCI"
+        st.markdown(f'<div class="{_ep_cls}">', unsafe_allow_html=True)
+        if st.button(
+            f"\U0001f4c1  Evidence Pack\n{_ep_sub}",
+            key="nav_ep", use_container_width=True
+        ):
             st.session_state["main_view"] = "evidence_pack"
             st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
 
         st.divider()
         st.markdown(f'<p class="sidebar-stats">Operator: {user} &nbsp;|&nbsp; Role: {role}</p>', unsafe_allow_html=True)
 
+        st.markdown('<div class="sb-terminate">', unsafe_allow_html=True)
         if st.button("Terminate Session", key="terminate_sidebar", use_container_width=True):
             st.session_state["_logout_requested"] = True
             st.session_state["_logout_reason"]    = "User clicked Terminate Session"
             st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
 
         if role == "Admin":
-            with st.expander("👤 User Management", expanded=False):
+            with st.expander("\U0001f464 User Management", expanded=False):
                 st.markdown('<p class="sidebar-stats">Create New User</p>', unsafe_allow_html=True)
                 new_u = st.text_input("New Username", key="new_username_input",
                                       label_visibility="collapsed", placeholder="New Username")
@@ -18489,12 +18552,12 @@ def show_app():
                                       label_visibility="collapsed", placeholder="New Password")
                 new_r = st.selectbox("New Role", ROLES, key="new_role_select",
                                      label_visibility="collapsed")
-                if st.button("➕ Create User", key="create_user_btn"):
+                if st.button("\u2795 Create User", key="create_user_btn"):
                     new_u_clean = sanitize_input(new_u, max_length=64)
                     new_p_clean = sanitize_input(new_p, max_length=256)
                     if new_u_clean and new_p_clean:
                         if len(new_p_clean) < 8:
-                            st.warning("⚠️ Password must be at least 8 characters.")
+                            st.warning("\u26a0\ufe0f Password must be at least 8 characters.")
                         else:
                             create_user(new_u_clean, new_p_clean, new_r)
                             log_audit(user, "USER_CREATED", "USER",
