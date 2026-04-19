@@ -4328,6 +4328,7 @@ _defaults = {
     "show_esig_form":     False,   # True when user clicked a download button → show inline form
     "esig_target":        None,    # "xlsx" or "pdf" — which format triggered the e-sig form
     "app_mode":           "Review Intelligence",   # sidebar mode selector
+    "main_view":          "periodic_review",       # top-level nav: periodic_review | dim | evidence_pack
     # ── Change Impact Analysis slots ────────────────────────────────────────
     "cia_change_spec_bytes": None,
     "cia_change_spec_name":  None,
@@ -14268,6 +14269,51 @@ Write the executive summary now. Start with "## Review Scope" heading."""
     return "\n".join(fallback_lines)
 
 
+def _show_evidence_pack_placeholder():
+    """Evidence Pack — placeholder until AT + UAR + DCI all have completed runs."""
+    import streamlit as st
+    _at_done  = bool(st.session_state.get("at_analysis_done"))
+    _uar_done = bool(st.session_state.get("uar_analysis_done"))
+    _modules  = [("Audit Trail Review", _at_done), ("User Access Review", _uar_done),
+                 ("Deviation & CAPA Review", False)]
+    _n_done   = sum(d for _, d in _modules)
+
+    st.title("📁 Evidence Pack")
+    st.markdown(
+        "<p style='color:#94a3b8;margin-top:-12px;font-size:0.9rem;'>"
+        "Combines AT + UAR + DCI outputs into a single inspection-ready dossier."
+        "</p>", unsafe_allow_html=True)
+    st.markdown("---")
+
+    if _n_done == 0:
+        st.info("⚠️ Run at least one module (AT, UAR, or DCI) to begin building the Evidence Pack.")
+    else:
+        st.success(f"✅ {_n_done}/3 module(s) complete. Run remaining modules to unlock the full pack.")
+
+    st.markdown("<br>", unsafe_allow_html=True)
+    rows_html = ""
+    for label, done in _modules:
+        icon  = "✅" if done else "○"
+        color = "#4ade80" if done else "#64748b"
+        rows_html += (
+            f"<div style='display:flex;align-items:center;gap:12px;padding:10px 16px;"
+            f"background:#0f172a;border-radius:8px;margin-bottom:8px;'>"
+            f"<span style='font-size:1.1rem;'>{icon}</span>"
+            f"<span style='color:{color};font-size:0.88rem;font-weight:600;'>{label}</span>"
+            f"</div>"
+        )
+    st.markdown(rows_html, unsafe_allow_html=True)
+
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.button(
+        "📦 Build Evidence Pack",
+        disabled=True,
+        help="Complete all three modules (AT, UAR, DCI) to build the pack.",
+        use_container_width=False
+    )
+    st.caption("Evidence Pack builder coming in a future release. Run AT and UAR to begin banking results.")
+
+
 def show_dim(user: str, role: str, model_id: str):
     """Render Data Integrity Monitor — multi-period AT trend analysis."""
     _CSS = """<style>
@@ -14715,10 +14761,6 @@ def show_periodic_review(user: str, role: str, model_id: str):
 
     if active == "access_review":
         show_user_access_review(user, role, model_id)
-        return
-
-    if active == "di_dashboard":
-        show_dim(user, role, model_id)
         return
 
     if active in ("report_drafter",):
@@ -17913,7 +17955,7 @@ match your system's export column names to the fields above — rename nothing i
                 if st.button("📊 Open Data Integrity Monitor →",
                              key="at_open_dim_btn",
                              use_container_width=True, type="primary"):
-                    st.session_state["pr_active_module"] = "di_dashboard"
+                    st.session_state["main_view"] = "dim"
                     st.session_state["dim_analysis_done"] = False
                     st.session_state["dim_autorun_pending"] = True
                     st.rerun()
@@ -18355,71 +18397,80 @@ def show_app():
         st.markdown(
             '<p style="color:#94a3b8;font-size:0.68rem;margin:-6px 0 4px;'
             'letter-spacing:0.5px;font-family:\'IBM Plex Mono\',monospace;">'
-            'Build v93</p>',
+            'Build v94</p>',
             unsafe_allow_html=True)
         st.divider()
         st.markdown('<p class="sb-sub">🔧 Modules</p>', unsafe_allow_html=True)
-        _modes = [
-            "Review Intelligence",
-        ]
-        _cur_mode = "Review Intelligence"
         st.session_state["app_mode"] = "Review Intelligence"
         app_mode = "Review Intelligence"
 
-        # Active module button
-        st.markdown(
-            "<div style='background:#1e3a5f;border-left:3px solid #3b82f6;"
-            "border-radius:0 6px 6px 0;padding:7px 12px;margin:4px 0;'>"
-            "<span style='color:#93c5fd;font-size:0.82rem;font-weight:600;'>"
-            "🔬 Periodic Review Intelligence</span></div>",
-            unsafe_allow_html=True
-        )
+        _main_view = st.session_state.get("main_view", "periodic_review")
 
-        # DCI placeholder — coming soon
+        # ── 1. Periodic Review Intelligence ───────────────────────────────
+        _pr_active = _main_view == "periodic_review"
+        _pr_bg     = "#1e3a5f" if _pr_active else "#0f172a"
+        _pr_border = "#3b82f6" if _pr_active else "#334155"
+        _pr_color  = "#93c5fd" if _pr_active else "#64748b"
         st.markdown(
-            "<div style='background:#0f172a;border-left:3px solid #334155;"
-            "border-radius:0 6px 6px 0;padding:7px 12px;margin:4px 0;"
-            "opacity:0.55;'>"
-            "<span style='color:#64748b;font-size:0.82rem;font-weight:500;'>"
-            "📋 Deviation &amp; CAPA Intelligence</span>"
-            "<span style='display:block;color:#475569;font-size:0.68rem;"
-            "margin-top:2px;letter-spacing:0.3px;'>Coming soon</span>"
-            "</div>",
+            f"<div style='background:{_pr_bg};border-left:3px solid {_pr_border};"
+            f"border-radius:0 6px 6px 0;padding:7px 12px;margin:4px 0;'>"
+            f"<span style='color:{_pr_color};font-size:0.82rem;font-weight:600;'>"
+            f"🔬 Periodic Review Intelligence</span>"
+            f"<span style='display:block;color:#475569;font-size:0.68rem;margin-top:2px;'>"
+            f"AT · UAR · DCI</span></div>",
             unsafe_allow_html=True
         )
+        if st.button("Open →", key="nav_pr", use_container_width=True,
+                     help="Audit Trail, User Access, Deviation & CAPA reviews"):
+            st.session_state["main_view"] = "periodic_review"
+            st.rerun()
 
-        # ── Evidence Pack section ───────────────────────────────────────────
-        st.divider()
-        _at_done  = bool(st.session_state.get("at_analysis_done"))
-        _uar_done = bool(st.session_state.get("uar_analysis_done"))
-        _pack_complete = sum([_at_done, _uar_done])
-        if _pack_complete == 2:
-            _pack_label = "📦 Build Inspection Evidence Pack →"
-            _pack_help  = "Both modules complete. Build the full evidence pack."
-            _pack_disabled = False
-            _pack_color_style = "color:#4ade80;font-size:0.78rem;font-weight:700;"
-        elif _pack_complete > 0:
-            _pack_label = f"📦 Evidence Pack ({_pack_complete}/2 modules)"
-            _pack_help  = "Complete AT and UAR reviews to build the full pack."
-            _pack_disabled = False
-            _pack_color_style = "color:#fbbf24;font-size:0.78rem;font-weight:600;"
-        else:
-            _pack_label = "📦 Evidence Pack (0/2 modules)"
-            _pack_help  = "Run AT or UAR review to begin building the pack."
-            _pack_disabled = True
-            _pack_color_style = "color:#475569;font-size:0.78rem;"
-        _mod_icons = (
-            f"<span style='font-size:0.72rem;'>{'✅' if _at_done else '○'} AT &nbsp;"
-            f"{'✅' if _uar_done else '○'} UAR</span>"
-        )
+        st.markdown("<div style='margin:4px 0;'></div>", unsafe_allow_html=True)
+
+        # ── 2. Data Integrity Monitor ──────────────────────────────────────
+        _dim_active = _main_view == "dim"
+        _dim_bg     = "#1e3a5f" if _dim_active else "#0f172a"
+        _dim_border = "#3b82f6" if _dim_active else "#334155"
+        _dim_color  = "#93c5fd" if _dim_active else "#64748b"
+        _banked_sb  = st.session_state.get("dim_periods_banked", 0)
+        _dim_sub    = f"{_banked_sb} period{'s' if _banked_sb != 1 else ''} banked" if _banked_sb else "No periods banked yet"
         st.markdown(
-            f"<p style='{_pack_color_style}margin:0 0 4px;'>Inspection Evidence Pack</p>"
-            f"<p style='color:#475569;font-size:0.72rem;margin:0 0 6px;'>{_mod_icons}</p>",
+            f"<div style='background:{_dim_bg};border-left:3px solid {_dim_border};"
+            f"border-radius:0 6px 6px 0;padding:7px 12px;margin:4px 0;'>"
+            f"<span style='color:{_dim_color};font-size:0.82rem;font-weight:600;'>"
+            f"📊 Data Integrity Monitor</span>"
+            f"<span style='display:block;color:#475569;font-size:0.68rem;margin-top:2px;'>"
+            f"{_dim_sub}</span></div>",
             unsafe_allow_html=True
         )
-        if st.button(_pack_label, key="pack_btn", use_container_width=True,
-                     disabled=_pack_disabled, help=_pack_help):
-            st.info("Inspection Evidence Pack builder coming soon.")
+        if st.button("Open →", key="nav_dim", use_container_width=True,
+                     help="Multi-period trend analysis across AT and UAR"):
+            st.session_state["main_view"] = "dim"
+            st.rerun()
+
+        st.markdown("<div style='margin:4px 0;'></div>", unsafe_allow_html=True)
+
+        # ── 3. Evidence Pack ───────────────────────────────────────────────
+        _ep_active = _main_view == "evidence_pack"
+        _ep_bg     = "#1e3a5f" if _ep_active else "#0f172a"
+        _ep_border = "#3b82f6" if _ep_active else "#334155"
+        _ep_color  = "#93c5fd" if _ep_active else "#64748b"
+        _at_done   = bool(st.session_state.get("at_analysis_done"))
+        _uar_done  = bool(st.session_state.get("uar_analysis_done"))
+        _ep_sub    = f"{'\u2705' if _at_done else '\u25cb'} AT  {'\u2705' if _uar_done else '\u25cb'} UAR  \u25cb DCI"
+        st.markdown(
+            f"<div style='background:{_ep_bg};border-left:3px solid {_ep_border};"
+            f"border-radius:0 6px 6px 0;padding:7px 12px;margin:4px 0;'>"
+            f"<span style='color:{_ep_color};font-size:0.82rem;font-weight:600;'>"
+            f"📁 Evidence Pack</span>"
+            f"<span style='display:block;color:#475569;font-size:0.68rem;margin-top:2px;'>"
+            f"{_ep_sub}</span></div>",
+            unsafe_allow_html=True
+        )
+        if st.button("Open →", key="nav_ep", use_container_width=True,
+                     help="Combine AT + UAR + DCI outputs into one inspection dossier"):
+            st.session_state["main_view"] = "evidence_pack"
+            st.rerun()
 
         st.divider()
         st.markdown(f'<p class="sidebar-stats">Operator: {user} &nbsp;|&nbsp; Role: {role}</p>', unsafe_allow_html=True)
@@ -18452,7 +18503,6 @@ def show_app():
                             st.success(f"User '{new_u_clean}' created with role: {new_r}.")
                     else:
                         st.warning("Username and password are required.")
-
     # ── Top action bar — Back to Periodic Review (left) + End Session (right) ──
     # The back button only appears when inside a Periodic Review sub-module.
     # Both buttons sit in the same row so they align at the same visual level.
@@ -18546,12 +18596,22 @@ def show_app():
     # IP capture on every authenticated load
     _capture_client_ip()
 
-    _mode = st.session_state.get("app_mode", "Review Intelligence")
     # Use first model in cascade as nominal model_id for functions that still need a string
     _model_id = _get_ai_cascade()[0]
 
-    if _mode == "Review Intelligence":
+    # ── Top-level navigation ──────────────────────────────────────────────────
+    _main_view = st.session_state.get("main_view", "periodic_review")
+
+    if _main_view == "periodic_review":
         show_periodic_review(user, role, _model_id)
+        return
+
+    if _main_view == "dim":
+        show_dim(user, role, _model_id)
+        return
+
+    if _main_view == "evidence_pack":
+        _show_evidence_pack_placeholder()
         return
 
     # ── Main area — New Validation ────────────────────────────────────────────
