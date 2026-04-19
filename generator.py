@@ -14774,77 +14774,82 @@ def show_periodic_review(user: str, role: str, model_id: str):
     # ── Landing page ──────────────────────────────────────────────────────────
     st.markdown("""
 <style>
-/* ── Landing page global ── */
+/* ── Landing page ── */
 .vl-hero-title {
     font-family: -apple-system, 'SF Pro Display', 'Inter', sans-serif;
-    font-size: 2rem; font-weight: 700; color: #f1f5f9;
+    font-size: 1.9rem; font-weight: 700; color: #1e293b;
     margin: 0 0 6px 0; letter-spacing: -0.5px;
 }
 .vl-hero-sub {
-    font-size: 0.9rem; color: #64748b; margin: 0 0 40px 0; line-height: 1.6;
+    font-size: 0.88rem; color: #64748b; margin: 0 0 36px 0; line-height: 1.6;
 }
-/* ── Module cards ── */
 .vl-card {
-    background: linear-gradient(145deg, #0f172a 0%, #111827 100%);
-    border: 1px solid #1e293b;
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
     border-radius: 18px;
-    padding: 28px 24px 24px 24px;
+    padding: 28px 24px 20px 24px;
     height: 100%;
     box-sizing: border-box;
     font-family: -apple-system, 'Inter', sans-serif;
-    transition: border-color 0.2s ease, transform 0.15s ease;
-    position: relative;
-    overflow: hidden;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.06), 0 1px 3px rgba(0,0,0,0.04);
+    transition: box-shadow 0.2s ease, transform 0.15s ease, border-color 0.2s ease;
+    position: relative; overflow: hidden;
 }
-.vl-card:hover { border-color: #2563eb; transform: translateY(-2px); }
-.vl-card-soon { opacity: 0.65; }
-.vl-card-soon:hover { transform: none; border-color: #1e293b; }
+.vl-card:hover {
+    box-shadow: 0 8px 30px rgba(0,0,0,0.10), 0 2px 8px rgba(0,0,0,0.06);
+    transform: translateY(-3px);
+    border-color: #fb923c;
+}
+.vl-card-soon { background: #f8fafc; }
+.vl-card-soon:hover { transform: none; border-color: #e2e8f0; box-shadow: 0 2px 12px rgba(0,0,0,0.06); }
 .vl-card-glow {
-    position: absolute; top: 0; left: 0; right: 0; height: 3px;
+    position: absolute; top: 0; left: 0; right: 0; height: 4px;
     border-radius: 18px 18px 0 0;
 }
-.vl-card-icon { font-size: 1.8rem; margin-bottom: 16px; display: block; }
+.vl-card-icon { font-size: 2rem; margin-bottom: 14px; display: block; }
 .vl-badge {
     display: inline-block; font-size: 0.6rem; font-weight: 700;
     letter-spacing: 1.5px; text-transform: uppercase;
     padding: 3px 10px; border-radius: 20px; margin-bottom: 14px;
 }
-.vl-badge-live { background: rgba(16,185,129,0.12); color: #10b981; border: 1px solid rgba(16,185,129,0.25); }
-.vl-badge-soon { background: rgba(100,116,139,0.12); color: #64748b; border: 1px solid rgba(100,116,139,0.2); }
-.vl-card-title { font-size: 1.05rem; font-weight: 700; color: #f1f5f9; margin: 0 0 4px 0; }
+.vl-badge-live { background: #fff7ed; color: #c2410c; border: 1px solid #fed7aa; }
+.vl-badge-soon { background: #f1f5f9; color: #94a3b8; border: 1px solid #e2e8f0; }
+.vl-card-title { font-size: 1.08rem; font-weight: 700; color: #0f172a; margin: 0 0 4px 0; }
 .vl-card-ref {
-    font-size: 0.65rem; color: #475569; font-family: 'SF Mono', 'IBM Plex Mono', monospace;
+    font-size: 0.65rem; color: #94a3b8;
+    font-family: 'SF Mono', 'IBM Plex Mono', monospace;
     margin: 0 0 14px 0; letter-spacing: 0.3px;
 }
-.vl-card-desc { font-size: 0.82rem; line-height: 1.6; color: #94a3b8; margin: 0; }
-/* ── Launch buttons ── */
+.vl-card-desc { font-size: 0.82rem; line-height: 1.65; color: #475569; margin: 0 0 20px 0; }
+/* ── Launch buttons — orange, hover → blue ── */
 div.vl-btn-live > div.stButton > button {
-    background: linear-gradient(135deg, #1d4ed8 0%, #2563eb 100%) !important;
+    background: linear-gradient(135deg, #ea580c 0%, #fb923c 100%) !important;
     border: none !important;
     border-radius: 12px !important;
     color: #ffffff !important;
-    font-size: 0.82rem !important;
+    font-size: 0.83rem !important;
     font-weight: 600 !important;
     padding: 10px 20px !important;
     letter-spacing: 0.3px !important;
-    box-shadow: 0 4px 14px rgba(37,99,235,0.35) !important;
-    transition: all 0.15s ease !important;
+    box-shadow: 0 4px 14px rgba(234,88,12,0.30) !important;
+    transition: all 0.2s ease !important;
     width: 100% !important;
 }
 div.vl-btn-live > div.stButton > button:hover {
-    background: linear-gradient(135deg, #1e40af 0%, #1d4ed8 100%) !important;
-    box-shadow: 0 6px 20px rgba(37,99,235,0.5) !important;
+    background: linear-gradient(135deg, #1d4ed8 0%, #2563eb 100%) !important;
+    box-shadow: 0 6px 20px rgba(37,99,235,0.35) !important;
     transform: translateY(-1px) !important;
 }
 div.vl-btn-soon > div.stButton > button {
-    background: #1e293b !important;
-    border: 1px solid #334155 !important;
+    background: #f1f5f9 !important;
+    border: 1px solid #e2e8f0 !important;
     border-radius: 12px !important;
-    color: #475569 !important;
-    font-size: 0.82rem !important;
+    color: #94a3b8 !important;
+    font-size: 0.83rem !important;
     font-weight: 500 !important;
     cursor: not-allowed !important;
     width: 100% !important;
+    box-shadow: none !important;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -14866,19 +14871,17 @@ div.vl-btn-soon > div.stButton > button {
         return
 
     # ── 3 module cards ────────────────────────────────────────────────────────
-    col1, col2, col3 = st.columns(3, gap="medium")
+    col1, col2, col3 = st.columns(3, gap="large")
 
-    # Card 1 — Audit Trail Review
     with col1:
         st.markdown("""
 <div class="vl-card">
-  <div class="vl-card-glow" style="background:linear-gradient(90deg,#2563eb,#0ea5e9);"></div>
+  <div class="vl-card-glow" style="background:linear-gradient(90deg,#ea580c,#fb923c);"></div>
   <span class="vl-card-icon">🔍</span>
   <span class="vl-badge vl-badge-live">Live</span>
   <p class="vl-card-title">Audit Trail Review</p>
-  <p class="vl-card-ref">21 CFR Part 11 §11.10(e) · EU Annex 11 Cl. 9</p>
-  <p class="vl-card-desc">Upload your audit trail log to run the 25-rule detection engine.
-Escalates the 20 highest-risk events with a GxP evidence package.</p>
+  <p class="vl-card-ref">21 CFR Part 11 §§11.10(e) · EU Annex 11 Cl. 9</p>
+  <p class="vl-card-desc">Upload your audit trail log to run the 25-rule detection engine. Escalates the 20 highest-risk events with a GxP evidence package ready for inspection.</p>
 </div>
 """, unsafe_allow_html=True)
         st.markdown('<div class="vl-btn-live">', unsafe_allow_html=True)
@@ -14887,17 +14890,15 @@ Escalates the 20 highest-risk events with a GxP evidence package.</p>
             st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
 
-    # Card 2 — User Access Review
     with col2:
         st.markdown("""
 <div class="vl-card">
-  <div class="vl-card-glow" style="background:linear-gradient(90deg,#7c3aed,#6366f1);"></div>
+  <div class="vl-card-glow" style="background:linear-gradient(90deg,#7c3aed,#a78bfa);"></div>
   <span class="vl-card-icon">👥</span>
   <span class="vl-badge vl-badge-live">Live</span>
   <p class="vl-card-title">User Access Review</p>
-  <p class="vl-card-ref">21 CFR Part 11 §11.300 · EU Annex 11 Cl. 12</p>
-  <p class="vl-card-desc">Upload your user access export to flag SoD conflicts, dormant accounts,
-admin misuse, and privilege accumulation. 10 deterministic rules.</p>
+  <p class="vl-card-ref">21 CFR Part 11 §§§11.300 · EU Annex 11 Cl. 12</p>
+  <p class="vl-card-desc">Upload your user access export to flag SoD conflicts, dormant accounts, admin misuse, and privilege accumulation. 10 deterministic rules.</p>
 </div>
 """, unsafe_allow_html=True)
         st.markdown('<div class="vl-btn-live">', unsafe_allow_html=True)
@@ -14906,17 +14907,15 @@ admin misuse, and privilege accumulation. 10 deterministic rules.</p>
             st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
 
-    # Card 3 — Deviation & CAPA Review (DCI — Coming Soon)
     with col3:
         st.markdown("""
 <div class="vl-card vl-card-soon">
-  <div class="vl-card-glow" style="background:linear-gradient(90deg,#334155,#475569);"></div>
+  <div class="vl-card-glow" style="background:linear-gradient(90deg,#cbd5e1,#e2e8f0);"></div>
   <span class="vl-card-icon">📋</span>
   <span class="vl-badge vl-badge-soon">Coming Soon</span>
   <p class="vl-card-title">Deviation &amp; CAPA Review</p>
   <p class="vl-card-ref">21 CFR Part 820.100 · ICH Q10 §3.2</p>
-  <p class="vl-card-desc">Upload your CAPA log to detect weak investigations, vague root causes,
-repeat failures after closure, and SLA breaches. 14 deterministic rules.</p>
+  <p class="vl-card-desc">Upload your CAPA log to detect weak investigations, vague root causes, repeat failures post-closure, and SLA breaches. 14 deterministic rules.</p>
 </div>
 """, unsafe_allow_html=True)
         st.markdown('<div class="vl-btn-soon">', unsafe_allow_html=True)
@@ -18431,107 +18430,99 @@ def show_app():
 
     # ── Sidebar ──
     with st.sidebar:
-        # ── CSS — nav buttons styled as iOS-style nav rows ────────────────
         st.markdown("""
 <style>
-.sb-nav-wrap { margin: 3px 0; }
-.sb-nav-wrap button, .sb-nav-active-wrap button {
-    background: #111827 !important;
-    border: 1px solid #1f2937 !important;
-    border-radius: 10px !important;
-    color: #6b7280 !important;
-    font-size: 0.82rem !important;
-    font-weight: 500 !important;
-    text-align: left !important;
-    padding: 10px 14px !important;
-    height: auto !important;
-    min-height: 52px !important;
-    line-height: 1.45 !important;
-    width: 100% !important;
-    box-shadow: none !important;
-    transition: all 0.15s ease !important;
-    white-space: pre-wrap !important;
+/* ── Radio nav styling ── */
+section[data-testid="stSidebar"] .stRadio > label {
+    color: #f1f5f9 !important;
+    font-size: 0.95rem !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.2px !important;
+    margin-bottom: 4px !important;
 }
-.sb-nav-wrap button:hover {
-    background: #1f2937 !important;
-    border-color: #374151 !important;
-    color: #d1d5db !important;
+section[data-testid="stSidebar"] .stRadio div[role="radiogroup"] {
+    gap: 4px !important;
 }
-.sb-nav-active-wrap button {
-    background: #1e3a5f !important;
-    border: 1px solid #2563eb !important;
-    border-left: 3px solid #3b82f6 !important;
-    color: #93c5fd !important;
-    font-weight: 600 !important;
-}
-.sb-nav-active-wrap button:hover {
-    background: #1e3a5f !important;
-    color: #bfdbfe !important;
-}
-div[data-testid="stSidebar"] .sb-terminate button {
+section[data-testid="stSidebar"] .stRadio div[data-baseweb="radio"] {
     background: transparent !important;
-    border: 1px solid #374151 !important;
-    border-radius: 8px !important;
-    color: #6b7280 !important;
-    font-size: 0.78rem !important;
+    border-radius: 10px !important;
+    padding: 2px 4px !important;
+    transition: background 0.15s ease !important;
 }
-div[data-testid="stSidebar"] .sb-terminate button:hover {
+section[data-testid="stSidebar"] .stRadio div[data-baseweb="radio"]:hover {
+    background: rgba(251,146,60,0.08) !important;
+}
+section[data-testid="stSidebar"] .stRadio label span,
+section[data-testid="stSidebar"] .stRadio label p {
+    color: #cbd5e1 !important;
+    font-size: 0.84rem !important;
+    font-weight: 500 !important;
+}
+section[data-testid="stSidebar"] .stRadio [aria-checked="true"] ~ label span,
+section[data-testid="stSidebar"] .stRadio [aria-checked="true"] ~ label p {
+    color: #fb923c !important;
+    font-weight: 700 !important;
+}
+/* Radio dot — orange when selected */
+section[data-testid="stSidebar"] .stRadio [data-baseweb="radio"] [data-checked="true"] div {
+    border-color: #fb923c !important;
+    background: #fb923c !important;
+}
+section[data-testid="stSidebar"] .stRadio [data-baseweb="radio"] div div {
+    border-color: #475569 !important;
+}
+.sb-terminate button {
+    background: transparent !important;
+    border: 1px solid #334155 !important;
+    border-radius: 8px !important;
+    color: #64748b !important;
+    font-size: 0.78rem !important;
+    width: 100% !important;
+}
+.sb-terminate button:hover {
     border-color: #ef4444 !important;
     color: #f87171 !important;
 }
 </style>
 """, unsafe_allow_html=True)
 
-        st.markdown('<p class="sb-title">VALINTEL.AI \u2014 Validation Intelligence</p>', unsafe_allow_html=True)
+        st.markdown('<p class="sb-title">VALINTEL.AI — Validation Intelligence</p>', unsafe_allow_html=True)
         st.markdown(
             '<p style="color:#94a3b8;font-size:0.68rem;margin:-6px 0 4px;'
             'letter-spacing:0.5px;font-family:\'IBM Plex Mono\',monospace;">'
             'Build v94</p>',
             unsafe_allow_html=True)
-        st.divider()
-        st.markdown('<p class="sb-sub" style="color:#9ca3af;font-size:0.7rem;font-weight:600;letter-spacing:1px;text-transform:uppercase;margin-bottom:6px;">\U0001f527 Modules</p>', unsafe_allow_html=True)
         st.session_state["app_mode"] = "Review Intelligence"
         app_mode = "Review Intelligence"
 
+        st.divider()
+
         _main_view = st.session_state.get("main_view", "periodic_review")
+        _nav_map   = {
+            "🔬 Periodic Review Intelligence": "periodic_review",
+            "📊 Data Integrity Monitor":       "dim",
+            "📁 Evidence Pack":                "evidence_pack",
+        }
+        _nav_inv   = {v: k for k, v in _nav_map.items()}
+        _nav_current = _nav_inv.get(_main_view, "🔬 Periodic Review Intelligence")
 
-        # ── 1. Periodic Review Intelligence ───────────────────────────────
-        _pr_cls = "sb-nav-active-wrap" if _main_view == "periodic_review" else "sb-nav-wrap"
-        st.markdown(f'<div class="{_pr_cls}">', unsafe_allow_html=True)
-        if st.button(
-            "\U0001f52c  Periodic Review\nAT \u00b7 UAR \u00b7 DCI",
-            key="nav_pr", use_container_width=True
-        ):
-            st.session_state["main_view"] = "periodic_review"
-            st.rerun()
-        st.markdown('</div>', unsafe_allow_html=True)
+        _banked_sb = st.session_state.get("dim_periods_banked", 0)
+        _at_done   = bool(st.session_state.get("at_analysis_done"))
+        _uar_done  = bool(st.session_state.get("uar_analysis_done"))
+        _dim_hint  = f"  \n\u00a0\u00a0{_banked_sb} period{'s' if _banked_sb != 1 else ''} banked" if _banked_sb else ""
+        _ep_hint   = f"  \n\u00a0\u00a0{'\u2713' if _at_done else '\u25cb'} AT \u00b7 {'\u2713' if _uar_done else '\u25cb'} UAR \u00b7 \u25cb DCI"
 
-        # ── 2. Data Integrity Monitor ──────────────────────────────────────
-        _dim_cls    = "sb-nav-active-wrap" if _main_view == "dim" else "sb-nav-wrap"
-        _banked_sb  = st.session_state.get("dim_periods_banked", 0)
-        _dim_sub    = f"{_banked_sb} period{'s' if _banked_sb != 1 else ''} banked" if _banked_sb else "No periods banked"
-        st.markdown(f'<div class="{_dim_cls}">', unsafe_allow_html=True)
-        if st.button(
-            f"\U0001f4ca  Data Integrity Monitor\n{_dim_sub}",
-            key="nav_dim", use_container_width=True
-        ):
-            st.session_state["main_view"] = "dim"
-            st.rerun()
-        st.markdown('</div>', unsafe_allow_html=True)
+        _nav_sel = st.radio(
+            "Periodic Review Intelligence",
+            list(_nav_map.keys()),
+            index=list(_nav_map.keys()).index(_nav_current),
+            key="sidebar_nav_radio"
+        )
 
-        # ── 3. Evidence Pack ───────────────────────────────────────────────
-        _ep_cls   = "sb-nav-active-wrap" if _main_view == "evidence_pack" else "sb-nav-wrap"
-        _at_done  = bool(st.session_state.get("at_analysis_done"))
-        _uar_done = bool(st.session_state.get("uar_analysis_done"))
-        _ep_sub   = f"{'✅' if _at_done else '○'} AT  {'✅' if _uar_done else '○'} UAR  ○ DCI"
-        st.markdown(f'<div class="{_ep_cls}">', unsafe_allow_html=True)
-        if st.button(
-            f"\U0001f4c1  Evidence Pack\n{_ep_sub}",
-            key="nav_ep", use_container_width=True
-        ):
-            st.session_state["main_view"] = "evidence_pack"
+        _selected_view = _nav_map[_nav_sel]
+        if _selected_view != _main_view:
+            st.session_state["main_view"] = _selected_view
             st.rerun()
-        st.markdown('</div>', unsafe_allow_html=True)
 
         st.divider()
         st.markdown(f'<p class="sidebar-stats">Operator: {user} &nbsp;|&nbsp; Role: {role}</p>', unsafe_allow_html=True)
@@ -18544,7 +18535,7 @@ div[data-testid="stSidebar"] .sb-terminate button:hover {
         st.markdown('</div>', unsafe_allow_html=True)
 
         if role == "Admin":
-            with st.expander("\U0001f464 User Management", expanded=False):
+            with st.expander("👤 User Management", expanded=False):
                 st.markdown('<p class="sidebar-stats">Create New User</p>', unsafe_allow_html=True)
                 new_u = st.text_input("New Username", key="new_username_input",
                                       label_visibility="collapsed", placeholder="New Username")
@@ -18552,12 +18543,12 @@ div[data-testid="stSidebar"] .sb-terminate button:hover {
                                       label_visibility="collapsed", placeholder="New Password")
                 new_r = st.selectbox("New Role", ROLES, key="new_role_select",
                                      label_visibility="collapsed")
-                if st.button("\u2795 Create User", key="create_user_btn"):
+                if st.button("➕ Create User", key="create_user_btn"):
                     new_u_clean = sanitize_input(new_u, max_length=64)
                     new_p_clean = sanitize_input(new_p, max_length=256)
                     if new_u_clean and new_p_clean:
                         if len(new_p_clean) < 8:
-                            st.warning("\u26a0\ufe0f Password must be at least 8 characters.")
+                            st.warning("⚠️ Password must be at least 8 characters.")
                         else:
                             create_user(new_u_clean, new_p_clean, new_r)
                             log_audit(user, "USER_CREATED", "USER",
