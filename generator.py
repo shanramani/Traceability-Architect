@@ -4460,9 +4460,15 @@ st.markdown("""
         box-shadow: 0 6px 18px rgba(37, 99, 235, 0.45) !important;
     }
 
-    /* ── Pull "Auto-Generate" section up by one line ── */
-    section[data-testid="stMain"] h1:first-of-type {
-        margin-top: -1rem !important;
+    /* ── Remove top whitespace on all pages ── */
+    section[data-testid="stMain"] > div:first-child,
+    .main .block-container,
+    div[data-testid="stMainBlockContainer"] {
+        padding-top: 1rem !important;
+    }
+    section[data-testid="stMain"] h1:first-of-type,
+    section[data-testid="stMain"] p:first-of-type {
+        margin-top: 0 !important;
         padding-top: 0 !important;
     }
 
@@ -4563,7 +4569,7 @@ st.markdown("""
     [data-testid="stSidebarCollapseButton"],
     [title="keyboard_double_arrow_left"] { display: none !important; }
 
-    .sb-title           { color: white !important; font-weight: 700 !important; font-size: 1.1rem; }
+    .sb-title           { color: white !important; font-weight: 800 !important; font-size: 1.25rem; letter-spacing: -0.3px; line-height: 1.25; }
     .sb-sub             { color: white !important; font-weight: 700 !important; font-size: 0.95rem; }
     .sb-filename        { color: #94d2f5 !important; font-weight: 400 !important; font-size: 0.80rem;
                           margin: 4px 0 0 0; word-break: break-word; }
@@ -14314,6 +14320,13 @@ def _show_evidence_pack_placeholder():
     st.caption("Evidence Pack builder coming in a future release. Run AT and UAR to begin banking results.")
 
 
+def _scroll_top():
+    """Inject a JS scroll-to-top into the Streamlit page."""
+    import streamlit.components.v1 as _cv1
+    _cv1.html("<script>window.parent.document.documentElement.scrollTop=0;"
+              "window.parent.document.body.scrollTop=0;</script>", height=0)
+
+
 def show_dim(user: str, role: str, model_id: str):
     """Render Data Integrity Monitor — multi-period AT trend analysis."""
     _CSS = """<style>
@@ -14326,6 +14339,7 @@ def show_dim(user: str, role: str, model_id: str):
     st.markdown(
         "<script>window.scrollTo(0,0);</script>",
         unsafe_allow_html=True)
+    _scroll_top()
     st.title("📊 Data Integrity Monitor")
     st.markdown(
         "<p style='color:#94a3b8;margin-top:-12px;font-size:0.9rem;'>"
@@ -14507,8 +14521,8 @@ def show_dim(user: str, role: str, model_id: str):
         "Each row is one review period, oldest first. Subcategory counts overlap — "
         "one event can be both High/Critical and a Deletion. "
     )
-    _sc = ["Review_Period","Total_Findings","Deletion_Findings",
-           "Failed_Login","Dormant_Findings","DI_Posture"]
+    _sc = ["Review_Period","Total_Findings","DI_Posture",
+           "Deletion_Findings","Failed_Login","Dormant_Findings"]
     _cmp = pdf[[c for c in _sc if c in pdf.columns]].copy().reset_index(drop=True)
     # Prepend "Period N" label to the date range so column 1 reads "Period 1 — 01-Jan-2025 → 30-Mar-2025"
     _cmp["Review_Period"] = [
@@ -14518,7 +14532,14 @@ def show_dim(user: str, role: str, model_id: str):
     _cmp.insert(1, "Source File", _cmp["Review_Period"].map(
         lambda p: _period_files.get(p.split(" — ", 1)[-1], "—")))
     _cmp.columns = [c.replace("_"," ") for c in _cmp.columns]
-    st.dataframe(_cmp, use_container_width=True, hide_index=True)
+    # Center-align numeric columns
+    _num_cols  = [c for c in _cmp.columns if _cmp[c].dtype in ["int64","float64"]]
+    _col_cfg   = {c: st.column_config.NumberColumn(c, format="%d") for c in _num_cols}
+    _col_cfg["DI Posture"] = st.column_config.TextColumn("DI Posture", width="medium")
+    st.dataframe(
+        _cmp, use_container_width=True, hide_index=True,
+        column_config=_col_cfg
+    )
     st.caption(
         "All findings shown are High or Critical tier — banked from AT and UAR analysis. "
         "Subcategory counts (Deletions, Failed Logins) are subsets of Total Findings, not additions. "
@@ -14642,6 +14663,8 @@ def show_dim(user: str, role: str, model_id: str):
                 st.session_state[_k] = _defaults.get(_k)
             st.session_state["at_key_n"] = st.session_state.get("at_key_n", 0) + 1
             st.session_state["pr_active_module"] = "audit_trail"
+            st.session_state["main_view"] = "periodic_review"
+            _scroll_top()
             st.rerun()
 
 
@@ -14776,9 +14799,9 @@ def show_periodic_review(user: str, role: str, model_id: str):
 <style>
 /* ── Landing page ── */
 .vl-hero-title {
-    font-family: -apple-system, 'SF Pro Display', 'Inter', sans-serif;
-    font-size: 1.9rem; font-weight: 700; color: #1e293b;
-    margin: 0 0 6px 0; letter-spacing: -0.5px;
+    font-family: 'Inter', -apple-system, sans-serif;
+    font-size: 2.2rem; font-weight: 700; color: #1e293b;
+    margin: 0 0 6px 0; letter-spacing: -0.5px; line-height: 1.2;
 }
 .vl-hero-sub {
     font-size: 0.88rem; color: #64748b; margin: 0 0 36px 0; line-height: 1.6;
@@ -14789,12 +14812,15 @@ def show_periodic_review(user: str, role: str, model_id: str):
     border-radius: 18px;
     padding: 28px 24px 20px 24px;
     height: 100%;
+    min-height: 280px;
     box-sizing: border-box;
     font-family: -apple-system, 'Inter', sans-serif;
     box-shadow: 0 2px 12px rgba(0,0,0,0.06), 0 1px 3px rgba(0,0,0,0.04);
     transition: box-shadow 0.2s ease, transform 0.15s ease, border-color 0.2s ease;
     position: relative; overflow: hidden;
+    display: flex; flex-direction: column;
 }
+.vl-card-desc { flex: 1; }
 .vl-card:hover {
     box-shadow: 0 8px 30px rgba(0,0,0,0.10), 0 2px 8px rgba(0,0,0,0.06);
     transform: translateY(-3px);
@@ -14864,13 +14890,26 @@ div.vl-btn-soon > div.stButton > button {
     # ── Sub-module routing ────────────────────────────────────────────────────
     active = st.session_state.get("pr_active_module")
     if active == "audit_trail":
+        _scroll_top()
         show_audit_trail(user, role, model_id)
         return
     if active == "access_review":
+        _scroll_top()
         show_user_access_review(user, role, model_id)
         return
 
     # ── 3 module cards ────────────────────────────────────────────────────────
+    st.markdown("""
+<style>
+/* Equal height card columns */
+div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"] {
+    display: flex; flex-direction: column;
+}
+div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"] > div {
+    flex: 1; display: flex; flex-direction: column;
+}
+</style>
+""", unsafe_allow_html=True)
     col1, col2, col3 = st.columns(3, gap="large")
 
     with col1:
@@ -15047,32 +15086,44 @@ def show_audit_trail(user: str, role: str, model_id: str):
                     unsafe_allow_html=True
                 )
 
-        # Globally sequential 1–25
-        _rule_row_b("at_r1_on",   1, "Vague Rationale",                "High · T1",     "21 CFR Part 211.68 · ALCOA+ Attributable and Legible",    "change")
-        _rule_row_b("at_r2_on",   2, "Contemporaneous Burst",           "Medium · T1",   "ALCOA+ Contemporaneous · 21 CFR Part 11 §11.10(e)",       "behaviour")
-        _rule_row_b("at_r3_on",   3, "Admin/GxP Conflict",             "Critical · T1", "21 CFR Part 11 §11.10(d)",                                "integrity")
-        _rule_row_b("at_r4_on",   4, "Change Control Drift",           "High · T2",     "21 CFR Part 820.70(b)",                                   "change")
-        _rule_row_b("at_r5_on",   5, "Failed Login → Manipulation",    "Critical · T1", "21 CFR Part 11 §11.300",                                  "user")
-        _rule_row_b("at_r6_on",   6, "Record Reconstruction",          "Critical · T1", "21 CFR Part 11 §11.10(e) · ALCOA+ Original",              "integrity")
-        _rule_row_b("at_r7_on",   7, "Audit Trail Integrity Event",    "Critical · T1", "21 CFR Part 11 §11.10(e)",                                "integrity")
-        _rule_row_b("at_r8_on",   8, "Privileged User on GxP Data",   "High · T1",     "21 CFR Part 11 §11.10(d)",                                "user")
-        _rule_row_b("at_r9_on",   9, "Timestamp Gap",                  "High · T2",     "21 CFR Part 11 §11.10(e)",                                "timestamp")
-        _rule_row_b("at_r10_on", 10, "Off-Hours / Holiday Activity",   "Medium · T2",   "21 CFR Part 211.68",                                      "heuristic")
-        _rule_row_b("at_r11_on", 11, "Timestamp Reversal",             "Critical · T1", "21 CFR Part 11 §11.10(e) · ALCOA+ Contemporaneous",       "timestamp")
-        _rule_row_b("at_r12_on", 12, "Service/Shared Account",         "Critical · T1", "21 CFR Part 11 §11.300",                                  "user")
-        _rule_row_b("at_r13_on", 13, "Dormant Account Sudden Activity","High · T2",     "21 CFR Part 11 §11.10(d)",                                "behaviour")
-        _rule_row_b("at_r14_on", 14, "First-Time Behavior",            "High · T2",     "21 CFR Part 11 §11.10(d)",                                "behaviour")
-        _rule_row_b("at_r15_on", 15, "Missing Timestamp",              "High · T1",     "21 CFR Part 11 §11.10(e) · ALCOA+ Contemporaneous",       "timestamp")
-        _rule_row_b("at_r16_on", 16, "Missing User Attribution",       "High · T1",     "21 CFR Part 11 §11.10(e) · ALCOA+ Attributable",          "user")
-        _rule_row_b("at_r17_on", 17, "Missing Before/After Value",     "High · T1",     "21 CFR Part 11 §11.10(e) · ALCOA+ Original",              "change")
-        _rule_row_b("at_r18_on", 18, "Self-Approval SoD Violation",    "Critical · T1", "21 CFR Part 11 §11.10(d) · EU Annex 11 Clause 12",        "integrity")
-        _rule_row_b("at_r19_on", 19, "Modification After Approval",    "Critical · T1", "21 CFR Part 11 §11.10(e) · ALCOA+ Original",              "integrity")
-        _rule_row_b("at_r20_on", 20, "Workflow Status Reversal",       "High · T2",     "21 CFR Part 11 §11.10(e)",                                "heuristic")
-        _rule_row_b("at_r21_on", 21, "Role/Permission Change",         "High · T1",     "21 CFR Part 11 §11.10(d) · EU Annex 11 Clause 12",        "user")
-        _rule_row_b("at_r22_on", 22, "Duplicate Timestamp Collision",  "Medium · T2",   "21 CFR Part 11 §11.10(e)",                                "timestamp")
-        _rule_row_b("at_r23_on", 23, "Missing Record ID",              "High · T1",     "21 CFR Part 11 §11.10(e) · ALCOA+ Original",              "change")
-        _rule_row_b("at_r24_on", 24, "Duplicate Rows",                 "High · T1",     "21 CFR Part 11 §11.10(e) · ALCOA+ Original",              "change")
-        _rule_row_b("at_r25_on", 25, "Future Timestamp",               "High · T1",     "21 CFR Part 11 §11.10(e) · ALCOA+ Contemporaneous",       "timestamp")
+        # ── Grouped by section, sequential 1–25 numbers preserved ──────────
+
+        _section_header("🔴  Data Integrity", "integrity")
+        _rule_row_b("at_r3_on",   3,  "Admin/GxP Conflict",             "Critical · T1", "21 CFR Part 11 §11.10(d)",                          "integrity")
+        _rule_row_b("at_r6_on",   6,  "Record Reconstruction",          "Critical · T1", "21 CFR Part 11 §11.10(e) · ALCOA+ Original",        "integrity")
+        _rule_row_b("at_r7_on",   7,  "Audit Trail Integrity Event",    "Critical · T1", "21 CFR Part 11 §11.10(e)",                          "integrity")
+        _rule_row_b("at_r18_on", 18,  "Self-Approval SoD Violation",    "Critical · T1", "21 CFR Part 11 §11.10(d) · EU Annex 11 Clause 12",  "integrity")
+        _rule_row_b("at_r19_on", 19,  "Modification After Approval",    "Critical · T1", "21 CFR Part 11 §11.10(e) · ALCOA+ Original",        "integrity")
+
+        _section_header("🔵  Change Documentation", "change")
+        _rule_row_b("at_r1_on",   1,  "Vague Rationale",                "High · T1",     "21 CFR Part 211.68 · ALCOA+ Attributable",          "change")
+        _rule_row_b("at_r4_on",   4,  "Change Control Drift",           "High · T2",     "21 CFR Part 820.70(b)",                             "change")
+        _rule_row_b("at_r17_on", 17,  "Missing Before/After Value",     "High · T1",     "21 CFR Part 11 §11.10(e) · ALCOA+ Original",        "change")
+        _rule_row_b("at_r23_on", 23,  "Missing Record ID",              "High · T1",     "21 CFR Part 11 §11.10(e) · ALCOA+ Original",        "change")
+        _rule_row_b("at_r24_on", 24,  "Duplicate Rows",                 "High · T1",     "21 CFR Part 11 §11.10(e) · ALCOA+ Original",        "change")
+
+        _section_header("🟢  User & Access", "user")
+        _rule_row_b("at_r5_on",   5,  "Failed Login → Manipulation",    "Critical · T1", "21 CFR Part 11 §11.300",                            "user")
+        _rule_row_b("at_r8_on",   8,  "Privileged User on GxP Data",   "High · T1",     "21 CFR Part 11 §11.10(d)",                          "user")
+        _rule_row_b("at_r12_on", 12,  "Service/Shared Account",         "Critical · T1", "21 CFR Part 11 §11.300",                            "user")
+        _rule_row_b("at_r16_on", 16,  "Missing User Attribution",       "High · T1",     "21 CFR Part 11 §11.10(e) · ALCOA+ Attributable",    "user")
+        _rule_row_b("at_r21_on", 21,  "Role/Permission Change",         "High · T1",     "21 CFR Part 11 §11.10(d) · EU Annex 11 Clause 12",  "user")
+
+        _section_header("🟣  Timestamps", "timestamp")
+        _rule_row_b("at_r9_on",   9,  "Timestamp Gap",                  "High · T2",     "21 CFR Part 11 §11.10(e)",                          "timestamp")
+        _rule_row_b("at_r11_on", 11,  "Timestamp Reversal",             "Critical · T1", "21 CFR Part 11 §11.10(e) · ALCOA+ Contemporaneous", "timestamp")
+        _rule_row_b("at_r15_on", 15,  "Missing Timestamp",              "High · T1",     "21 CFR Part 11 §11.10(e) · ALCOA+ Contemporaneous", "timestamp")
+        _rule_row_b("at_r22_on", 22,  "Duplicate Timestamp Collision",  "Medium · T2",   "21 CFR Part 11 §11.10(e)",                          "timestamp")
+        _rule_row_b("at_r25_on", 25,  "Future Timestamp",               "High · T1",     "21 CFR Part 11 §11.10(e) · ALCOA+ Contemporaneous", "timestamp")
+
+        _section_header("🟡  Behaviour", "behaviour")
+        _rule_row_b("at_r2_on",   2,  "Contemporaneous Burst",          "Medium · T1",   "ALCOA+ Contemporaneous · 21 CFR Part 11 §11.10(e)", "behaviour")
+        _rule_row_b("at_r13_on", 13,  "Dormant Account Sudden Activity","High · T2",     "21 CFR Part 11 §11.10(d)",                          "behaviour")
+        _rule_row_b("at_r14_on", 14,  "First-Time Behavior",            "High · T2",     "21 CFR Part 11 §11.10(d)",                          "behaviour")
+
+        _section_header("🩵  Heuristic", "heuristic")
+        _rule_row_b("at_r10_on", 10,  "Off-Hours / Holiday Activity",   "Medium · T2",   "21 CFR Part 211.68",                                "heuristic")
+        _rule_row_b("at_r20_on", 20,  "Workflow Status Reversal",       "High · T2",     "21 CFR Part 11 §11.10(e)",                          "heuristic")
 
         # ── Guard rail ────────────────────────────────────────────────────────
         st.markdown("---")
@@ -15088,10 +15139,10 @@ def show_audit_trail(user: str, role: str, model_id: str):
                 ):
                     st.session_state["at_config_confirmed"] = True
                     st.session_state["at_force_config"]     = False
-                    # Rebuild config after toggles
                     st.session_state["_AT_RULE_CONFIG"] = {
                         k: st.session_state.get(k, v) for k, v in _RULE_DEFAULTS.items()
                     }
+                    _scroll_top()
                     st.rerun()
         return   # Don't render upload step until config confirmed
 
@@ -18435,18 +18486,18 @@ def show_app():
 /* ── Radio nav styling ── */
 section[data-testid="stSidebar"] .stRadio > label {
     color: #f1f5f9 !important;
-    font-size: 0.95rem !important;
+    font-size: 1.05rem !important;
     font-weight: 700 !important;
     letter-spacing: 0.2px !important;
-    margin-bottom: 4px !important;
+    margin-bottom: 6px !important;
 }
 section[data-testid="stSidebar"] .stRadio div[role="radiogroup"] {
-    gap: 4px !important;
+    gap: 6px !important;
 }
 section[data-testid="stSidebar"] .stRadio div[data-baseweb="radio"] {
     background: transparent !important;
     border-radius: 10px !important;
-    padding: 2px 4px !important;
+    padding: 3px 4px !important;
     transition: background 0.15s ease !important;
 }
 section[data-testid="stSidebar"] .stRadio div[data-baseweb="radio"]:hover {
@@ -18455,7 +18506,7 @@ section[data-testid="stSidebar"] .stRadio div[data-baseweb="radio"]:hover {
 section[data-testid="stSidebar"] .stRadio label span,
 section[data-testid="stSidebar"] .stRadio label p {
     color: #cbd5e1 !important;
-    font-size: 0.84rem !important;
+    font-size: 0.95rem !important;
     font-weight: 500 !important;
 }
 section[data-testid="stSidebar"] .stRadio [aria-checked="true"] ~ label span,
