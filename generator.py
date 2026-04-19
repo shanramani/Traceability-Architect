@@ -14880,12 +14880,8 @@ div.vl-btn-soon > div.stButton > button {
 </style>
 """, unsafe_allow_html=True)
 
-    st.markdown(
-        "<p class='vl-hero-title'>🔬 Periodic Review Intelligence</p>"
-        "<p class='vl-hero-sub'>Deterministic scoring engines · GxP-grade evidence output · "
-        "21 CFR Part 11 · EU Annex 11 · GAMP 5</p>",
-        unsafe_allow_html=True
-    )
+    st.title("🔬 Periodic Review Intelligence")
+    st.caption("Deterministic scoring engines · GxP-grade evidence output · 21 CFR Part 11 · EU Annex 11 · GAMP 5")
 
     # ── Sub-module routing ────────────────────────────────────────────────────
     active = st.session_state.get("pr_active_module")
@@ -14899,19 +14895,8 @@ div.vl-btn-soon > div.stButton > button {
         return
 
     # ── 3 module cards ────────────────────────────────────────────────────────
-    st.markdown("""
-<style>
-/* Equal height card columns */
-div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"] {
-    display: flex; flex-direction: column;
-}
-div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"] > div {
-    flex: 1; display: flex; flex-direction: column;
-}
-</style>
-""", unsafe_allow_html=True)
+    # ── Card row (display only — no buttons) ─────────────────────────────────
     col1, col2, col3 = st.columns(3, gap="large")
-
     with col1:
         st.markdown("""
 <div class="vl-card">
@@ -14919,16 +14904,9 @@ div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"] > div {
   <span class="vl-card-icon">🔍</span>
   <span class="vl-badge vl-badge-live">Live</span>
   <p class="vl-card-title">Audit Trail Review</p>
-  <p class="vl-card-ref">21 CFR Part 11 §§11.10(e) · EU Annex 11 Cl. 9</p>
+  <p class="vl-card-ref">21 CFR Part 11 §11.10(e) · EU Annex 11 Cl. 9</p>
   <p class="vl-card-desc">Upload your audit trail log to run the 25-rule detection engine. Escalates the 20 highest-risk events with a GxP evidence package ready for inspection.</p>
-</div>
-""", unsafe_allow_html=True)
-        st.markdown('<div class="vl-btn-live">', unsafe_allow_html=True)
-        if st.button("Launch Audit Trail Review", key="pr_open_audit_trail", use_container_width=True):
-            st.session_state["pr_active_module"] = "audit_trail"
-            st.rerun()
-        st.markdown('</div>', unsafe_allow_html=True)
-
+</div>""", unsafe_allow_html=True)
     with col2:
         st.markdown("""
 <div class="vl-card">
@@ -14936,16 +14914,9 @@ div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"] > div {
   <span class="vl-card-icon">👥</span>
   <span class="vl-badge vl-badge-live">Live</span>
   <p class="vl-card-title">User Access Review</p>
-  <p class="vl-card-ref">21 CFR Part 11 §§§11.300 · EU Annex 11 Cl. 12</p>
+  <p class="vl-card-ref">21 CFR Part 11 §11.300 · EU Annex 11 Cl. 12</p>
   <p class="vl-card-desc">Upload your user access export to flag SoD conflicts, dormant accounts, admin misuse, and privilege accumulation. 10 deterministic rules.</p>
-</div>
-""", unsafe_allow_html=True)
-        st.markdown('<div class="vl-btn-live">', unsafe_allow_html=True)
-        if st.button("Launch User Access Review", key="pr_open_access_review", use_container_width=True):
-            st.session_state["pr_active_module"] = "access_review"
-            st.rerun()
-        st.markdown('</div>', unsafe_allow_html=True)
-
+</div>""", unsafe_allow_html=True)
     with col3:
         st.markdown("""
 <div class="vl-card vl-card-soon">
@@ -14955,8 +14926,25 @@ div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"] > div {
   <p class="vl-card-title">Deviation &amp; CAPA Review</p>
   <p class="vl-card-ref">21 CFR Part 820.100 · ICH Q10 §3.2</p>
   <p class="vl-card-desc">Upload your CAPA log to detect weak investigations, vague root causes, repeat failures post-closure, and SLA breaches. 14 deterministic rules.</p>
-</div>
-""", unsafe_allow_html=True)
+</div>""", unsafe_allow_html=True)
+
+    st.markdown("<div style='margin-top:12px;'></div>", unsafe_allow_html=True)
+
+    # ── Button row — separate row so all 3 buttons are always at same height ──
+    btn1, btn2, btn3 = st.columns(3, gap="large")
+    with btn1:
+        st.markdown('<div class="vl-btn-live">', unsafe_allow_html=True)
+        if st.button("Launch Audit Trail Review", key="pr_open_audit_trail", use_container_width=True):
+            st.session_state["pr_active_module"] = "audit_trail"
+            st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
+    with btn2:
+        st.markdown('<div class="vl-btn-live">', unsafe_allow_html=True)
+        if st.button("Launch User Access Review", key="pr_open_access_review", use_container_width=True):
+            st.session_state["pr_active_module"] = "access_review"
+            st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
+    with btn3:
         st.markdown('<div class="vl-btn-soon">', unsafe_allow_html=True)
         st.button("Coming Soon", key="pr_open_dci", use_container_width=True, disabled=True)
         st.markdown('</div>', unsafe_allow_html=True)
@@ -15086,44 +15074,44 @@ def show_audit_trail(user: str, role: str, model_id: str):
                     unsafe_allow_html=True
                 )
 
-        # ── Grouped by section, sequential 1–25 numbers preserved ──────────
+        # ── Grouped by section, numbered 1-N within each section ───────────
 
         _section_header("🔴  Data Integrity", "integrity")
-        _rule_row_b("at_r3_on",   3,  "Admin/GxP Conflict",             "Critical · T1", "21 CFR Part 11 §11.10(d)",                          "integrity")
-        _rule_row_b("at_r6_on",   6,  "Record Reconstruction",          "Critical · T1", "21 CFR Part 11 §11.10(e) · ALCOA+ Original",        "integrity")
-        _rule_row_b("at_r7_on",   7,  "Audit Trail Integrity Event",    "Critical · T1", "21 CFR Part 11 §11.10(e)",                          "integrity")
-        _rule_row_b("at_r18_on", 18,  "Self-Approval SoD Violation",    "Critical · T1", "21 CFR Part 11 §11.10(d) · EU Annex 11 Clause 12",  "integrity")
-        _rule_row_b("at_r19_on", 19,  "Modification After Approval",    "Critical · T1", "21 CFR Part 11 §11.10(e) · ALCOA+ Original",        "integrity")
+        _rule_row_b("at_r3_on",   1,  "Admin/GxP Conflict",             "Critical · T1", "21 CFR Part 11 §11.10(d)",                          "integrity")
+        _rule_row_b("at_r6_on",   2,  "Record Reconstruction",          "Critical · T1", "21 CFR Part 11 §11.10(e) · ALCOA+ Original",        "integrity")
+        _rule_row_b("at_r7_on",   3,  "Audit Trail Integrity Event",    "Critical · T1", "21 CFR Part 11 §11.10(e)",                          "integrity")
+        _rule_row_b("at_r18_on",  4,  "Self-Approval SoD Violation",    "Critical · T1", "21 CFR Part 11 §11.10(d) · EU Annex 11 Clause 12",  "integrity")
+        _rule_row_b("at_r19_on",  5,  "Modification After Approval",    "Critical · T1", "21 CFR Part 11 §11.10(e) · ALCOA+ Original",        "integrity")
 
         _section_header("🔵  Change Documentation", "change")
         _rule_row_b("at_r1_on",   1,  "Vague Rationale",                "High · T1",     "21 CFR Part 211.68 · ALCOA+ Attributable",          "change")
-        _rule_row_b("at_r4_on",   4,  "Change Control Drift",           "High · T2",     "21 CFR Part 820.70(b)",                             "change")
-        _rule_row_b("at_r17_on", 17,  "Missing Before/After Value",     "High · T1",     "21 CFR Part 11 §11.10(e) · ALCOA+ Original",        "change")
-        _rule_row_b("at_r23_on", 23,  "Missing Record ID",              "High · T1",     "21 CFR Part 11 §11.10(e) · ALCOA+ Original",        "change")
-        _rule_row_b("at_r24_on", 24,  "Duplicate Rows",                 "High · T1",     "21 CFR Part 11 §11.10(e) · ALCOA+ Original",        "change")
+        _rule_row_b("at_r4_on",   2,  "Change Control Drift",           "High · T2",     "21 CFR Part 820.70(b)",                             "change")
+        _rule_row_b("at_r17_on",  3,  "Missing Before/After Value",     "High · T1",     "21 CFR Part 11 §11.10(e) · ALCOA+ Original",        "change")
+        _rule_row_b("at_r23_on",  4,  "Missing Record ID",              "High · T1",     "21 CFR Part 11 §11.10(e) · ALCOA+ Original",        "change")
+        _rule_row_b("at_r24_on",  5,  "Duplicate Rows",                 "High · T1",     "21 CFR Part 11 §11.10(e) · ALCOA+ Original",        "change")
 
         _section_header("🟢  User & Access", "user")
-        _rule_row_b("at_r5_on",   5,  "Failed Login → Manipulation",    "Critical · T1", "21 CFR Part 11 §11.300",                            "user")
-        _rule_row_b("at_r8_on",   8,  "Privileged User on GxP Data",   "High · T1",     "21 CFR Part 11 §11.10(d)",                          "user")
-        _rule_row_b("at_r12_on", 12,  "Service/Shared Account",         "Critical · T1", "21 CFR Part 11 §11.300",                            "user")
-        _rule_row_b("at_r16_on", 16,  "Missing User Attribution",       "High · T1",     "21 CFR Part 11 §11.10(e) · ALCOA+ Attributable",    "user")
-        _rule_row_b("at_r21_on", 21,  "Role/Permission Change",         "High · T1",     "21 CFR Part 11 §11.10(d) · EU Annex 11 Clause 12",  "user")
+        _rule_row_b("at_r5_on",   1,  "Failed Login → Manipulation",    "Critical · T1", "21 CFR Part 11 §11.300",                            "user")
+        _rule_row_b("at_r8_on",   2,  "Privileged User on GxP Data",   "High · T1",     "21 CFR Part 11 §11.10(d)",                          "user")
+        _rule_row_b("at_r12_on",  3,  "Service/Shared Account",         "Critical · T1", "21 CFR Part 11 §11.300",                            "user")
+        _rule_row_b("at_r16_on",  4,  "Missing User Attribution",       "High · T1",     "21 CFR Part 11 §11.10(e) · ALCOA+ Attributable",    "user")
+        _rule_row_b("at_r21_on",  5,  "Role/Permission Change",         "High · T1",     "21 CFR Part 11 §11.10(d) · EU Annex 11 Clause 12",  "user")
 
         _section_header("🟣  Timestamps", "timestamp")
-        _rule_row_b("at_r9_on",   9,  "Timestamp Gap",                  "High · T2",     "21 CFR Part 11 §11.10(e)",                          "timestamp")
-        _rule_row_b("at_r11_on", 11,  "Timestamp Reversal",             "Critical · T1", "21 CFR Part 11 §11.10(e) · ALCOA+ Contemporaneous", "timestamp")
-        _rule_row_b("at_r15_on", 15,  "Missing Timestamp",              "High · T1",     "21 CFR Part 11 §11.10(e) · ALCOA+ Contemporaneous", "timestamp")
-        _rule_row_b("at_r22_on", 22,  "Duplicate Timestamp Collision",  "Medium · T2",   "21 CFR Part 11 §11.10(e)",                          "timestamp")
-        _rule_row_b("at_r25_on", 25,  "Future Timestamp",               "High · T1",     "21 CFR Part 11 §11.10(e) · ALCOA+ Contemporaneous", "timestamp")
+        _rule_row_b("at_r9_on",   1,  "Timestamp Gap",                  "High · T2",     "21 CFR Part 11 §11.10(e)",                          "timestamp")
+        _rule_row_b("at_r11_on",  2,  "Timestamp Reversal",             "Critical · T1", "21 CFR Part 11 §11.10(e) · ALCOA+ Contemporaneous", "timestamp")
+        _rule_row_b("at_r15_on",  3,  "Missing Timestamp",              "High · T1",     "21 CFR Part 11 §11.10(e) · ALCOA+ Contemporaneous", "timestamp")
+        _rule_row_b("at_r22_on",  4,  "Duplicate Timestamp Collision",  "Medium · T2",   "21 CFR Part 11 §11.10(e)",                          "timestamp")
+        _rule_row_b("at_r25_on",  5,  "Future Timestamp",               "High · T1",     "21 CFR Part 11 §11.10(e) · ALCOA+ Contemporaneous", "timestamp")
 
         _section_header("🟡  Behaviour", "behaviour")
-        _rule_row_b("at_r2_on",   2,  "Contemporaneous Burst",          "Medium · T1",   "ALCOA+ Contemporaneous · 21 CFR Part 11 §11.10(e)", "behaviour")
-        _rule_row_b("at_r13_on", 13,  "Dormant Account Sudden Activity","High · T2",     "21 CFR Part 11 §11.10(d)",                          "behaviour")
-        _rule_row_b("at_r14_on", 14,  "First-Time Behavior",            "High · T2",     "21 CFR Part 11 §11.10(d)",                          "behaviour")
+        _rule_row_b("at_r2_on",   1,  "Contemporaneous Burst",          "Medium · T1",   "ALCOA+ Contemporaneous · 21 CFR Part 11 §11.10(e)", "behaviour")
+        _rule_row_b("at_r13_on",  2,  "Dormant Account Sudden Activity","High · T2",     "21 CFR Part 11 §11.10(d)",                          "behaviour")
+        _rule_row_b("at_r14_on",  3,  "First-Time Behavior",            "High · T2",     "21 CFR Part 11 §11.10(d)",                          "behaviour")
 
         _section_header("🩵  Heuristic", "heuristic")
-        _rule_row_b("at_r10_on", 10,  "Off-Hours / Holiday Activity",   "Medium · T2",   "21 CFR Part 211.68",                                "heuristic")
-        _rule_row_b("at_r20_on", 20,  "Workflow Status Reversal",       "High · T2",     "21 CFR Part 11 §11.10(e)",                          "heuristic")
+        _rule_row_b("at_r10_on",  1,  "Off-Hours / Holiday Activity",   "Medium · T2",   "21 CFR Part 211.68",                                "heuristic")
+        _rule_row_b("at_r20_on",  2,  "Workflow Status Reversal",       "High · T2",     "21 CFR Part 11 §11.10(e)",                          "heuristic")
 
         # ── Guard rail ────────────────────────────────────────────────────────
         st.markdown("---")
