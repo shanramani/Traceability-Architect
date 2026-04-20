@@ -12274,6 +12274,9 @@ def show_user_access_review(user: str, role: str, model_id: str):
             st.session_state["dim_accumulated_rows"] = _uar_existing
             st.session_state["dim_periods_banked"] = len(
                 set(r["Review_Period"] for r in _uar_existing))
+            # Invalidate cached DIM result so next DIM open re-scores with UAR data
+            st.session_state["dim_analysis_done"] = False
+            st.session_state["dim_result"] = None
 
         st.rerun()
 
@@ -14322,25 +14325,24 @@ def _show_evidence_pack_placeholder():
 
 
 def _scroll_top():
-    """Scroll Streamlit main container to top after render."""
+    """Scroll to top — inject anchor + auto-focus it."""
     import streamlit.components.v1 as _cv1
     _cv1.html("""<script>
 (function() {
-    function doScroll() {
+    function tryScroll() {
         var doc = window.parent.document;
-        // Streamlit main scroll container
-        var targets = [
-            doc.querySelector('section[data-testid="stMain"]'),
-            doc.querySelector('[data-testid="stAppViewContainer"]'),
-            doc.querySelector('.main'),
-            doc.documentElement,
-            doc.body
-        ];
-        targets.forEach(function(el) { if (el) el.scrollTop = 0; });
+        var el = doc.querySelector('section[data-testid="stMain"] > div:first-child');
+        if (!el) el = doc.querySelector('[data-testid="stAppViewContainer"]');
+        if (!el) el = doc.documentElement;
+        el.scrollTop = 0;
+        doc.documentElement.scrollTop = 0;
+        doc.body.scrollTop = 0;
+        window.parent.scrollTo(0, 0);
     }
-    doScroll();
-    setTimeout(doScroll, 80);
-    setTimeout(doScroll, 200);
+    tryScroll();
+    setTimeout(tryScroll, 50);
+    setTimeout(tryScroll, 150);
+    setTimeout(tryScroll, 350);
 })();
 </script>""", height=0)
 
@@ -14553,7 +14555,7 @@ def show_dim(user: str, role: str, model_id: str):
     # Center-align numeric columns
     _num_cols  = [c for c in _cmp.columns if _cmp[c].dtype in ["int64","float64"]]
     _col_cfg   = {c: st.column_config.NumberColumn(c, format="%d") for c in _num_cols}
-    _col_cfg["DI Posture"] = st.column_config.TextColumn("DI Posture", width="medium")
+    _col_cfg["DI Posture"] = st.column_config.TextColumn("DI Posture", width="small")
     st.dataframe(
         _cmp, use_container_width=True, hide_index=True,
         column_config=_col_cfg
@@ -15147,44 +15149,46 @@ def show_audit_trail(user: str, role: str, model_id: str):
                     unsafe_allow_html=True
                 )
 
-        # ── Rules grouped by section, numbered 1-N within each section ─────────
+        # ── Rules grouped by section, globally sequential 1–25 ─────────────────
+        # Section order determines display grouping.
+        # Numbers follow original rule IDs 1-25 (match Detection Logic sheet).
 
-        _section_header("🔴  Data Integrity", "integrity")
-        _rule_row_b("at_r3_on",  1, "Admin/GxP Conflict",              "Critical · T1", "21 CFR Part 11 §11.10(d)",                          "integrity")
-        _rule_row_b("at_r6_on",  2, "Record Reconstruction",           "Critical · T1", "21 CFR Part 11 §11.10(e) · ALCOA+ Original",        "integrity")
-        _rule_row_b("at_r7_on",  3, "Audit Trail Integrity Event",     "Critical · T1", "21 CFR Part 11 §11.10(e)",                          "integrity")
-        _rule_row_b("at_r18_on", 4, "Self-Approval SoD Violation",     "Critical · T1", "21 CFR Part 11 §11.10(d) · EU Annex 11 Clause 12",  "integrity")
-        _rule_row_b("at_r19_on", 5, "Modification After Approval",     "Critical · T1", "21 CFR Part 11 §11.10(e) · ALCOA+ Original",        "integrity")
+        _section_header("🔴  Data Integrity  — Rules 3, 6, 7, 18, 19", "integrity")
+        _rule_row_b("at_r3_on",   3, "Admin/GxP Conflict",              "Critical · T1", "21 CFR Part 11 §11.10(d)",                          "integrity")
+        _rule_row_b("at_r6_on",   6, "Record Reconstruction",           "Critical · T1", "21 CFR Part 11 §11.10(e) · ALCOA+ Original",        "integrity")
+        _rule_row_b("at_r7_on",   7, "Audit Trail Integrity Event",     "Critical · T1", "21 CFR Part 11 §11.10(e)",                          "integrity")
+        _rule_row_b("at_r18_on", 18, "Self-Approval SoD Violation",     "Critical · T1", "21 CFR Part 11 §11.10(d) · EU Annex 11 Clause 12",  "integrity")
+        _rule_row_b("at_r19_on", 19, "Modification After Approval",     "Critical · T1", "21 CFR Part 11 §11.10(e) · ALCOA+ Original",        "integrity")
 
-        _section_header("🔵  Change Documentation", "change")
-        _rule_row_b("at_r1_on",  1, "Vague Rationale",                 "High · T1",     "21 CFR Part 211.68 · ALCOA+ Attributable",          "change")
-        _rule_row_b("at_r4_on",  2, "Change Control Drift",            "High · T2",     "21 CFR Part 820.70(b)",                             "change")
-        _rule_row_b("at_r17_on", 3, "Missing Before/After Value",      "High · T1",     "21 CFR Part 11 §11.10(e) · ALCOA+ Original",        "change")
-        _rule_row_b("at_r23_on", 4, "Missing Record ID",               "High · T1",     "21 CFR Part 11 §11.10(e) · ALCOA+ Original",        "change")
-        _rule_row_b("at_r24_on", 5, "Duplicate Rows",                  "High · T1",     "21 CFR Part 11 §11.10(e) · ALCOA+ Original",        "change")
+        _section_header("🔵  Change Documentation  — Rules 1, 4, 17, 23, 24", "change")
+        _rule_row_b("at_r1_on",   1, "Vague Rationale",                 "High · T1",     "21 CFR Part 211.68 · ALCOA+ Attributable",          "change")
+        _rule_row_b("at_r4_on",   4, "Change Control Drift",            "High · T2",     "21 CFR Part 820.70(b)",                             "change")
+        _rule_row_b("at_r17_on", 17, "Missing Before/After Value",      "High · T1",     "21 CFR Part 11 §11.10(e) · ALCOA+ Original",        "change")
+        _rule_row_b("at_r23_on", 23, "Missing Record ID",               "High · T1",     "21 CFR Part 11 §11.10(e) · ALCOA+ Original",        "change")
+        _rule_row_b("at_r24_on", 24, "Duplicate Rows",                  "High · T1",     "21 CFR Part 11 §11.10(e) · ALCOA+ Original",        "change")
 
-        _section_header("🟢  User & Access", "user")
-        _rule_row_b("at_r5_on",  1, "Failed Login → Manipulation",     "Critical · T1", "21 CFR Part 11 §11.300",                            "user")
-        _rule_row_b("at_r8_on",  2, "Privileged User on GxP Data",    "High · T1",     "21 CFR Part 11 §11.10(d)",                          "user")
-        _rule_row_b("at_r12_on", 3, "Service/Shared Account",          "Critical · T1", "21 CFR Part 11 §11.300",                            "user")
-        _rule_row_b("at_r16_on", 4, "Missing User Attribution",        "High · T1",     "21 CFR Part 11 §11.10(e) · ALCOA+ Attributable",    "user")
-        _rule_row_b("at_r21_on", 5, "Role/Permission Change",          "High · T1",     "21 CFR Part 11 §11.10(d) · EU Annex 11 Clause 12",  "user")
+        _section_header("🟢  User & Access  — Rules 5, 8, 12, 16, 21", "user")
+        _rule_row_b("at_r5_on",   5, "Failed Login → Manipulation",     "Critical · T1", "21 CFR Part 11 §11.300",                            "user")
+        _rule_row_b("at_r8_on",   8, "Privileged User on GxP Data",    "High · T1",     "21 CFR Part 11 §11.10(d)",                          "user")
+        _rule_row_b("at_r12_on", 12, "Service/Shared Account",          "Critical · T1", "21 CFR Part 11 §11.300",                            "user")
+        _rule_row_b("at_r16_on", 16, "Missing User Attribution",        "High · T1",     "21 CFR Part 11 §11.10(e) · ALCOA+ Attributable",    "user")
+        _rule_row_b("at_r21_on", 21, "Role/Permission Change",          "High · T1",     "21 CFR Part 11 §11.10(d) · EU Annex 11 Clause 12",  "user")
 
-        _section_header("🟣  Timestamps", "timestamp")
-        _rule_row_b("at_r9_on",  1, "Timestamp Gap",                   "High · T2",     "21 CFR Part 11 §11.10(e)",                          "timestamp")
-        _rule_row_b("at_r11_on", 2, "Timestamp Reversal",              "Critical · T1", "21 CFR Part 11 §11.10(e) · ALCOA+ Contemporaneous", "timestamp")
-        _rule_row_b("at_r15_on", 3, "Missing Timestamp",               "High · T1",     "21 CFR Part 11 §11.10(e) · ALCOA+ Contemporaneous", "timestamp")
-        _rule_row_b("at_r22_on", 4, "Duplicate Timestamp Collision",   "Medium · T2",   "21 CFR Part 11 §11.10(e)",                          "timestamp")
-        _rule_row_b("at_r25_on", 5, "Future Timestamp",                "High · T1",     "21 CFR Part 11 §11.10(e) · ALCOA+ Contemporaneous", "timestamp")
+        _section_header("🟣  Timestamps  — Rules 9, 11, 15, 22, 25", "timestamp")
+        _rule_row_b("at_r9_on",   9, "Timestamp Gap",                   "High · T2",     "21 CFR Part 11 §11.10(e)",                          "timestamp")
+        _rule_row_b("at_r11_on", 11, "Timestamp Reversal",              "Critical · T1", "21 CFR Part 11 §11.10(e) · ALCOA+ Contemporaneous", "timestamp")
+        _rule_row_b("at_r15_on", 15, "Missing Timestamp",               "High · T1",     "21 CFR Part 11 §11.10(e) · ALCOA+ Contemporaneous", "timestamp")
+        _rule_row_b("at_r22_on", 22, "Duplicate Timestamp Collision",   "Medium · T2",   "21 CFR Part 11 §11.10(e)",                          "timestamp")
+        _rule_row_b("at_r25_on", 25, "Future Timestamp",                "High · T1",     "21 CFR Part 11 §11.10(e) · ALCOA+ Contemporaneous", "timestamp")
 
-        _section_header("🟡  Behaviour", "behaviour")
-        _rule_row_b("at_r2_on",  1, "Contemporaneous Burst",           "Medium · T1",   "ALCOA+ Contemporaneous · 21 CFR Part 11 §11.10(e)", "behaviour")
-        _rule_row_b("at_r13_on", 2, "Dormant Account Sudden Activity", "High · T2",     "21 CFR Part 11 §11.10(d)",                          "behaviour")
-        _rule_row_b("at_r14_on", 3, "First-Time Behavior",             "High · T2",     "21 CFR Part 11 §11.10(d)",                          "behaviour")
+        _section_header("🟡  Behaviour  — Rules 2, 13, 14", "behaviour")
+        _rule_row_b("at_r2_on",   2, "Contemporaneous Burst",           "Medium · T1",   "ALCOA+ Contemporaneous · 21 CFR Part 11 §11.10(e)", "behaviour")
+        _rule_row_b("at_r13_on", 13, "Dormant Account Sudden Activity", "High · T2",     "21 CFR Part 11 §11.10(d)",                          "behaviour")
+        _rule_row_b("at_r14_on", 14, "First-Time Behavior",             "High · T2",     "21 CFR Part 11 §11.10(d)",                          "behaviour")
 
-        _section_header("🩵  Heuristic", "heuristic")
-        _rule_row_b("at_r10_on", 1, "Off-Hours / Holiday Activity",    "Medium · T2",   "21 CFR Part 211.68",                                "heuristic")
-        _rule_row_b("at_r20_on", 2, "Workflow Status Reversal",        "High · T2",     "21 CFR Part 11 §11.10(e)",                          "heuristic")
+        _section_header("🩵  Heuristic  — Rules 10, 20", "heuristic")
+        _rule_row_b("at_r10_on", 10, "Off-Hours / Holiday Activity",    "Medium · T2",   "21 CFR Part 211.68",                                "heuristic")
+        _rule_row_b("at_r20_on", 20, "Workflow Status Reversal",        "High · T2",     "21 CFR Part 11 §11.10(e)",                          "heuristic")
 
         # ── Guard rail ────────────────────────────────────────────────────────
         st.markdown("---")
@@ -17910,6 +17914,9 @@ match your system's export column names to the fields above — rename nothing i
                 st.session_state["dim_accumulated_rows"] = _existing
                 st.session_state["dim_periods_banked"]   = len(
                     set(r["Review_Period"] for r in _existing))
+                # Invalidate cached DIM result so next DIM open re-scores
+                st.session_state["dim_analysis_done"] = False
+                st.session_state["dim_result"] = None
 
                 n_crit = int((scored["Risk_Tier"]=="Critical").sum())
                 _ = prog.progress(1.0)
