@@ -12733,6 +12733,7 @@ def dim_score_periods(df: pd.DataFrame) -> dict:
     # Each module (AT, UAR, later DCI) is scored independently so a clean
     # period in one module is never masked by findings in the other.
     # Overall DI_Posture = worst-of, with Posture_Driver attribution.
+    # Posture = "N/A" when that module was not exercised (zero rows) in a period.
     def _posture_for(chg, hc):
         if pd.isna(chg):        return "Baseline"
         if chg > 30 and hc > 0: return "Critical"
@@ -12740,16 +12741,20 @@ def dim_score_periods(df: pd.DataFrame) -> dict:
         if chg < -15:           return "Improving"
         return "Stable"
 
+    def _module_posture(row, findings_key, hc_key):
+        # If the module had no rows in this period, return N/A so the cell
+        # is visibly empty instead of showing a misleading "Baseline".
+        if int(row.get(findings_key, 0)) == 0:
+            return "N/A"
+        return _posture_for(
+            row.get(f"{findings_key}_pct_chg"),
+            row.get(hc_key, 0)
+        )
+
     period_df["AT_Posture"]  = period_df.apply(
-        lambda r: _posture_for(
-            r.get("AT_Findings_pct_chg"),
-            r.get("AT_High_Critical", 0)
-        ), axis=1)
+        lambda r: _module_posture(r, "AT_Findings",  "AT_High_Critical"),  axis=1)
     period_df["UAR_Posture"] = period_df.apply(
-        lambda r: _posture_for(
-            r.get("UAR_Findings_pct_chg"),
-            r.get("UAR_High_Critical", 0)
-        ), axis=1)
+        lambda r: _module_posture(r, "UAR_Findings", "UAR_High_Critical"), axis=1)
 
     # Rank for worst-of comparison. Baseline is neutral — treated as "no signal"
     # rather than "good" or "bad". If a module has no data in a given period
@@ -12763,18 +12768,18 @@ def dim_score_periods(df: pd.DataFrame) -> dict:
     }
 
     def _overall_posture(row):
-        # Suppress posture for modules with zero findings in this period —
-        # a module that wasn't exercised shouldn't contribute a signal.
-        at_has  = int(row.get("AT_Findings",  0)) > 0
-        uar_has = int(row.get("UAR_Findings", 0)) > 0
-        at_p  = row["AT_Posture"]  if at_has  else "Baseline"
-        uar_p = row["UAR_Posture"] if uar_has else "Baseline"
+        # N/A modules contribute no signal. Treat them the same as Baseline
+        # for the worst-of comparison (excluded unless they're the only signal).
+        at_p  = row["AT_Posture"]
+        uar_p = row["UAR_Posture"]
+        at_silent  = at_p  in ("N/A", "Baseline")
+        uar_silent = uar_p in ("N/A", "Baseline")
 
-        if at_p == "Baseline" and uar_p == "Baseline":
+        if at_silent and uar_silent:
             return "Baseline", "—"
-        if at_p == "Baseline":
+        if at_silent:
             return uar_p, "UAR"
-        if uar_p == "Baseline":
+        if uar_silent:
             return at_p, "AT"
         # Both modules have signal — take worst; tie goes to AT
         if _POSTURE_RANK[at_p] >= _POSTURE_RANK[uar_p]:
@@ -13000,6 +13005,7 @@ def dim_build_excel(result: dict, system_name: str, file_name: str,
         "Stable":       ("1D4ED8", "FFFFFF"),
         "Improving":    ("16A34A", "FFFFFF"),
         "Baseline":     ("64748B", "FFFFFF"),
+        "N/A":          ("F1F5F9", "94A3B8"),
     }
     _TREND_COLORS = {
         "Significant Increase": "B91C1C",
@@ -14643,32 +14649,122 @@ def show_dim(user: str, role: str, model_id: str):
            "AT_Posture","UAR_Posture","Posture_Driver",
            "Deletion_Findings","Failed_Login","Dormant_Findings"]
     _cmp = pdf[[c for c in _sc if c in pdf.columns]].copy().reset_index(drop=True)
-    # Prepend "Period N" label to the date range so column 1 reads "Period 1 — 01-Jan-2025 → 30-Mar-2025"
+    # Prepend "Period N" label
     _cmp["Review_Period"] = [
         f"Period {i+1} — {p}" for i, p in enumerate(_cmp["Review_Period"])
     ]
-    # Add source file column
     _cmp.insert(1, "Source File", _cmp["Review_Period"].map(
         lambda p: _period_files.get(p.split(" — ", 1)[-1], "—")))
+
+    # ── Posture palette — matches banner + Excel sheet ────────────────────────
+    # Returns (bg, fg) hex pairs. N/A renders as pale grey so silent modules
+    # fade into the background without pulling the eye.
+    _POSTURE_TABLE_COLORS = {
+        "Critical":      ("#7f1d1d", "#ffffff"),   # deep red
+        "Deteriorating": ("#9a3412", "#ffffff"),   # deep orange
+        "Stable":        ("#1e3a8a", "#ffffff"),   # deep blue
+        "Improving":     ("#14532d", "#ffffff"),   # deep green
+        "Baseline":      ("#475569", "#ffffff"),   # slate
+        "N/A":           ("#f1f5f9", "#94a3b8"),   # pale grey bg, muted text
+        "—":             ("#f1f5f9", "#94a3b8"),
+    }
+
+    def _posture_pill(val):
+        bg, fg = _POSTURE_TABLE_COLORS.get(str(val), ("#f1f5f9", "#475569"))
+        disp = "—" if str(val) == "N/A" else str(val)
+        return (f"<span style='display:inline-block;padding:2px 10px;"
+                f"border-radius:10px;background:{bg};color:{fg};"
+                f"font-weight:600;font-size:0.78rem;letter-spacing:0.2px;'>"
+                f"{disp}</span>")
+
+    def _driver_pill(val):
+        if not val or str(val) == "—":
+            return "<span style='color:#94a3b8;'>—</span>"
+        return (f"<span style='display:inline-block;padding:2px 8px;"
+                f"border-radius:10px;background:#e0e7ff;color:#3730a3;"
+                f"font-weight:700;font-size:0.75rem;'>{val}</span>")
+
+    # ── Build HTML table ──────────────────────────────────────────────────────
+    _headers = [
+        ("Review Period",    "left"),
+        ("Source File",      "left"),
+        ("Total",            "center"),
+        ("DI Posture",       "center"),
+        ("AT Posture",       "center"),
+        ("UAR Posture",      "center"),
+        ("Driver",           "center"),
+        ("Deletions",        "center"),
+        ("Failed Logins",    "center"),
+        ("Dormant",          "center"),
+    ]
+    _col_keys = [
+        "Review Period", "Source File", "Total Findings", "DI Posture",
+        "AT Posture", "UAR Posture", "Posture Driver",
+        "Deletion Findings", "Failed Login", "Dormant Findings",
+    ]
+    # Rename to match _col_keys
     _cmp.columns = [c.replace("_"," ") for c in _cmp.columns]
-    # Center-align numeric columns
-    _num_cols  = [c for c in _cmp.columns if _cmp[c].dtype in ["int64","float64"]]
-    _col_cfg   = {c: st.column_config.NumberColumn(c, format="%d") for c in _num_cols}
-    _col_cfg["DI Posture"]     = st.column_config.TextColumn("DI Posture",    width="small")
-    _col_cfg["AT Posture"]     = st.column_config.TextColumn("AT Posture",    width="small")
-    _col_cfg["UAR Posture"]    = st.column_config.TextColumn("UAR Posture",   width="small")
-    _col_cfg["Posture Driver"] = st.column_config.TextColumn("Driver",        width="small")
-    st.dataframe(
-        _cmp, use_container_width=True, hide_index=True,
-        column_config=_col_cfg
+
+    _th_style = ("padding:8px 10px;background:#1e3a5f;color:#ffffff;"
+                 "font-weight:700;font-size:0.78rem;letter-spacing:0.3px;"
+                 "text-transform:uppercase;border-bottom:2px solid #0f2540;")
+    _td_style_base = ("padding:7px 10px;font-size:0.85rem;color:#1e293b;"
+                      "border-bottom:1px solid #e2e8f0;")
+
+    _rows_html = []
+    _rows_html.append("<tr>" + "".join(
+        f"<th style='{_th_style}text-align:{align};'>{h}</th>"
+        for h, align in _headers
+    ) + "</tr>")
+
+    for _i, _row in _cmp.iterrows():
+        _zebra = "#ffffff" if _i % 2 == 0 else "#f8fafc"
+        _cells = []
+        for _ck, (_h, _align) in zip(_col_keys, _headers):
+            _val = _row.get(_ck, "—")
+            if pd.isna(_val):
+                _val = "—"
+            if _ck in ("DI Posture", "AT Posture", "UAR Posture"):
+                _cell = _posture_pill(_val)
+            elif _ck == "Posture Driver":
+                _cell = _driver_pill(_val)
+            elif _ck == "Review Period":
+                _cell = f"<b style='color:#1e3a5f;'>{_val}</b>"
+            elif _ck == "Source File":
+                _cell = (f"<span style='color:#64748b;font-size:0.78rem;'>{_val}</span>"
+                         if _val and _val != "—" else
+                         "<span style='color:#cbd5e1;'>—</span>")
+            else:
+                # Numeric cell — emphasise zero as muted
+                try:
+                    _n = int(_val)
+                    if _n == 0:
+                        _cell = "<span style='color:#cbd5e1;'>0</span>"
+                    else:
+                        _cell = f"<b>{_n}</b>"
+                except (ValueError, TypeError):
+                    _cell = str(_val)
+            _cells.append(
+                f"<td style='{_td_style_base}background:{_zebra};"
+                f"text-align:{_align};'>{_cell}</td>"
+            )
+        _rows_html.append("<tr>" + "".join(_cells) + "</tr>")
+
+    _table_html = (
+        "<div style='border:1px solid #e2e8f0;border-radius:8px;"
+        "overflow:hidden;margin:8px 0 4px 0;"
+        "box-shadow:0 1px 2px rgba(15,23,42,0.04);'>"
+        "<table style='width:100%;border-collapse:collapse;"
+        "font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",sans-serif;'>"
+        + "".join(_rows_html) +
+        "</table></div>"
     )
+    st.markdown(_table_html, unsafe_allow_html=True)
+
     st.caption(
-        "All findings shown are High or Critical tier — banked from AT and UAR analysis. "
-        "Subcategory counts (Deletions, Failed Logins) are subsets of Total Findings, not additions. "
-        "DI Posture: **Improving** = total findings down >15% · "
-        "**Stable** = within ±15% · "
-        "**Deteriorating** = up >15% · "
-        "**Critical** = up >30% with H/C events present."
+        "High/Critical findings only — AT + UAR. Sub-counts are subsets of Total, not additions. "
+        "DI Posture = worst of AT or UAR posture in that period. "
+        "N/A = module not exercised in that period."
     )
 
     # ── Download Evidence Package — placed directly below period table ─────────
