@@ -15152,44 +15152,46 @@ def show_audit_trail(user: str, role: str, model_id: str):
         # ── Rules grouped by section, globally sequential 1–25 ─────────────────
         # Section order determines display grouping.
         # Numbers follow original rule IDs 1-25 (match Detection Logic sheet).
+        # # === CLAUDE PROTECTED START ===
+        # DO NOT MODIFY THIS BLOCK
 
-        _section_header("🔴  Data Integrity  — Rules 3, 6, 7, 18, 19", "integrity")
-        _rule_row_b("at_r3_on",   3, "Admin/GxP Conflict",              "Critical · T1", "21 CFR Part 11 §11.10(d)",                          "integrity")
-        _rule_row_b("at_r6_on",   6, "Record Reconstruction",           "Critical · T1", "21 CFR Part 11 §11.10(e) · ALCOA+ Original",        "integrity")
-        _rule_row_b("at_r7_on",   7, "Audit Trail Integrity Event",     "Critical · T1", "21 CFR Part 11 §11.10(e)",                          "integrity")
-        _rule_row_b("at_r18_on", 18, "Self-Approval SoD Violation",     "Critical · T1", "21 CFR Part 11 §11.10(d) · EU Annex 11 Clause 12",  "integrity")
-        _rule_row_b("at_r19_on", 19, "Modification After Approval",     "Critical · T1", "21 CFR Part 11 §11.10(e) · ALCOA+ Original",        "integrity")
+        _section_header("🔴  Data Integrity", "integrity")
+        _rule_row_b("at_r3_on",   1, "Admin/GxP Conflict",              "Critical · T1", "21 CFR Part 11 §11.10(d)",                          "")
+        _rule_row_b("at_r6_on",   2, "Record Reconstruction",           "Critical · T1", "21 CFR Part 11 §11.10(e) · ALCOA+ Original",        "")
+        _rule_row_b("at_r7_on",   3, "Audit Trail Integrity Event",     "Critical · T1", "21 CFR Part 11 §11.10(e)",                          "")
+        _rule_row_b("at_r18_on",  4, "Self-Approval SoD Violation",     "Critical · T1", "21 CFR Part 11 §11.10(d) · EU Annex 11 Clause 12",  "")
+        _rule_row_b("at_r19_on",  5, "Modification After Approval",     "Critical · T1", "21 CFR Part 11 §11.10(e) · ALCOA+ Original",        "")
 
-        _section_header("🔵  Change Documentation  — Rules 1, 4, 17, 23, 24", "change")
-        _rule_row_b("at_r1_on",   1, "Vague Rationale",                 "High · T1",     "21 CFR Part 211.68 · ALCOA+ Attributable",          "change")
-        _rule_row_b("at_r4_on",   4, "Change Control Drift",            "High · T2",     "21 CFR Part 820.70(b)",                             "change")
-        _rule_row_b("at_r17_on", 17, "Missing Before/After Value",      "High · T1",     "21 CFR Part 11 §11.10(e) · ALCOA+ Original",        "change")
-        _rule_row_b("at_r23_on", 23, "Missing Record ID",               "High · T1",     "21 CFR Part 11 §11.10(e) · ALCOA+ Original",        "change")
-        _rule_row_b("at_r24_on", 24, "Duplicate Rows",                  "High · T1",     "21 CFR Part 11 §11.10(e) · ALCOA+ Original",        "change")
+        _section_header("🔵  Change Documentation", "change")
+        _rule_row_b("at_r1_on",   6, "Vague Rationale",                 "High · T1",     "21 CFR Part 211.68 · ALCOA+ Attributable",          "")
+        _rule_row_b("at_r4_on",   7, "Change Control Drift",            "High · T2",     "21 CFR Part 820.70(b)",                             "")
+        _rule_row_b("at_r17_on",  8, "Missing Before/After Value",      "High · T1",     "21 CFR Part 11 §11.10(e) · ALCOA+ Original",        "")
+        _rule_row_b("at_r23_on",  9, "Missing Record ID",               "High · T1",     "21 CFR Part 11 §11.10(e) · ALCOA+ Original",        "")
+        _rule_row_b("at_r24_on", 10, "Duplicate Rows",                  "High · T1",     "21 CFR Part 11 §11.10(e) · ALCOA+ Original",        "")
 
-        _section_header("🟢  User & Access  — Rules 5, 8, 12, 16, 21", "user")
-        _rule_row_b("at_r5_on",   5, "Failed Login → Manipulation",     "Critical · T1", "21 CFR Part 11 §11.300",                            "user")
-        _rule_row_b("at_r8_on",   8, "Privileged User on GxP Data",    "High · T1",     "21 CFR Part 11 §11.10(d)",                          "user")
-        _rule_row_b("at_r12_on", 12, "Service/Shared Account",          "Critical · T1", "21 CFR Part 11 §11.300",                            "user")
-        _rule_row_b("at_r16_on", 16, "Missing User Attribution",        "High · T1",     "21 CFR Part 11 §11.10(e) · ALCOA+ Attributable",    "user")
-        _rule_row_b("at_r21_on", 21, "Role/Permission Change",          "High · T1",     "21 CFR Part 11 §11.10(d) · EU Annex 11 Clause 12",  "user")
+        _section_header("🟢  User & Access", "user")
+        _rule_row_b("at_r5_on",   11, "Failed Login → Manipulation",     "Critical · T1", "21 CFR Part 11 §11.300",                            "")
+        _rule_row_b("at_r8_on",   12, "Privileged User on GxP Data",    "High · T1",     "21 CFR Part 11 §11.10(d)",                          "")
+        _rule_row_b("at_r12_on",  13, "Service/Shared Account",          "Critical · T1", "21 CFR Part 11 §11.300",                            "")
+        _rule_row_b("at_r16_on",  14, "Missing User Attribution",        "High · T1",     "21 CFR Part 11 §11.10(e) · ALCOA+ Attributable",    "")
+        _rule_row_b("at_r21_on",  15, "Role/Permission Change",          "High · T1",     "21 CFR Part 11 §11.10(d) · EU Annex 11 Clause 12",  "")
 
-        _section_header("🟣  Timestamps  — Rules 9, 11, 15, 22, 25", "timestamp")
-        _rule_row_b("at_r9_on",   9, "Timestamp Gap",                   "High · T2",     "21 CFR Part 11 §11.10(e)",                          "timestamp")
-        _rule_row_b("at_r11_on", 11, "Timestamp Reversal",              "Critical · T1", "21 CFR Part 11 §11.10(e) · ALCOA+ Contemporaneous", "timestamp")
-        _rule_row_b("at_r15_on", 15, "Missing Timestamp",               "High · T1",     "21 CFR Part 11 §11.10(e) · ALCOA+ Contemporaneous", "timestamp")
-        _rule_row_b("at_r22_on", 22, "Duplicate Timestamp Collision",   "Medium · T2",   "21 CFR Part 11 §11.10(e)",                          "timestamp")
-        _rule_row_b("at_r25_on", 25, "Future Timestamp",                "High · T1",     "21 CFR Part 11 §11.10(e) · ALCOA+ Contemporaneous", "timestamp")
+        _section_header("🟣  Timestamps", "timestamp")
+        _rule_row_b("at_r9_on",   16, "Timestamp Gap",                   "High · T2",     "21 CFR Part 11 §11.10(e)",                          "")
+        _rule_row_b("at_r11_on",  17, "Timestamp Reversal",              "Critical · T1", "21 CFR Part 11 §11.10(e) · ALCOA+ Contemporaneous", "")
+        _rule_row_b("at_r15_on",  18, "Missing Timestamp",               "High · T1",     "21 CFR Part 11 §11.10(e) · ALCOA+ Contemporaneous", "")
+        _rule_row_b("at_r22_on",  19, "Duplicate Timestamp Collision",   "Medium · T2",   "21 CFR Part 11 §11.10(e)",                          "")
+        _rule_row_b("at_r25_on",  20, "Future Timestamp",                "High · T1",     "21 CFR Part 11 §11.10(e) · ALCOA+ Contemporaneous", "")
 
-        _section_header("🟡  Behaviour  — Rules 2, 13, 14", "behaviour")
-        _rule_row_b("at_r2_on",   2, "Contemporaneous Burst",           "Medium · T1",   "ALCOA+ Contemporaneous · 21 CFR Part 11 §11.10(e)", "behaviour")
-        _rule_row_b("at_r13_on", 13, "Dormant Account Sudden Activity", "High · T2",     "21 CFR Part 11 §11.10(d)",                          "behaviour")
-        _rule_row_b("at_r14_on", 14, "First-Time Behavior",             "High · T2",     "21 CFR Part 11 §11.10(d)",                          "behaviour")
+        _section_header("🟡  Behaviour", "behaviour")
+        _rule_row_b("at_r2_on",   21, "Contemporaneous Burst",           "Medium · T1",   "ALCOA+ Contemporaneous · 21 CFR Part 11 §11.10(e)", "")
+        _rule_row_b("at_r13_on",  22, "Dormant Account Sudden Activity", "High · T2",     "21 CFR Part 11 §11.10(d)",                          "")
+        _rule_row_b("at_r14_on",  23, "First-Time Behavior",             "High · T2",     "21 CFR Part 11 §11.10(d)",                          "")
 
-        _section_header("🩵  Heuristic  — Rules 10, 20", "heuristic")
-        _rule_row_b("at_r10_on", 10, "Off-Hours / Holiday Activity",    "Medium · T2",   "21 CFR Part 211.68",                                "heuristic")
-        _rule_row_b("at_r20_on", 20, "Workflow Status Reversal",        "High · T2",     "21 CFR Part 11 §11.10(e)",                          "heuristic")
-
+        _section_header("🩵  Heuristic", "heuristic")
+        _rule_row_b("at_r10_on", 24, "Off-Hours / Holiday Activity",    "Medium · T2",   "21 CFR Part 211.68",                                "")
+        _rule_row_b("at_r20_on", 25, "Workflow Status Reversal",        "High · T2",     "21 CFR Part 11 §11.10(e)",                          "")
+        # === CLAUDE PROTECTED END ===
         # ── Guard rail ────────────────────────────────────────────────────────
         st.markdown("---")
         _active_count = sum(1 for k in _RULE_DEFAULTS if st.session_state.get(k, False))
