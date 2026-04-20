@@ -12694,12 +12694,18 @@ def dim_score_periods(df: pd.DataFrame) -> dict:
     for p in periods:
         pf = df[df["Review_Period"] == p]
         pf_real = pf[~pf["_is_sentinel"]]   # exclude sentinel rows from counts
+        # Per-module high-critical counts — required for per-module posture
+        # so a clean AT period is never masked by UAR findings (and vice versa).
+        pf_at  = pf_real[pf_real["Source_Module"] == "AT"]
+        pf_uar = pf_real[pf_real["Source_Module"] == "UAR"]
         period_rows.append({
             "Review_Period":        p,
             "Total_Findings":       len(pf_real),
             "AT_Findings":          int((pf_real["Source_Module"] == "AT").sum()),
             "UAR_Findings":         int((pf_real["Source_Module"] == "UAR").sum()),
             "High_Critical":        int(pf_real["is_high_crit"].sum()),
+            "AT_High_Critical":     int(pf_at["is_high_crit"].sum()),
+            "UAR_High_Critical":    int(pf_uar["is_high_crit"].sum()),
             "Deletion_Findings":    int(pf_real["is_deletion"].sum()),
             "Failed_Login":         int(pf_real["is_failed_login"].sum()),
             "Off_Hours":            int(pf_real["is_off_hours"].sum()),
@@ -12723,17 +12729,61 @@ def dim_score_periods(df: pd.DataFrame) -> dict:
         period_df[f"{m}_arrow"] = period_df[f"{m}_pct_chg"].apply(
             lambda v: _dim_trend_arrow(v) if pd.notna(v) else "—")
 
-    # ── DI Posture per period ─────────────────────────────────────────────────
-    def _posture(row):
-        if pd.isna(row.get("Total_Findings_pct_chg")):
-            return "Baseline"
-        chg = row["Total_Findings_pct_chg"]
-        hc  = row["High_Critical"]
+    # ── DI Posture per period — SPLIT per module, overall = worst-of ─────────
+    # Each module (AT, UAR, later DCI) is scored independently so a clean
+    # period in one module is never masked by findings in the other.
+    # Overall DI_Posture = worst-of, with Posture_Driver attribution.
+    def _posture_for(chg, hc):
+        if pd.isna(chg):        return "Baseline"
         if chg > 30 and hc > 0: return "Critical"
-        if chg > 15:             return "Deteriorating"
-        if chg < -15:            return "Improving"
+        if chg > 15:            return "Deteriorating"
+        if chg < -15:           return "Improving"
         return "Stable"
-    period_df["DI_Posture"] = period_df.apply(_posture, axis=1)
+
+    period_df["AT_Posture"]  = period_df.apply(
+        lambda r: _posture_for(
+            r.get("AT_Findings_pct_chg"),
+            r.get("AT_High_Critical", 0)
+        ), axis=1)
+    period_df["UAR_Posture"] = period_df.apply(
+        lambda r: _posture_for(
+            r.get("UAR_Findings_pct_chg"),
+            r.get("UAR_High_Critical", 0)
+        ), axis=1)
+
+    # Rank for worst-of comparison. Baseline is neutral — treated as "no signal"
+    # rather than "good" or "bad". If a module has no data in a given period
+    # it is excluded from the overall comparison.
+    _POSTURE_RANK = {
+        "Critical":      4,
+        "Deteriorating": 3,
+        "Stable":        2,
+        "Improving":     1,
+        "Baseline":      0,
+    }
+
+    def _overall_posture(row):
+        # Suppress posture for modules with zero findings in this period —
+        # a module that wasn't exercised shouldn't contribute a signal.
+        at_has  = int(row.get("AT_Findings",  0)) > 0
+        uar_has = int(row.get("UAR_Findings", 0)) > 0
+        at_p  = row["AT_Posture"]  if at_has  else "Baseline"
+        uar_p = row["UAR_Posture"] if uar_has else "Baseline"
+
+        if at_p == "Baseline" and uar_p == "Baseline":
+            return "Baseline", "—"
+        if at_p == "Baseline":
+            return uar_p, "UAR"
+        if uar_p == "Baseline":
+            return at_p, "AT"
+        # Both modules have signal — take worst; tie goes to AT
+        if _POSTURE_RANK[at_p] >= _POSTURE_RANK[uar_p]:
+            return at_p, "AT"
+        return uar_p, "UAR"
+
+    _overall = period_df.apply(lambda r: _overall_posture(r), axis=1)
+    period_df["DI_Posture"]      = _overall.apply(lambda t: t[0])
+    period_df["Posture_Driver"]  = _overall.apply(lambda t: t[1])
 
     # ── Feature 2: Repeat high-risk users ────────────────────────────────────
     hc_df     = df[df["is_high_crit"] & ~df["_is_sentinel"]].copy()
@@ -12889,6 +12939,17 @@ def dim_score_periods(df: pd.DataFrame) -> dict:
             (last_row["Total_Findings"] - first_row["Total_Findings"])
             / max(first_row["Total_Findings"], 1) * 100, 1),
         "posture_last":      last_row["DI_Posture"],
+        # Per-module posture split — so narrative can state AT and UAR
+        # postures independently without commingling.
+        "at_posture_first":   first_row.get("AT_Posture",  "Baseline"),
+        "at_posture_last":    last_row.get("AT_Posture",   "Baseline"),
+        "uar_posture_first":  first_row.get("UAR_Posture", "Baseline"),
+        "uar_posture_last":   last_row.get("UAR_Posture",  "Baseline"),
+        "posture_driver":     last_row.get("Posture_Driver", "—"),
+        "at_findings_first":  int(first_row.get("AT_Findings",  0)),
+        "at_findings_last":   int(last_row.get("AT_Findings",   0)),
+        "uar_findings_first": int(first_row.get("UAR_Findings", 0)),
+        "uar_findings_last":  int(last_row.get("UAR_Findings",  0)),
         "repeat_users":      len(repeat_df),
         "top_repeat_user":   repeat_df.iloc[0]["Username"] if len(repeat_df) else None,
         "top_rule":          rule_df.iloc[0]["Rule"] if len(rule_df) else None,
@@ -13265,8 +13326,13 @@ def dim_build_excel(result: dict, system_name: str, file_name: str,
         ("Dormant Flags",      "Dormant_Findings",           14),
         ("Avg Risk Weight",    "Avg_Risk_Weight",            14),
         ("DI Posture",         "DI_Posture",                 16),
+        ("AT Posture",         "AT_Posture",                 14),
+        ("UAR Posture",        "UAR_Posture",                14),
+        ("Driver",             "Posture_Driver",             10),
         ("Total Δ%",           "Total_Findings_pct_chg",    12),
         ("Total Trend",        "Total_Findings_trend",       20),
+        ("  AT Δ%",            "AT_Findings_pct_chg",       10),
+        ("  UAR Δ%",           "UAR_Findings_pct_chg",      10),
         ("Deletion Δ%",        "Deletion_Findings_pct_chg", 12),
         ("Deletion Trend",     "Deletion_Findings_trend",    20),
     ]
@@ -13295,9 +13361,10 @@ def dim_build_excel(result: dict, system_name: str, file_name: str,
             if isinstance(val, float) and col_key.endswith("_pct_chg"):
                 val = f"{val:+.1f}%" if val != "—" else "—"
             c = ws2.cell(row=ri, column=ci, value=val)
-            if col_key == "DI_Posture":
-                c.font = Font(name="Calibri", bold=True, size=9, color=p_fg_r)
-                c.fill = _fill(p_bg_r)
+            if col_key in ("DI_Posture", "AT_Posture", "UAR_Posture"):
+                _pbg, _pfg = _POSTURE_COLORS.get(str(val), (C_GREY, "1A1A1A"))
+                c.font = Font(name="Calibri", bold=True, size=9, color=_pfg)
+                c.fill = _fill(_pbg)
             elif col_key.endswith("_trend"):
                 tc  = _TREND_COLORS.get(str(val), "1A1A1A")
                 tbg = _TREND_BG.get(str(val), C_GREY)
@@ -14130,6 +14197,25 @@ def _dim_generate_narrative(smry: dict, period_df: pd.DataFrame,
     top_rule   = smry["top_rule"]
     top3       = smry.get("top3", [])
 
+    # Per-module posture (separate AT vs UAR so a clean module is never masked)
+    at_post_first  = smry.get("at_posture_first",  "Baseline")
+    at_post_last   = smry.get("at_posture_last",   "Baseline")
+    uar_post_first = smry.get("uar_posture_first", "Baseline")
+    uar_post_last  = smry.get("uar_posture_last",  "Baseline")
+    posture_driver = smry.get("posture_driver",    "—")
+    at_first_n     = smry.get("at_findings_first",  0)
+    at_last_n      = smry.get("at_findings_last",   0)
+    uar_first_n    = smry.get("uar_findings_first", 0)
+    uar_last_n     = smry.get("uar_findings_last",  0)
+
+    # Human-readable driver phrase
+    if posture_driver == "AT":
+        _driver_phrase = "driven by Audit Trail findings"
+    elif posture_driver == "UAR":
+        _driver_phrase = "driven by User Access Review findings"
+    else:
+        _driver_phrase = "no active module signal in the latest period"
+
     # ── Clean-user benchmark ──────────────────────────────────────────────────
     # DIM banks only H/C events so everyone in raw_df had at least one finding.
     # "Single-period" users = appeared in exactly 1 period (not repeat offenders).
@@ -14186,7 +14272,19 @@ def _dim_generate_narrative(smry: dict, period_df: pd.DataFrame,
          f"Total High/Critical findings moved from {tf_first} in Period 1 "
          f"to {tf_last} in the latest period "
          f"({overall:+.1f}% overall change). "
-         f"DI Posture in the latest period: {posture.upper()}."),
+         f"DI Posture in the latest period: {posture.upper()} ({_driver_phrase})."),
+        "",
+        "## Module Posture — Split",
+        (f"Audit Trail (AT): {at_first_n} → {at_last_n} findings. "
+         f"AT posture Period 1: {at_post_first.upper()} · "
+         f"Latest: {at_post_last.upper()}."),
+        (f"User Access Review (UAR): {uar_first_n} → {uar_last_n} findings. "
+         f"UAR posture Period 1: {uar_post_first.upper()} · "
+         f"Latest: {uar_post_last.upper()}."),
+        (f"Overall DI Posture is computed as worst-of per-module posture with "
+         f"attribution. A clean period in one module is not masked by findings "
+         f"in the other. In the latest period, the overall posture of "
+         f"{posture.upper()} is {_driver_phrase}."),
         "",
         "## Finding Trend",
         (f"{tf_last} High/Critical finding(s) in the latest period "
@@ -14542,6 +14640,7 @@ def show_dim(user: str, role: str, model_id: str):
         "one event can be both High/Critical and a Deletion. "
     )
     _sc = ["Review_Period","Total_Findings","DI_Posture",
+           "AT_Posture","UAR_Posture","Posture_Driver",
            "Deletion_Findings","Failed_Login","Dormant_Findings"]
     _cmp = pdf[[c for c in _sc if c in pdf.columns]].copy().reset_index(drop=True)
     # Prepend "Period N" label to the date range so column 1 reads "Period 1 — 01-Jan-2025 → 30-Mar-2025"
@@ -14555,7 +14654,10 @@ def show_dim(user: str, role: str, model_id: str):
     # Center-align numeric columns
     _num_cols  = [c for c in _cmp.columns if _cmp[c].dtype in ["int64","float64"]]
     _col_cfg   = {c: st.column_config.NumberColumn(c, format="%d") for c in _num_cols}
-    _col_cfg["DI Posture"] = st.column_config.TextColumn("DI Posture", width="small")
+    _col_cfg["DI Posture"]     = st.column_config.TextColumn("DI Posture",    width="small")
+    _col_cfg["AT Posture"]     = st.column_config.TextColumn("AT Posture",    width="small")
+    _col_cfg["UAR Posture"]    = st.column_config.TextColumn("UAR Posture",   width="small")
+    _col_cfg["Posture Driver"] = st.column_config.TextColumn("Driver",        width="small")
     st.dataframe(
         _cmp, use_container_width=True, hide_index=True,
         column_config=_col_cfg
