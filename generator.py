@@ -12733,7 +12733,16 @@ def dim_score_periods(df: pd.DataFrame) -> dict:
     # Each module (AT, UAR, later DCI) is scored independently so a clean
     # period in one module is never masked by findings in the other.
     # Overall DI_Posture = worst-of, with Posture_Driver attribution.
-    # Posture = "N/A" when that module was not exercised (zero rows) in a period.
+    #
+    # Posture values:
+    #   "N/A"       — module had zero rows in this period (not exercised)
+    #   "Baseline"  — module's FIRST period with real data — no prior to compare
+    #   "Critical" / "Deteriorating" / "Stable" / "Improving" — trend vs prior
+    #
+    # Rationale: a single data point is not a trend. ICH Q9 and FDA CSA both
+    # require a prior observation before any trend signal can be asserted.
+    # Without this guard, a module's first-ever run would always read as
+    # +∞% change and fire Critical — indefensible to an inspector.
     def _posture_for(chg, hc):
         if pd.isna(chg):        return "Baseline"
         if chg > 30 and hc > 0: return "Critical"
@@ -12741,24 +12750,45 @@ def dim_score_periods(df: pd.DataFrame) -> dict:
         if chg < -15:           return "Improving"
         return "Stable"
 
-    def _module_posture(row, findings_key, hc_key):
-        # If the module had no rows in this period, return N/A so the cell
-        # is visibly empty instead of showing a misleading "Baseline".
-        if int(row.get(findings_key, 0)) == 0:
-            return "N/A"
-        return _posture_for(
-            row.get(f"{findings_key}_pct_chg"),
-            row.get(hc_key, 0)
-        )
+    def _compute_module_postures(findings_key, hc_key):
+        """
+        Walk periods in order. A module's posture is:
+          - "N/A"       if this period has 0 findings in the module
+          - "Baseline"  if this is the first period with >0 findings for the module
+          - trend label computed from pct_chg vs the prior ACTIVE period otherwise
+        """
+        postures = []
+        seen_active = False  # has this module had any prior period with findings?
+        prev_count  = None   # findings count in the prior active period
+        for _, row in period_df.iterrows():
+            count = int(row.get(findings_key, 0))
+            if count == 0:
+                postures.append("N/A")
+                continue
+            if not seen_active:
+                # First-ever active period for this module — Baseline, no trend.
+                postures.append("Baseline")
+                seen_active = True
+                prev_count = count
+                continue
+            # Subsequent active period — compute trend vs the prior ACTIVE count.
+            # Note: this differs from *_Findings_pct_chg which uses immediate prior
+            # period (which may be 0 / N/A). Using prior active gives a meaningful
+            # comparison: "vs the last time this module was actually run."
+            if prev_count and prev_count > 0:
+                chg = (count - prev_count) / prev_count * 100.0
+            else:
+                chg = float("nan")
+            hc  = int(row.get(hc_key, 0))
+            postures.append(_posture_for(chg, hc))
+            prev_count = count
+        return postures
 
-    period_df["AT_Posture"]  = period_df.apply(
-        lambda r: _module_posture(r, "AT_Findings",  "AT_High_Critical"),  axis=1)
-    period_df["UAR_Posture"] = period_df.apply(
-        lambda r: _module_posture(r, "UAR_Findings", "UAR_High_Critical"), axis=1)
+    period_df["AT_Posture"]  = _compute_module_postures("AT_Findings",  "AT_High_Critical")
+    period_df["UAR_Posture"] = _compute_module_postures("UAR_Findings", "UAR_High_Critical")
 
-    # Rank for worst-of comparison. Baseline is neutral — treated as "no signal"
-    # rather than "good" or "bad". If a module has no data in a given period
-    # it is excluded from the overall comparison.
+    # Rank for worst-of comparison. Baseline and N/A are both "no-signal"
+    # and excluded from overall comparison unless they're the only entry.
     _POSTURE_RANK = {
         "Critical":      4,
         "Deteriorating": 3,
@@ -12768,8 +12798,9 @@ def dim_score_periods(df: pd.DataFrame) -> dict:
     }
 
     def _overall_posture(row):
-        # N/A modules contribute no signal. Treat them the same as Baseline
-        # for the worst-of comparison (excluded unless they're the only signal).
+        # N/A and Baseline both contribute no trend signal.
+        # - N/A      = module wasn't run in this period
+        # - Baseline = module's first active period (can't compare to nothing)
         at_p  = row["AT_Posture"]
         uar_p = row["UAR_Posture"]
         at_silent  = at_p  in ("N/A", "Baseline")
@@ -12781,7 +12812,7 @@ def dim_score_periods(df: pd.DataFrame) -> dict:
             return uar_p, "UAR"
         if uar_silent:
             return at_p, "AT"
-        # Both modules have signal — take worst; tie goes to AT
+        # Both modules have a comparable trend signal — take worst; tie goes to AT
         if _POSTURE_RANK[at_p] >= _POSTURE_RANK[uar_p]:
             return at_p, "AT"
         return uar_p, "UAR"
