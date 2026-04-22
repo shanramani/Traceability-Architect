@@ -5146,26 +5146,31 @@ def _validate_cia_slot(file_bytes, file_name, expected_type: str, slot_label: st
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-#  AT input file validator
+#  AT / UAR input file validators  (v94e — invariant-based)
 # ═══════════════════════════════════════════════════════════════════════════
-# Purpose: reject files that aren't genuine source audit trails BEFORE they
-# enter the scoring pipeline. Without this, a user can accidentally upload
-# VALINTEL's own output (which contains rule names, risk tiers, and narrative
-# text) and generate thousands of false findings by matching VALINTEL's own
-# rule-name strings against its own rule definitions. That's a §211.68 data
-# integrity issue caused by the tool itself.
+# Purpose: reject files that aren't genuine source audit trails or user-access
+# reviews BEFORE they enter the scoring pipeline. Without this, a user can
+# accidentally upload VALINTEL's own output, a user list as an AT file, or a
+# random spreadsheet — producing false findings and contaminating the
+# evidence chain. That's a §211.68 / Annex 11 §5 control issue caused by the
+# tool itself.
 #
-# Validation layers (applied in order, first failure wins):
-#   1. VALINTEL sheet-name fingerprint  (rejects VALINTEL Excel outputs)
-#   2. VALINTEL column-name fingerprint (rejects any re-ingested output)
-#   3. Pre-populated Risk_Level / Severity column (rejects pre-scored files)
-#   4. Timestamp range sanity (rejects files with all-identical or <1h range)
-#   5. Event-type cardinality + username cardinality sanity
+# Validator contract:
+#   Returns (ok: bool, severity: str, title: str, results: list[dict], evidence: list[str])
+#     severity: "hard_reject" — blocks upload (override button shown)
+#               "warn"        — exactly 1 normal invariant failed, allow
+#               "ok"          — all passed
+#   results: one dict per invariant: {id, name, severity_class, passed, detail}
+#     severity_class: "fatal" | "normal"
 #
-# Returns (ok: bool, severity: str, title: str, details: list[str], evidence: list[str])
-#   severity: "hard_reject" — blocks upload
-#             "warn"        — allows upload but with warning
-#             "ok"          — no issues
+# Rejection logic (balanced):
+#   — Any fatal invariant fails        → hard_reject
+#   — 2+ normal invariants fail        → hard_reject
+#   — Exactly 1 normal fails           → warn (still allowed through)
+#   — All pass                         → ok
+#
+# Override: when hard_reject, UI shows "⚠️ Override — I confirm this is a
+# legitimate source file" button. Clicking logs to audit trail and bypasses.
 
 _VALINTEL_SHEET_FINGERPRINTS = {
     "detection logic", "integrity audit", "compliance checklist",
@@ -5178,217 +5183,589 @@ _VALINTEL_COLUMN_FINGERPRINTS = {
     "primary_rule", "risk_tier", "score_gap", "tier_tripwires",
     "ai_justification", "source_module", "config_hash", "review_period",
     "detection_basis", "posture_driver", "at_posture", "uar_posture",
-    "di_posture", "rule_triggered",
+    "di_posture", "rule_triggered", "all rules fired", "all_rules_fired",
 }
 
-_PRESCORED_COLUMN_NAMES = {
-    "risk_level", "severity", "risk_tier", "tier",
+_PRESCORED_COLUMN_NAMES = {"risk_level", "severity", "risk_tier", "tier"}
+
+# UAR-vocabulary columns — if these dominate in an AT file it's actually a UAR
+_UAR_VOCAB_COLUMNS = {
+    "role", "roles", "permission", "permissions", "group", "groups",
+    "profile", "access_level", "privilege", "privileges", "authorization",
+    "authorizations", "department", "dept", "employment_status",
+    "account_status", "last_login", "last_logon", "manager", "manager_id",
+    "hire_date", "hired_date", "active_yn", "disabled", "enabled",
+    "entitlement",
 }
 
+# AT-vocabulary columns — event-log-like signals (for UAR-direction check)
+_AT_VOCAB_COLUMNS = {
+    "old_value", "new_value", "oldvalue", "newvalue", "from_value",
+    "to_value", "record_id", "recordid", "batch", "batch_id", "batchid",
+    "sample", "sample_id", "sampleid", "case_id", "caseid", "subject",
+    "subject_id", "table", "field", "transaction_code", "transactioncode",
+    "event_type", "eventtype", "action", "operation",
+}
 
+# VALINTEL rule-name pattern — used to detect output files re-ingested as input
+import re as _re
+_VALINTEL_RULE_PATTERN = _re.compile(
+    r"rule\s+\d+|vague rationale|contemporaneous burst|"
+    r"record reconstruction|admin/gxp|sod violation|failed login|"
+    r"modification after approval|timestamp reversal|self-approval",
+    _re.IGNORECASE
+)
+
+
+def _cols_lower(df):
+    """Return set of lowercased, whitespace-stripped column names."""
+    return {str(c).strip().lower().replace(" ", "_") for c in df.columns}
+
+
+def _has_col(df, name_set):
+    """Check if any column name matches any item in name_set (lowercased)."""
+    return bool(_cols_lower(df) & set(name_set))
+
+
+def _find_col(df, name_set):
+    """Return the first original column name matching any in name_set."""
+    for c in df.columns:
+        if str(c).strip().lower().replace(" ", "_") in name_set:
+            return c
+    return None
+
+
+def _matching_cols(df, name_set):
+    """Return list of lowercased column names that match the set."""
+    return sorted(_cols_lower(df) & set(name_set))
+
+
+def _verdict_from_results(results):
+    """
+    Balanced rejection logic:
+      - Any fatal failure → hard_reject
+      - 2+ normal failures → hard_reject
+      - 1 normal failure → warn
+      - All pass → ok
+    """
+    fatals_failed  = [r for r in results if r["severity_class"] == "fatal"  and not r["passed"]]
+    normals_failed = [r for r in results if r["severity_class"] == "normal" and not r["passed"]]
+    if fatals_failed:
+        return "hard_reject"
+    if len(normals_failed) >= 2:
+        return "hard_reject"
+    if len(normals_failed) == 1:
+        return "warn"
+    return "ok"
+
+
+# ---------------------------------------------------------------------------
+# AT file validator
+# ---------------------------------------------------------------------------
 def _validate_at_input_file(raw_bytes: bytes, file_name: str, df: pd.DataFrame,
                              all_sheet_names: list = None) -> tuple:
     """
-    Validate an uploaded AT file. Returns (ok, severity, title, details, evidence).
-
-    Hard-rejects VALINTEL's own output files and pre-scored inputs.
-    Warns (but allows) on suspicious cardinality or timestamp patterns.
+    AT input file validator. 10 invariants (3 fatal, 7 normal).
+    See module-level docstring for contract.
     """
-    details  = []
+    results  = []
     evidence = []
 
-    # ── Layer 1: VALINTEL sheet-name fingerprint ──────────────────────────
+    # ── AT-F1: Not a VALINTEL output (sheet + column fingerprints) ─────────
+    _sheet_hits = set()
     if all_sheet_names:
-        _lower_sheets = {str(s).strip().lower() for s in all_sheet_names}
-        _hits = _lower_sheets & _VALINTEL_SHEET_FINGERPRINTS
-        if _hits:
-            return (
-                False, "hard_reject",
-                "This appears to be a VALINTEL output file, not a source audit trail",
-                [
-                    "VALINTEL-generated Excel files contain sheets that never appear "
-                    "in genuine system audit trail exports.",
-                    "Ingesting a VALINTEL output as input would produce fabricated "
-                    "findings by matching VALINTEL's own rule-name strings against "
-                    "its own rule definitions.",
-                    "Please upload the raw audit trail export from your source system "
-                    "(e.g. LIMS, MES, QMS) — not the evidence package VALINTEL produced.",
-                ],
-                [f"VALINTEL-only sheets detected: {', '.join(sorted(_hits))}"]
-            )
+        _sheet_hits = {str(s).strip().lower() for s in all_sheet_names} & _VALINTEL_SHEET_FINGERPRINTS
+    _col_hits   = _cols_lower(df) & _VALINTEL_COLUMN_FINGERPRINTS
+    _f1_passed  = not _sheet_hits and not _col_hits
+    _f1_detail  = "Not a VALINTEL output"
+    if not _f1_passed:
+        if _sheet_hits:
+            _f1_detail = (f"VALINTEL-only sheets detected: "
+                          f"{', '.join(sorted(_sheet_hits))}")
+            evidence.append(_f1_detail)
+        if _col_hits:
+            _c_detail = (f"VALINTEL-only columns detected: "
+                         f"{', '.join(sorted(_col_hits))}")
+            _f1_detail = _c_detail if _f1_passed else _f1_detail + " · " + _c_detail
+            evidence.append(_c_detail)
+    results.append({
+        "id": "AT-F1", "name": "Not a VALINTEL output",
+        "severity_class": "fatal", "passed": _f1_passed, "detail": _f1_detail,
+    })
 
-    # ── Layer 1b: Filename heuristic (soft signal, reinforces Layer 1) ────
-    _fn_lower = file_name.lower()
-    _suspect_prefixes = ("audittrail_", "valintel_", "dim_", "uar_")
-    if any(_fn_lower.startswith(p) for p in _suspect_prefixes):
-        # Not an auto-reject on filename alone — user might have renamed their
-        # source file. But if Layer 1 or 2 fires below, this becomes corroboration.
-        evidence.append(
-            f"Filename '{file_name}' matches VALINTEL output naming pattern."
-        )
-
-    # ── Layer 2: VALINTEL column-name fingerprint ─────────────────────────
-    _lower_cols = {str(c).strip().lower() for c in df.columns}
-    _col_hits = _lower_cols & _VALINTEL_COLUMN_FINGERPRINTS
-    if _col_hits:
-        return (
-            False, "hard_reject",
-            "File contains columns that only VALINTEL produces",
-            [
-                "The columns listed below are generated by VALINTEL's scoring "
-                "engine — they should not exist in a source audit trail.",
-                "Re-ingesting these columns would double-score the data and "
-                "corrupt the evidence chain.",
-                "Please export a fresh audit trail from your source system.",
-            ],
-            [f"VALINTEL-only columns: {', '.join(sorted(_col_hits))}"] + evidence
-        )
-
-    # ── Layer 3: Pre-scored Risk_Level / Severity ─────────────────────────
-    _prescored = _lower_cols & _PRESCORED_COLUMN_NAMES
-    if _prescored:
-        # Only reject if the column is actually populated with risk values
-        for _col in df.columns:
-            if str(_col).strip().lower() in _prescored:
-                _vals = df[_col].dropna().astype(str).str.strip().str.lower()
-                _vals = _vals[_vals != ""]
-                _risk_words = {"critical", "high", "medium", "low"}
-                _match_ratio = (
-                    _vals.isin(_risk_words).sum() / max(len(_vals), 1)
-                    if len(_vals) else 0
+    # ── AT-F2: Not pre-scored (Risk_Level/Severity populated with risk vocab) ──
+    _f2_passed, _f2_detail = True, "No pre-populated risk column"
+    _risk_col = _find_col(df, _PRESCORED_COLUMN_NAMES)
+    if _risk_col is not None and len(df) >= 10:
+        _vals = df[_risk_col].dropna().astype(str).str.strip().str.lower()
+        _vals = _vals[_vals != ""]
+        if len(_vals) > 10:
+            _risk_words = {"critical", "high", "medium", "low"}
+            _match_ratio = _vals.isin(_risk_words).sum() / len(_vals)
+            if _match_ratio > 0.5:
+                _f2_passed = False
+                _f2_detail = (f"'{_risk_col}' column is populated with risk "
+                              f"values in {int(_match_ratio*100)}% of rows — "
+                              f"this is produced by scoring, not source systems")
+                evidence.append(
+                    f"{_risk_col} sample values: "
+                    f"{', '.join(list(_vals.unique())[:5])}"
                 )
-                if _match_ratio > 0.5 and len(_vals) > 10:
-                    return (
-                        False, "hard_reject",
-                        f"File contains a pre-populated '{_col}' column",
-                        [
-                            "Source audit trails do not carry risk classifications — "
-                            "risk is produced by VALINTEL's scoring engine.",
-                            "A file with populated Critical/High/Medium/Low values is "
-                            "either a VALINTEL output or has been pre-processed by "
-                            "another scoring tool.",
-                            "Please upload the raw, unscored audit trail.",
-                        ],
-                        [
-                            f"Column '{_col}' is populated with risk values in "
-                            f"{int(_match_ratio*100)}% of non-blank rows.",
-                            f"Sample values: {', '.join(list(_vals.unique())[:5])}",
-                        ] + evidence
-                    )
+    results.append({
+        "id": "AT-F2", "name": "Not pre-scored",
+        "severity_class": "fatal", "passed": _f2_passed, "detail": _f2_detail,
+    })
 
-    # ── Layer 4: Timestamp range sanity ───────────────────────────────────
-    # Find the timestamp column (common names). If present, check range.
-    _ts_candidates = ["event_timestamp", "timestamp", "event_time",
-                      "datetime", "date_time", "event_datetime", "time"]
-    _ts_col = None
-    for _c in df.columns:
-        if str(_c).strip().lower().replace(" ", "_") in _ts_candidates:
-            _ts_col = _c; break
+    # ── AT-F3: Action values are not VALINTEL rule names ───────────────────
+    _f3_passed, _f3_detail = True, "Action vocabulary is not VALINTEL rule names"
+    _et_candidates = {"event_type", "action", "action_type", "event",
+                      "operation", "activity_type"}
+    _et_col = _find_col(df, _et_candidates)
+    if _et_col is not None and len(df) >= 20:
+        _vals = df[_et_col].dropna().astype(str).str.strip()
+        _vals = _vals[_vals != ""]
+        if len(_vals) >= 20:
+            _rule_like = _vals.str.contains(_VALINTEL_RULE_PATTERN, na=False).sum()
+            if _rule_like > len(_vals) * 0.10:
+                _f3_passed = False
+                _f3_detail = (f"'{_et_col}' column contains VALINTEL rule-name "
+                              f"strings in {_rule_like}/{len(_vals)} rows — "
+                              f"this is a re-ingested scored file")
+                evidence.append(
+                    f"{_et_col} rule-name samples: "
+                    f"{', '.join(list(_vals[_vals.str.contains(_VALINTEL_RULE_PATTERN, na=False)].unique())[:3])}"
+                )
+    results.append({
+        "id": "AT-F3", "name": "Action not rule names",
+        "severity_class": "fatal", "passed": _f3_passed, "detail": _f3_detail,
+    })
+
+    # ── AT-N1: Event-centric structure (users repeat across rows) ──────────
+    _n1_passed, _n1_detail = True, "Event-centric structure detected"
+    _user_candidates = {"user_name", "username", "user", "user_id",
+                        "operator", "performed_by", "login"}
+    _user_col = _find_col(df, _user_candidates)
+    if _user_col is not None and len(df) >= 50:
+        _uv = df[_user_col].dropna().astype(str).str.strip()
+        _uv = _uv[_uv != ""]
+        if len(_uv) >= 50:
+            _ratio = _uv.nunique() / len(_uv)
+            if _ratio > 0.80:
+                _n1_passed = False
+                _n1_detail = (f"{_uv.nunique()} unique users across {len(_uv)} "
+                              f"rows (ratio {_ratio:.2f}) — this is user-centric "
+                              f"(ratio ≤0.80 expected for event logs)")
+                evidence.append(
+                    f"User column '{_user_col}' ratio = {_ratio:.2f} (UAR-shaped)"
+                )
+    results.append({
+        "id": "AT-N1", "name": "Event-centric structure",
+        "severity_class": "normal", "passed": _n1_passed, "detail": _n1_detail,
+    })
+
+    # ── AT-N2: Timestamps populated (parseable rate ≥80%) ──────────────────
+    _n2_passed, _n2_detail = True, "Timestamps populated"
+    _ts_candidates = {"event_timestamp", "timestamp", "event_time",
+                      "datetime", "date_time", "event_datetime", "time",
+                      "date", "change_date", "audit_time"}
+    _ts_col = _find_col(df, _ts_candidates)
+    if _ts_col is not None and len(df) >= 30:
+        try:
+            _ts = pd.to_datetime(df[_ts_col], errors="coerce")
+            _rate = _ts.notna().sum() / len(df)
+            if _rate < 0.80:
+                _n2_passed = False
+                _n2_detail = (f"Only {int(_rate*100)}% of rows have parseable "
+                              f"timestamps in '{_ts_col}' — audit logs require "
+                              f"≥80%")
+                evidence.append(
+                    f"Timestamp parse rate: {int(_rate*100)}% "
+                    f"({_ts.notna().sum()}/{len(df)})"
+                )
+        except Exception:
+            _n2_passed = False
+            _n2_detail = f"'{_ts_col}' column could not be parsed as timestamps"
+    elif _ts_col is None:
+        _n2_passed = False
+        _n2_detail = ("No timestamp column detected (expected one of: "
+                      "timestamp, event_time, datetime, date, change_date)")
+        evidence.append("No timestamp column found in the file")
+    results.append({
+        "id": "AT-N2", "name": "Timestamps populated",
+        "severity_class": "normal", "passed": _n2_passed, "detail": _n2_detail,
+    })
+
+    # ── AT-N3: Timestamp range plausibility (>60 seconds) ──────────────────
+    _n3_passed, _n3_detail = True, "Timestamp range plausible"
     if _ts_col is not None and len(df) >= 10:
         try:
             _ts = pd.to_datetime(df[_ts_col], errors="coerce").dropna()
             if len(_ts) >= 10:
-                _range = _ts.max() - _ts.min()
-                _total_seconds = _range.total_seconds()
-                if _total_seconds < 60:
-                    return (
-                        False, "hard_reject",
-                        "Timestamp range is implausibly narrow for an audit trail",
-                        [
-                            "Genuine audit trails span days, weeks, or longer. "
-                            f"This file's {len(_ts)} timestamps span just "
-                            f"{_total_seconds:.0f} second(s).",
-                            "This pattern is typical of machine-generated summary "
-                            "files (e.g. VALINTEL exports with a single generation "
-                            "timestamp) rather than source system logs.",
-                        ],
-                        [
-                            f"Earliest: {_ts.min()}",
-                            f"Latest: {_ts.max()}",
-                            f"Total range: {_range}",
-                            f"Timestamp column: '{_ts_col}'",
-                        ] + evidence
-                    )
-                if _total_seconds < 3600 and len(_ts) >= 100:
-                    details.append(
-                        f"Timestamps span only {_range} across {len(_ts)} events — "
-                        f"unusually narrow for a production audit trail."
+                _range_sec = (_ts.max() - _ts.min()).total_seconds()
+                if _range_sec < 60:
+                    _n3_passed = False
+                    _n3_detail = (f"All {len(_ts)} timestamps span only "
+                                  f"{_range_sec:.0f} second(s) — audit logs "
+                                  f"span hours/days")
+                    evidence.append(
+                        f"Timestamp range: {_ts.min()} → {_ts.max()} "
+                        f"({_range_sec:.0f}s)"
                     )
         except Exception:
             pass
+    results.append({
+        "id": "AT-F4", "name": "Timestamp range plausible",
+        "severity_class": "fatal", "passed": _n3_passed, "detail": _n3_detail,
+    })
 
-    # ── Layer 5: Event-type cardinality ───────────────────────────────────
-    _et_candidates = ["event_type", "action", "action_type", "event",
-                      "operation", "activity_type"]
-    _et_col = None
-    for _c in df.columns:
-        if str(_c).strip().lower().replace(" ", "_") in _et_candidates:
-            _et_col = _c; break
+    # ── AT-N4: Action vocabulary finite (≤50 distinct values) ──────────────
+    _n4_passed, _n4_detail = True, "Action vocabulary finite"
     if _et_col is not None and len(df) >= 50:
-        _et_vals = df[_et_col].dropna().astype(str).str.strip()
-        _et_vals = _et_vals[_et_vals != ""]
-        _distinct = _et_vals.nunique()
-        if _distinct > 50:
-            # Check if values look like VALINTEL rule names
-            _rule_like = _et_vals.str.lower().str.contains(
-                r"rule\s+\d+|vague rationale|contemporaneous burst|"
-                r"record reconstruction|admin/gxp|sod violation|failed login",
-                regex=True, na=False
-            ).sum()
-            if _rule_like > len(_et_vals) * 0.1:
-                return (
-                    False, "hard_reject",
-                    f"Event-type column '{_et_col}' contains VALINTEL rule names",
-                    [
-                        "Real audit trails use a controlled vocabulary of "
-                        "event types (CREATE, UPDATE, DELETE, LOGIN, etc.) — "
-                        "typically fewer than 20 distinct values.",
-                        "This file contains VALINTEL rule-name strings in the "
-                        "event-type column, indicating it is a re-ingested "
-                        "VALINTEL output.",
-                    ],
-                    [
-                        f"{_distinct} distinct event types detected.",
-                        f"{_rule_like} rows match VALINTEL rule-name patterns.",
-                        f"Sample: {', '.join(list(_et_vals.unique())[:3])}",
-                    ] + evidence
+        _vals = df[_et_col].dropna().astype(str).str.strip()
+        _vals = _vals[_vals != ""]
+        if len(_vals) >= 50:
+            _distinct = _vals.nunique()
+            if _distinct > 50:
+                _n4_passed = False
+                _n4_detail = (f"'{_et_col}' has {_distinct} distinct values — "
+                              f"audit logs typically have ≤50 (CREATE, UPDATE, "
+                              f"DELETE, LOGIN, etc.)")
+                evidence.append(
+                    f"Action distinct values: {_distinct} (sample: "
+                    f"{', '.join(list(_vals.unique())[:4])})"
                 )
-            details.append(
-                f"Event-type column '{_et_col}' has {_distinct} distinct values — "
-                f"real audit trails typically have fewer than 20."
-            )
+    results.append({
+        "id": "AT-N4", "name": "Action vocabulary finite",
+        "severity_class": "normal", "passed": _n4_passed, "detail": _n4_detail,
+    })
 
-    # ── Layer 5b: Username cardinality ────────────────────────────────────
-    _un_candidates = ["user_name", "username", "user", "user_id",
-                      "operator", "performed_by"]
-    _un_col = None
-    for _c in df.columns:
-        if str(_c).strip().lower().replace(" ", "_") in _un_candidates:
-            _un_col = _c; break
-    if _un_col is not None and len(df) >= 100:
-        _un_vals = df[_un_col].dropna().astype(str).str.strip()
-        _un_vals = _un_vals[_un_vals != ""]
-        _un_distinct = _un_vals.nunique()
-        if _un_distinct == 1:
-            details.append(
-                f"All {len(_un_vals)} events are attributed to a single user. "
-                f"This is unusual for a multi-user system."
+    # ── AT-N5: User attribution on most rows (≥90% populated) ──────────────
+    _n5_passed, _n5_detail = True, "User attribution present"
+    if _user_col is not None and len(df) >= 30:
+        _pop = df[_user_col].astype(str).str.strip()
+        _rate = (_pop != "").sum() / len(df)
+        if _rate < 0.90:
+            _n5_passed = False
+            _n5_detail = (f"Only {int(_rate*100)}% of rows have a user value "
+                          f"in '{_user_col}' — audit logs require user "
+                          f"attribution on ≥90% of events")
+            evidence.append(
+                f"User populated rate: {int(_rate*100)}%"
             )
-        elif _un_distinct > len(_un_vals) * 0.9 and len(_un_vals) > 100:
-            # Near 1:1 ratio of users to events — suspicious
-            details.append(
-                f"File has {_un_distinct} distinct usernames across "
-                f"{len(_un_vals)} events — near 1:1 ratio is unusual."
-            )
+    results.append({
+        "id": "AT-N5", "name": "User attribution present",
+        "severity_class": "normal", "passed": _n5_passed, "detail": _n5_detail,
+    })
 
-    if details:
-        return (
-            True, "warn",
-            "File accepted with warnings",
-            details,
-            evidence
+    # ── AT-N6: Record reference column present ─────────────────────────────
+    _n6_passed, _n6_detail = True, "Record reference present"
+    _record_candidates = {"record_id", "recordid", "table", "field",
+                          "sample_id", "batch_id", "case_id", "subject",
+                          "subject_id", "document_id", "documentid", "object_id"}
+    _rec_col = _find_col(df, _record_candidates)
+    if _rec_col is None:
+        _n6_passed = False
+        _n6_detail = ("No record-reference column found (expected one of: "
+                      "record_id, table, field, sample_id, batch_id, "
+                      "case_id, subject, document_id)")
+        evidence.append("No record-reference column found")
+    else:
+        _pop_rate = (df[_rec_col].astype(str).str.strip() != "").sum() / max(len(df), 1)
+        if _pop_rate < 0.50:
+            _n6_passed = False
+            _n6_detail = (f"'{_rec_col}' column exists but only {int(_pop_rate*100)}% "
+                          f"of rows have values")
+            evidence.append(
+                f"{_rec_col} populated in only {int(_pop_rate*100)}% of rows"
+            )
+    results.append({
+        "id": "AT-N6", "name": "Record reference present",
+        "severity_class": "normal", "passed": _n6_passed, "detail": _n6_detail,
+    })
+
+    # ── AT-N7: No UAR vocabulary dominates ─────────────────────────────────
+    _uar_cols = _matching_cols(df, _UAR_VOCAB_COLUMNS)
+    _at_cols  = _matching_cols(df, _AT_VOCAB_COLUMNS)
+    _n7_passed = not (len(_uar_cols) >= 2 and len(_at_cols) < 2)
+    if _n7_passed:
+        _n7_detail = "AT vocabulary consistent"
+    else:
+        _n7_detail = (f"File has {len(_uar_cols)} UAR-style columns "
+                      f"({', '.join(_uar_cols[:4])}) and only {len(_at_cols)} "
+                      f"AT-style columns — looks like a User Access Review "
+                      f"source, not an audit trail")
+        evidence.append(
+            f"UAR columns: {', '.join(_uar_cols)} · AT columns: "
+            f"{', '.join(_at_cols) if _at_cols else 'none'}"
         )
-    return (True, "ok", "", [], [])
+    results.append({
+        "id": "AT-N7", "name": "No UAR vocabulary dominates",
+        "severity_class": "normal", "passed": _n7_passed, "detail": _n7_detail,
+    })
+
+    # ── Compute verdict ─────────────────────────────────────────────────────
+    _severity = _verdict_from_results(results)
+    _title = ""
+    if _severity == "hard_reject":
+        _title = "File rejected — does not match audit trail source pattern"
+    elif _severity == "warn":
+        _title = "File accepted with a warning"
+
+    return (_severity != "hard_reject", _severity, _title, results, evidence)
+
+
+# ---------------------------------------------------------------------------
+# UAR file validator
+# ---------------------------------------------------------------------------
+def _validate_uar_input_file(raw_bytes: bytes, file_name: str, df: pd.DataFrame,
+                              all_sheet_names: list = None) -> tuple:
+    """
+    UAR input file validator. 7 invariants (3 fatal, 4 normal).
+    """
+    results  = []
+    evidence = []
+
+    # ── UAR-F1: Not a VALINTEL output ──────────────────────────────────────
+    _sheet_hits = set()
+    if all_sheet_names:
+        _sheet_hits = {str(s).strip().lower() for s in all_sheet_names} & _VALINTEL_SHEET_FINGERPRINTS
+    _col_hits   = _cols_lower(df) & _VALINTEL_COLUMN_FINGERPRINTS
+    _f1_passed  = not _sheet_hits and not _col_hits
+    _f1_detail  = "Not a VALINTEL output"
+    if not _f1_passed:
+        if _sheet_hits:
+            _f1_detail = (f"VALINTEL-only sheets detected: "
+                          f"{', '.join(sorted(_sheet_hits))}")
+            evidence.append(_f1_detail)
+        if _col_hits:
+            _c = f"VALINTEL-only columns detected: {', '.join(sorted(_col_hits))}"
+            evidence.append(_c)
+    results.append({
+        "id": "UAR-F1", "name": "Not a VALINTEL output",
+        "severity_class": "fatal", "passed": _f1_passed, "detail": _f1_detail,
+    })
+
+    # ── UAR-F2: User identifier column present ─────────────────────────────
+    _user_candidates = {"user", "user_name", "username", "user_id",
+                        "account", "operator", "employee", "employee_id",
+                        "login", "login_id"}
+    _user_col = _find_col(df, _user_candidates)
+    _f2_passed = _user_col is not None
+    _f2_detail = (f"User identifier column: '{_user_col}'" if _user_col
+                  else "No user identifier column found (expected: user, "
+                       "username, user_id, account, login, employee)")
+    if not _f2_passed:
+        evidence.append("No user-identifier column found in the file")
+    results.append({
+        "id": "UAR-F2", "name": "User identifier present",
+        "severity_class": "fatal", "passed": _f2_passed, "detail": _f2_detail,
+    })
+
+    # ── UAR-F3: User-centric structure (not an event log) ──────────────────
+    _f3_passed, _f3_detail = True, "User-centric structure confirmed"
+    if _user_col is not None and len(df) >= 20:
+        _uv = df[_user_col].dropna().astype(str).str.strip()
+        _uv = _uv[_uv != ""]
+        if len(_uv) >= 20:
+            _ratio = _uv.nunique() / len(_uv)
+            if _ratio < 0.50:
+                _f3_passed = False
+                _f3_detail = (f"{_uv.nunique()} unique users across {len(_uv)} "
+                              f"rows (ratio {_ratio:.2f}) — this is event-log "
+                              f"shaped (ratio ≥0.50 expected for UAR)")
+                evidence.append(
+                    f"User uniqueness ratio: {_ratio:.2f} (AT-shaped)"
+                )
+    results.append({
+        "id": "UAR-F3", "name": "User-centric structure",
+        "severity_class": "fatal", "passed": _f3_passed, "detail": _f3_detail,
+    })
+
+    # ── UAR-N1: Role/permission column exists ──────────────────────────────
+    _role_candidates = {"role", "roles", "permission", "permissions",
+                        "group", "groups", "profile", "access_level",
+                        "privilege", "privileges", "authorization",
+                        "authorizations", "entitlement"}
+    _role_col = _find_col(df, _role_candidates)
+    _n1_passed = _role_col is not None
+    _n1_detail = (f"Role/permission column: '{_role_col}'" if _role_col
+                  else "No role/permission column found (expected: role, "
+                       "permission, group, profile, access_level, privilege)")
+    if not _n1_passed:
+        evidence.append("No role/permission column found")
+    results.append({
+        "id": "UAR-N1", "name": "Role/permission column",
+        "severity_class": "normal", "passed": _n1_passed, "detail": _n1_detail,
+    })
+
+    # ── UAR-N2: Status column exists ───────────────────────────────────────
+    _status_candidates = {"active", "status", "account_status",
+                          "employment_status", "account_state", "disabled",
+                          "enabled", "is_active", "active_yn"}
+    _status_col = _find_col(df, _status_candidates)
+    _n2_passed = _status_col is not None
+    _n2_detail = (f"Status column: '{_status_col}'" if _status_col
+                  else "No status column found (expected: active, status, "
+                       "employment_status, account_status, disabled, enabled)")
+    if not _n2_passed:
+        evidence.append("No status column found")
+    results.append({
+        "id": "UAR-N2", "name": "Status column",
+        "severity_class": "normal", "passed": _n2_passed, "detail": _n2_detail,
+    })
+
+    # ── UAR-N3: No event-log signature ─────────────────────────────────────
+    _n3_passed, _n3_detail = True, "Not event-log shaped"
+    _ts_candidates = {"event_timestamp", "event_time", "change_time",
+                      "audit_time", "action_timestamp"}
+    _ts_col = _find_col(df, _ts_candidates)
+    if _ts_col is not None and len(df) >= 20:
+        try:
+            _ts = pd.to_datetime(df[_ts_col], errors="coerce").dropna()
+            if len(_ts) >= 20:
+                _uniq_ratio = _ts.nunique() / len(_ts)
+                if _uniq_ratio > 0.50:
+                    _n3_passed = False
+                    _n3_detail = (f"'{_ts_col}' has {_ts.nunique()} distinct "
+                                  f"timestamps across {len(_ts)} rows "
+                                  f"(ratio {_uniq_ratio:.2f}) — looks like "
+                                  f"events, not user attributes")
+                    evidence.append(
+                        f"Event-log-shaped timestamps in '{_ts_col}'"
+                    )
+        except Exception:
+            pass
+    results.append({
+        "id": "UAR-N3", "name": "No event-log signature",
+        "severity_class": "normal", "passed": _n3_passed, "detail": _n3_detail,
+    })
+
+    # ── UAR-N4: No AT vocabulary dominates ─────────────────────────────────
+    _at_cols  = _matching_cols(df, _AT_VOCAB_COLUMNS)
+    _uar_cols = _matching_cols(df, _UAR_VOCAB_COLUMNS)
+    _n4_passed = not (len(_at_cols) >= 2 and len(_uar_cols) < 2)
+    if _n4_passed:
+        _n4_detail = "UAR vocabulary consistent"
+    else:
+        _n4_detail = (f"File has {len(_at_cols)} AT-style columns "
+                      f"({', '.join(_at_cols[:4])}) and only {len(_uar_cols)} "
+                      f"UAR-style columns — looks like an audit trail, not "
+                      f"a user access review")
+        evidence.append(
+            f"AT columns: {', '.join(_at_cols)} · UAR columns: "
+            f"{', '.join(_uar_cols) if _uar_cols else 'none'}"
+        )
+    results.append({
+        "id": "UAR-N4", "name": "No AT vocabulary dominates",
+        "severity_class": "normal", "passed": _n4_passed, "detail": _n4_detail,
+    })
+
+    # ── Compute verdict ─────────────────────────────────────────────────────
+    _severity = _verdict_from_results(results)
+    _title = ""
+    if _severity == "hard_reject":
+        _title = "File rejected — does not match User Access Review source pattern"
+    elif _severity == "warn":
+        _title = "File accepted with a warning"
+
+    return (_severity != "hard_reject", _severity, _title, results, evidence)
+
+
+# ---------------------------------------------------------------------------
+# Shared UI helper — render validator verdict with override button
+# ---------------------------------------------------------------------------
+def _render_validator_verdict(severity, title, results, evidence,
+                               file_name, user, module: str):
+    """
+    Render the validator verdict block in the UI. Returns True if user should
+    be allowed to proceed (either passed validation or clicked override).
+
+    module: "AT" or "UAR" — used in audit log entry on override.
+    """
+    # Always show pass/fail table for transparency
+    _passed = [r for r in results if r["passed"]]
+    _failed = [r for r in results if not r["passed"]]
+
+    if severity == "ok":
+        return True   # silent pass — nothing to render, allow through
+
+    if severity == "warn":
+        st.warning(f"⚠️ **{title}**")
+        for r in _failed:
+            st.write(f"• **{r['id']}** {r['name']}: {r['detail']}")
+        with st.expander("✓ Invariants that passed", expanded=False):
+            for r in _passed:
+                st.write(f"• **{r['id']}** {r['name']}")
+        if evidence:
+            with st.expander("🔍 Evidence", expanded=False):
+                for e in evidence:
+                    st.code(e, language=None)
+        return True   # warn allows through
+
+    # hard_reject
+    st.error(f"⛔ **{title}**")
+    st.markdown(
+        f"**{len(_failed)} of {len(results)} invariants failed.** "
+        f"This file does not match the expected pattern for a "
+        f"{'Audit Trail' if module == 'AT' else 'User Access Review'} "
+        f"source export from a regulated system (LIMS, MES, ERP, CDS, "
+        f"pharmacovigilance, clinical systems)."
+    )
+    st.markdown("**Failed invariants:**")
+    for r in _failed:
+        _icon = "🔴" if r["severity_class"] == "fatal" else "🟠"
+        st.write(f"{_icon} **{r['id']}** {r['name']} — {r['detail']}")
+    with st.expander(f"✓ {len(_passed)} invariants that passed", expanded=False):
+        for r in _passed:
+            st.write(f"• **{r['id']}** {r['name']}")
+    if evidence:
+        with st.expander("🔍 Evidence details", expanded=False):
+            for e in evidence:
+                st.code(e, language=None)
+
+    st.info(
+        "📎 If this is a legitimate source file that VALINTEL has "
+        "misidentified (e.g., your system uses non-standard column names), "
+        "you can override the block below. The override will be recorded "
+        "in the audit log."
+    )
+
+    # Override — per-file key so clicking on one file doesn't unlock others
+    _override_key = f"validator_override__{module}__{file_name}"
+    _col1, _col2 = st.columns([2, 3])
+    with _col1:
+        if st.button(
+            "⚠️  Override — I confirm this is legitimate",
+            key=f"override_btn_{module}_{hash(file_name) % 100000}",
+            type="secondary",
+            help="Bypasses the block and logs the decision to the audit trail."
+        ):
+            st.session_state[_override_key] = True
+            # Log the override — GxP-defensible trail
+            try:
+                _failed_ids = ",".join(r["id"] for r in _failed)
+                log_audit(
+                    user,
+                    f"{module}_VALIDATOR_OVERRIDE",
+                    "AUDIT_TRAIL" if module == "AT" else "ACCESS_REVIEW",
+                    new_value=(f"Overrode {len(_failed)} validator invariants: "
+                               f"{_failed_ids}"),
+                    doc_ids=file_name,
+                )
+            except Exception:
+                pass
+            st.rerun()
+
+    # Check if already overridden (user already clicked on a prior run)
+    if st.session_state.get(_override_key, False):
+        st.success(
+            f"✓ Override active for **{file_name}** — validator block "
+            f"bypassed. Decision logged to audit trail."
+        )
+        return True
+
+    return False   # blocked
+
 
 
 def build_cia_pass1_prompt(change_spec_text: str) -> str:
@@ -12388,13 +12765,49 @@ def show_user_access_review(user: str, role: str, model_id: str):
 
     if uploaded:
         try:
-            if uploaded.name.endswith(".csv"):
-                raw_df = pd.read_csv(uploaded, dtype=str)
+            _uar_raw_bytes = uploaded.getvalue()
+            _uar_sheets    = None
+            if uploaded.name.lower().endswith(".csv"):
+                raw_df = pd.read_csv(io.BytesIO(_uar_raw_bytes), dtype=str)
             else:
-                raw_df = pd.read_excel(uploaded, dtype=str)
+                _xl = pd.ExcelFile(io.BytesIO(_uar_raw_bytes))
+                _uar_sheets = list(_xl.sheet_names)
+                # Prefer a sheet whose name suggests user/access data
+                _SKIP = {"usage instructions", "usage", "instructions",
+                         "readme", "read me", "guide"}
+                _data_sheets = [s for s in _uar_sheets
+                                if s.strip().lower() not in _SKIP]
+                _preferred = [s for s in _data_sheets
+                              if any(kw in s.lower()
+                                     for kw in ("user", "access", "role",
+                                                "permission", "all users"))]
+                _sheet_to_use = (_preferred or _data_sheets or _uar_sheets)[0]
+                raw_df = pd.read_excel(io.BytesIO(_uar_raw_bytes),
+                                       sheet_name=_sheet_to_use,
+                                       dtype=str)
+                if len(_uar_sheets) > 1:
+                    st.caption(
+                        f"📋 Reading sheet: **{_sheet_to_use}**"
+                        + (f"  ·  skipped: "
+                           f"{', '.join(s for s in _uar_sheets if s != _sheet_to_use)}"
+                           if len(_uar_sheets) > 1 else "")
+                    )
             raw_df.columns = raw_df.columns.str.strip()
-            st.session_state["uar_raw_df"]   = raw_df
-            st.session_state["uar_file_name"] = uploaded.name
+
+            # ── Validate UAR input BEFORE committing to session state ──────
+            # Rejects VALINTEL outputs and event-log-shaped files (AT, training
+            # records, etc.) from being ingested as user access reviews.
+            _ok, _sev, _title, _results, _evi = _validate_uar_input_file(
+                _uar_raw_bytes, uploaded.name, raw_df, _uar_sheets
+            )
+            _proceed = _render_validator_verdict(
+                _sev, _title, _results, _evi,
+                uploaded.name, user, module="UAR"
+            )
+            if _proceed:
+                st.session_state["uar_raw_df"]   = raw_df
+                st.session_state["uar_file_name"] = uploaded.name
+            # else: blocked — uar_raw_df not set until override clicked.
         except Exception as e:
             st.error(f"Could not read file: {e}")
             return
@@ -18190,41 +18603,25 @@ match your system's export column names to the fields above — rename nothing i
                                       if len(sheets) > 1 else ""))
 
                 # ── Validate input BEFORE committing to session state ──────
-                # Rejects VALINTEL's own outputs and other non-audit-trail files.
-                # Prevents the "upload VALINTEL output, get 1000 fake findings"
-                # data integrity bug (§211.68 / Annex 11 §5 control).
-                _ok, _sev, _title, _det, _evi = _validate_at_input_file(
+                # New invariant-based validator. 10 checks (3 fatal, 7 normal).
+                # Balanced verdict: 2+ normal failures OR any fatal → block.
+                # Hard-reject shows override button that logs the decision.
+                _ok, _sev, _title, _results, _evi = _validate_at_input_file(
                     raw, uploaded.name, df, _sheet_names_for_validation
                 )
-                if _sev == "hard_reject":
-                    st.error(f"⛔ **{_title}**")
-                    for _line in _det:
-                        st.write(f"• {_line}")
-                    if _evi:
-                        with st.expander("🔍 Why this file was rejected — evidence", expanded=False):
-                            for _e in _evi:
-                                st.code(_e, language=None)
-                    st.info(
-                        "📎 Upload the **raw audit trail export** from your source "
-                        "system (LIMS, MES, QMS, etc.) — not a VALINTEL-generated "
-                        "evidence package."
-                    )
-                    # Do NOT populate at_raw_df — the file is blocked.
-                else:
+                _proceed = _render_validator_verdict(
+                    _sev, _title, _results, _evi,
+                    uploaded.name, user, module="AT"
+                )
+                if _proceed:
                     st.session_state["at_raw_df"]   = df
                     st.session_state["at_file_name"] = uploaded.name
                     st.success(f"✅ **{uploaded.name}** — "
                                f"**{len(df):,} rows** × **{len(df.columns)} columns**")
-                    if _sev == "warn" and _det:
-                        _warn_lines = "\n".join(f"• {d}" for d in _det)
-                        st.warning(
-                            "⚠️ **File accepted with warnings:**\n\n" + _warn_lines +
-                            "\n\nReview the file carefully before scoring. "
-                            "If the file is actually a VALINTEL output, cancel this "
-                            "upload and use the raw source export instead."
-                        )
                     with st.expander("Preview (first 10 rows)", expanded=False):
                         st.dataframe(df.head(10), use_container_width=True)
+                # If not _proceed: validator blocked + override button is
+                # rendered by _render_validator_verdict; at_raw_df is not set.
             except Exception as e:
                 st.error(f"⛔ Could not read file: {e}")
 
