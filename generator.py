@@ -4344,6 +4344,7 @@ _defaults = {
     "uar_raw_df":           None,
     "uar_scored_result":    None,
     "uar_analysis_done":    False,
+    "uar_running":          False,
     "uar_system_name":      "",
     "uar_review_start":     "",
     "uar_review_end":       "",
@@ -12196,15 +12197,26 @@ def show_user_access_review(user: str, role: str, model_id: str):
     st.markdown("### Step 3 — Run Access Review")
 
     _already_done = st.session_state.get("uar_analysis_done", False)
+    _is_running   = st.session_state.get("uar_running", False)
     run_col, reset_col, _ = st.columns([3, 2, 3])
     with run_col:
+        if _is_running:
+            _btn_label = "⏳ Running Analysis…"
+        elif _already_done:
+            _btn_label = "✅ Analysis Complete"
+        else:
+            _btn_label = "▶ Run Access Review"
         run_btn = st.button(
-            "✅ Analysis Complete" if _already_done else "▶ Run Access Review",
+            _btn_label,
             type="primary",
             use_container_width=True,
             key="uar_run_btn",
-            disabled=_already_done,
-            help="Analysis already generated. Use 'New Review' to reset and re-run." if _already_done else None,
+            disabled=(_already_done or _is_running),
+            help=(
+                "Analysis in progress — please wait." if _is_running else
+                "Analysis already generated. Use 'New Review' to reset and re-run."
+                if _already_done else None
+            ),
         )
     with reset_col:
         if _already_done:
@@ -12212,29 +12224,41 @@ def show_user_access_review(user: str, role: str, model_id: str):
                 for k in ["uar_raw_df", "uar_scored_result", "uar_analysis_done",
                           "uar_file_name"]:
                     st.session_state[k] = None if k != "uar_analysis_done" else False
+                st.session_state["uar_running"] = False
                 st.session_state["uar_key_n"] = st.session_state.get("uar_key_n", 0) + 1
                 st.rerun()
 
     if run_btn:
+        # Lock the button before starting work — re-runs during analysis will
+        # see uar_running=True and render disabled.
+        st.session_state["uar_running"] = True
         at_top = st.session_state.get("at_top20_df")   # cross-module: from AT session
-        with st.status("Running User Access Review…", expanded=True) as status:
-            _ = st.write("Normalising columns and preprocessing…")
-            result = uar_score_users(raw_df, at_top_df=at_top)
+        try:
+            with st.status("Running User Access Review…", expanded=True) as status:
+                _ = st.write("Normalising columns and preprocessing…")
+                result = uar_score_users(raw_df, at_top_df=at_top)
 
-            if result["data_quality_issues"]:
-                status.update(label="Data Quality Issue", state="error")
-                for issue in result["data_quality_issues"]:
-                    st.error(issue)
-                return
+                if result["data_quality_issues"]:
+                    status.update(label="Data Quality Issue", state="error")
+                    for issue in result["data_quality_issues"]:
+                        st.error(issue)
+                    st.session_state["uar_running"] = False
+                    return
 
-            _ = st.write(f"Scored {result['summary'].get('total_users', 0):,} users…")
-            _ = st.write("Generating AI narratives…")
-            if not result["top_users"].empty:
-                result["top_users"] = uar_generate_justifications(
-                    result["top_users"], model_id)
-            _ = st.write("Building evidence package…")
+                _ = st.write(f"Scored {result['summary'].get('total_users', 0):,} users…")
+                _ = st.write("Generating AI narratives…")
+                if not result["top_users"].empty:
+                    result["top_users"] = uar_generate_justifications(
+                        result["top_users"], model_id)
+                _ = st.write("Building evidence package…")
 
-            status.update(label="✅ Analysis complete", state="complete")
+                status.update(label="✅ Analysis complete", state="complete")
+        except Exception:
+            # Always clear the running flag even if an exception escapes
+            st.session_state["uar_running"] = False
+            raise
+        finally:
+            st.session_state["uar_running"] = False
 
         st.session_state["uar_scored_result"] = result
         st.session_state["uar_analysis_done"] = True
@@ -12275,6 +12299,34 @@ def show_user_access_review(user: str, role: str, model_id: str):
             st.session_state["dim_periods_banked"] = len(
                 set(r["Review_Period"] for r in _uar_existing))
             # Invalidate cached DIM result so next DIM open re-scores with UAR data
+            st.session_state["dim_analysis_done"] = False
+            st.session_state["dim_result"] = None
+        else:
+            # UAR ran but found zero High/Critical users — bank a sentinel row
+            # so DIM can distinguish "UAR ran clean" from "UAR never ran".
+            # Without this, a clean UAR run is indistinguishable from the module
+            # not being exercised, which breaks per-module posture trending.
+            _uar_sentinel = {
+                "Review_Period":  _uar_period_label,
+                "Username":       "(no escalations)",
+                "Risk_Level":     "Low",
+                "Rule_Triggered": "No named rules triggered",
+                "Event_Category": "Other",
+                "System_Name":    _uar_sys,
+                "Event_Type":     "ACCESS_REVIEW",
+                "Event_Timestamp":"",
+                "Source_File":    _uar_file,
+                "Source_Module":  "UAR",
+            }
+            _uar_existing = [
+                r for r in st.session_state.get("dim_accumulated_rows", [])
+                if not (r.get("Review_Period") == _uar_period_label
+                        and r.get("Source_Module") == "UAR")
+            ]
+            _uar_existing.append(_uar_sentinel)
+            st.session_state["dim_accumulated_rows"] = _uar_existing
+            st.session_state["dim_periods_banked"] = len(
+                set(r["Review_Period"] for r in _uar_existing))
             st.session_state["dim_analysis_done"] = False
             st.session_state["dim_result"] = None
 
@@ -12698,11 +12750,18 @@ def dim_score_periods(df: pd.DataFrame) -> dict:
         # so a clean AT period is never masked by UAR findings (and vice versa).
         pf_at  = pf_real[pf_real["Source_Module"] == "AT"]
         pf_uar = pf_real[pf_real["Source_Module"] == "UAR"]
+        # "Was this module exercised?" — sentinel OR real row presence.
+        # This distinguishes "module ran and found nothing" (zero findings is a
+        # REAL signal — compare to prior) from "module never ran" (no signal).
+        _at_ran  = bool((pf["Source_Module"] == "AT").any())
+        _uar_ran = bool((pf["Source_Module"] == "UAR").any())
         period_rows.append({
             "Review_Period":        p,
             "Total_Findings":       len(pf_real),
             "AT_Findings":          int((pf_real["Source_Module"] == "AT").sum()),
             "UAR_Findings":         int((pf_real["Source_Module"] == "UAR").sum()),
+            "AT_Ran":               _at_ran,
+            "UAR_Ran":              _uar_ran,
             "High_Critical":        int(pf_real["is_high_crit"].sum()),
             "AT_High_Critical":     int(pf_at["is_high_crit"].sum()),
             "UAR_High_Critical":    int(pf_uar["is_high_crit"].sum()),
@@ -12750,42 +12809,55 @@ def dim_score_periods(df: pd.DataFrame) -> dict:
         if chg < -15:           return "Improving"
         return "Stable"
 
-    def _compute_module_postures(findings_key, hc_key):
+    def _compute_module_postures(findings_key, hc_key, ran_key):
         """
         Walk periods in order. A module's posture is:
-          - "N/A"       if this period has 0 findings in the module
-          - "Baseline"  if this is the first period with >0 findings for the module
-          - trend label computed from pct_chg vs the prior ACTIVE period otherwise
+          - "N/A"       if the module was NOT run in this period (ran_key = False)
+          - "Baseline"  if this is the first period the module was run (no prior)
+          - trend label computed from count vs the prior ACTIVE period otherwise
+
+        "Module ran" includes periods where it ran clean (zero findings).
+        A period with 7 findings followed by a clean run (0 findings) is a
+        real Improving signal — it only reads N/A if the module was never
+        actually exercised for that period.
         """
         postures = []
-        seen_active = False  # has this module had any prior period with findings?
-        prev_count  = None   # findings count in the prior active period
+        seen_active = False  # has this module been run in any prior period?
+        prev_count  = None   # findings count in the prior RUN period
         for _, row in period_df.iterrows():
-            count = int(row.get(findings_key, 0))
-            if count == 0:
+            if not bool(row.get(ran_key, False)):
                 postures.append("N/A")
                 continue
+            count = int(row.get(findings_key, 0))
             if not seen_active:
-                # First-ever active period for this module — Baseline, no trend.
+                # First-ever run for this module — Baseline, no trend.
                 postures.append("Baseline")
                 seen_active = True
                 prev_count = count
                 continue
-            # Subsequent active period — compute trend vs the prior ACTIVE count.
-            # Note: this differs from *_Findings_pct_chg which uses immediate prior
-            # period (which may be 0 / N/A). Using prior active gives a meaningful
-            # comparison: "vs the last time this module was actually run."
-            if prev_count and prev_count > 0:
-                chg = (count - prev_count) / prev_count * 100.0
-            else:
+            # Subsequent run — compute trend vs prior run's count.
+            # If prior was 0 and current is 0: Stable (no change).
+            # If prior was 0 and current > 0: can't compute %; use hc signal.
+            # If prior > 0: standard pct change.
+            if prev_count is None:
                 chg = float("nan")
-            hc  = int(row.get(hc_key, 0))
+            elif prev_count == 0 and count == 0:
+                chg = 0.0
+            elif prev_count == 0 and count > 0:
+                # Went from clean to findings — deteriorating.
+                # Treat as +100% to trigger Deteriorating (not Critical unless HC).
+                chg = 100.0
+            else:
+                chg = (count - prev_count) / prev_count * 100.0
+            hc = int(row.get(hc_key, 0))
             postures.append(_posture_for(chg, hc))
             prev_count = count
         return postures
 
-    period_df["AT_Posture"]  = _compute_module_postures("AT_Findings",  "AT_High_Critical")
-    period_df["UAR_Posture"] = _compute_module_postures("UAR_Findings", "UAR_High_Critical")
+    period_df["AT_Posture"]  = _compute_module_postures(
+        "AT_Findings",  "AT_High_Critical",  "AT_Ran")
+    period_df["UAR_Posture"] = _compute_module_postures(
+        "UAR_Findings", "UAR_High_Critical", "UAR_Ran")
 
     # Rank for worst-of comparison. Baseline and N/A are both "no-signal"
     # and excluded from overall comparison unless they're the only entry.
@@ -12937,10 +13009,13 @@ def dim_score_periods(df: pd.DataFrame) -> dict:
         rule_df = pd.DataFrame()
 
     # ── Top 3 to fix ──────────────────────────────────────────────────────────
+    # Use per-module metrics (AT_Findings, UAR_Findings) instead of commingled
+    # Total_Findings / High_Critical. Prevents a clean AT result + a single UAR
+    # finding from appearing as "Total Findings +800%" in the action list.
     last_period_row = period_df.iloc[-1]
     metric_labels = {
-        "Total_Findings":    "Total Findings",
-        "High_Critical":     "High/Critical Findings",
+        "AT_Findings":       "AT Findings",
+        "UAR_Findings":      "UAR Findings",
         "Deletion_Findings": "Deletion Events",
         "Failed_Login":      "Failed Login Events",
         "Off_Hours":         "Off-Hours Activity",
@@ -13132,17 +13207,29 @@ def dim_build_excel(result: dict, system_name: str, file_name: str,
     ws1.row_dimensions[2].height = 14
 
     # ── Row 4: DI Posture traffic-light banner ────────────────────────────────
-    posture    = smry["posture_last"]
+    # Shows overall posture + per-module split so a clean AT period is never
+    # masked by UAR findings in the commingled headline.
+    posture      = smry["posture_last"]
+    at_post_last = smry.get("at_posture_last",  "N/A")
+    uar_post_last= smry.get("uar_posture_last", "N/A")
+    driver       = smry.get("posture_driver",   "—")
     p_bg, p_fg = _POSTURE_COLORS.get(posture, (C_MID, C_WHITE))
     _posture_icon = {
         "Critical": "🔴", "Deteriorating": "🟠",
-        "Stable": "🔵", "Improving": "🟢", "Baseline": "⚪"
+        "Stable": "🔵", "Improving": "🟢",
+        "Baseline": "⚪", "N/A": "⚪"
     }.get(posture, "⚪")
+    _driver_phrase = (
+        f"  |   Driven by {driver}" if driver in ("AT", "UAR") else ""
+    )
     ws1.merge_cells("A4:F4")
     pos = ws1.cell(row=4, column=1,
                    value=f"{_posture_icon}  DI POSTURE: {posture.upper()}"
-                         f"   |   {last_period_label} vs {first_period_label}")
-    pos.font      = Font(name="Calibri", bold=True, size=13, color=p_fg)
+                         f"   |   AT: {at_post_last.upper()}"
+                         f"   |   UAR: {uar_post_last.upper()}"
+                         f"{_driver_phrase}"
+                         f"   |   {last_period_label}")
+    pos.font      = Font(name="Calibri", bold=True, size=12, color=p_fg)
     pos.fill      = _fill(p_bg)
     pos.alignment = Alignment(horizontal="left", vertical="center")
     ws1.row_dimensions[4].height = 32
@@ -13157,19 +13244,21 @@ def dim_build_excel(result: dict, system_name: str, file_name: str,
     div.alignment = Alignment(horizontal="left", vertical="center")
     ws1.row_dimensions[5].height = 16
 
-    # ── Rows 6-8: KPI tiles (Total, AT, UAR, Deletions, Failed Logins, Off-Hours) ──
-    # H/C removed — always equals Total since DIM only banks H/C events
+    # ── Rows 6-8: KPI tiles ──
+    # IMPORTANT: "Total Findings" shows the raw count only — NOT a pct vs prior.
+    # Per-period total commingles AT + UAR, so an AT-only improvement gets
+    # masked by a UAR-only finding and vice versa. Per-module deltas below
+    # are the ones to read for trending.
     last_row = pdf.iloc[-1]
     kpis = [
-        ("Total Findings",      "Total_Findings",      C_NAVY),
-        ("AT Findings",         "AT_Findings",         "0369A1"),
-        ("UAR Findings",        "UAR_Findings",        "7C3AED"),
-        ("Deletion Events",     "Deletion_Findings",   C_RED),
-        ("Failed Login Events", "Failed_Login",        "B45309"),
+        ("Total Findings",      "Total_Findings",      C_NAVY,    False),  # no pct
+        ("AT Findings",         "AT_Findings",         "0369A1",  True),
+        ("UAR Findings",        "UAR_Findings",        "7C3AED",  True),
+        ("Deletion Events",     "Deletion_Findings",   C_RED,     True),
+        ("Failed Login Events", "Failed_Login",        "B45309",  True),
     ]
-    for ci, (label, col_key, kpi_color) in enumerate(kpis, 1):
+    for ci, (label, col_key, kpi_color, show_pct) in enumerate(kpis, 1):
         val  = int(last_row[col_key])
-        pct  = last_row.get(f"{col_key}_pct_chg")
         _hdr(ws1, 6, ci, label, bold=True, bg=C_NAVY, fg=C_WHITE, align="center")
         vc = ws1.cell(row=7, column=ci, value=val)
         vc.font      = Font(name="Calibri", bold=True, size=20, color=kpi_color)
@@ -13177,15 +13266,27 @@ def dim_build_excel(result: dict, system_name: str, file_name: str,
         vc.alignment = Alignment(horizontal="center", vertical="center")
         vc.border    = bdr
         ws1.row_dimensions[7].height = 36
-        if pd.notna(pct) and pct is not None:
-            arrow      = _dim_trend_arrow(float(pct))
-            tlabel     = _dim_trend_label(float(pct))
-            tcolor     = _TREND_COLORS.get(tlabel, "1A1A1A")
-            tbg        = _TREND_BG.get(tlabel, C_GREY)
-            delta_text = f"{arrow} {pct:+.1f}% vs prior"
-            tc = ws1.cell(row=8, column=ci, value=delta_text)
-            tc.font      = Font(name="Calibri", size=8, bold=True, color=tcolor)
-            tc.fill      = _fill(tbg)
+        # Per-module tiles show delta. Total tile shows a neutral subtitle
+        # explaining why no aggregate delta is shown (to avoid the commingling
+        # trap where AT improving + UAR finding = fake +800%).
+        if show_pct:
+            pct = last_row.get(f"{col_key}_pct_chg")
+            if pd.notna(pct) and pct is not None:
+                arrow      = _dim_trend_arrow(float(pct))
+                tlabel     = _dim_trend_label(float(pct))
+                tcolor     = _TREND_COLORS.get(tlabel, "1A1A1A")
+                tbg        = _TREND_BG.get(tlabel, C_GREY)
+                delta_text = f"{arrow} {pct:+.1f}% vs prior"
+                tc = ws1.cell(row=8, column=ci, value=delta_text)
+                tc.font      = Font(name="Calibri", size=8, bold=True, color=tcolor)
+                tc.fill      = _fill(tbg)
+                tc.alignment = Alignment(horizontal="center", vertical="center")
+                tc.border    = bdr
+        else:
+            # Total Findings — neutral subtitle, no misleading aggregate pct
+            tc = ws1.cell(row=8, column=ci, value="see per-module Δ →")
+            tc.font      = Font(name="Calibri", size=8, italic=True, color="94A3B8")
+            tc.fill      = _fill("F8FAFC")
             tc.alignment = Alignment(horizontal="center", vertical="center")
             tc.border    = bdr
         ws1.row_dimensions[8].height = 16
