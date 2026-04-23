@@ -6944,6 +6944,12 @@ _AT_DOMAIN_TERMS = {
     # GxP record types
     "result","sample","batch","formula","specification","record","entry","log",
     "register","report","certificate","coa","coc","bpr","bmr",
+    # v94f Q3-C: additional pharma/lab domain nouns — prevents false positives
+    # when a legitimate 3+ word rationale uses common scientific nouns.
+    "accuracy","blank","buffer","calibrant","chromatogram","disintegration",
+    "friability","hardness","integration","linearity","molarity","noise",
+    "precision","procedure","purity","recovery","robustness","signal",
+    "specificity","spike",
 }
 
 # Tables that are GxP-critical for Rule 1, 3, 4
@@ -7321,6 +7327,31 @@ def at_score_events(df: pd.DataFrame, rule_config: dict = None) -> pd.DataFrame:
                 f"The change reason ('{cmt}') is a single non-specific word that does "
                 "not explain what changed or why. A specific, scientifically justified "
                 "rationale is required per 21 CFR Part 211.68."
+            )
+        if n_words == 2 and has_vague:
+            # v94f Q3-B: distinguish "both words vague" (e.g. "Corrected error",
+            # "fixed error") from "one vague + one specific". When the entire
+            # rationale consists of filler terms, the whole sentence carries no
+            # information — score 7.0 (was 6.0) so it still escalates even with
+            # a stricter threshold. 21 CFR 211.68 / ALCOA+ Legible.
+            vague_word_count = sum(
+                1 for w in words
+                if any(
+                    re.fullmatch(re.escape(v), w, re.IGNORECASE)
+                    for v in _AT_VAGUE_TERMS
+                )
+            )
+            if vague_word_count >= 2:
+                return 7.0, (
+                    f"The change reason ('{cmt}') consists entirely of non-descriptive "
+                    f"terms ({', '.join(matched_vague)}) with no specific or domain context. "
+                    "This does not satisfy 21 CFR Part 211.68 rationale requirements "
+                    "or ALCOA+ Legible principle."
+                )
+            return 6.0, (
+                f"The change reason ('{cmt}') uses non-descriptive language "
+                f"({', '.join(matched_vague)}) without domain-specific context. "
+                "GxP modifications require a clear, specific rationale per ALCOA+ Legible principle."
             )
         if n_words <= 2 and has_vague:
             return 6.0, (
@@ -8403,7 +8434,10 @@ def at_score_events(df: pd.DataFrame, rule_config: dict = None) -> pd.DataFrame:
         ("score_rule12_timestamp_reversal",   9.0, "Critical"),
         ("score_rule13_service_account",      9.0, "Critical"),
         ("score_rule25_future_ts",            8.0, "High"),
-        ("score_rule1_vague_rationale",       7.0, "High"),
+        # v94f Q3-A: threshold lowered 7.0 → 6.0 so 2-word vague rationales
+        # (e.g. "data correction", "see above") escalate to High tier. An FDA
+        # 483 reviewer would cite these under 21 CFR 211.68 / ALCOA+ Legible.
+        ("score_rule1_vague_rationale",       6.0, "High"),
         ("score_rule4_drift",                 7.0, "High"),
         ("score_rule14_dormant_account",      8.0, "High"),
         ("score_rule16_first_time_behavior",  8.0, "High"),
@@ -14173,43 +14207,127 @@ def dim_build_excel(result: dict, system_name: str, file_name: str,
         _hdr(ws2, 3, ci, hdr, width=width)
     ws2.row_dimensions[3].height = 18
 
+    # v94f Q1/Q2: Cell rendering contract for Period Trends.
+    #   - count column + module RAN   → integer "0" or real value (never blank)
+    #   - count column + module NOT RAN → "N/A"
+    #   - Δ% / trend column + no legit comparison → "—"
+    #   - any exception mid-cell → "—" (row never blanks)
+    #
+    # Gating map: which count columns depend on which module's Ran flag.
+    # AT-sourced: findings derived from audit trail events.
+    # UAR-sourced: findings derived from user access review.
+    # Cross-module: total/avg — present if ANY module ran.
+    _AT_SOURCED_COLS = {
+        "AT_Findings", "Deletion_Findings", "Failed_Login",
+        "Off_Hours", "Dormant_Findings",
+    }
+    _UAR_SOURCED_COLS = {"UAR_Findings"}
+    _CROSS_MODULE_COLS = {"Total_Findings", "High_Critical", "Avg_Risk_Weight"}
+
+    def _q1q2_resolve_count(col_key, row_data):
+        """Return the string to display for a count/metric column."""
+        at_ran  = bool(row_data.get("AT_Ran",  False))
+        uar_ran = bool(row_data.get("UAR_Ran", False))
+        if col_key in _AT_SOURCED_COLS and not at_ran:
+            return "N/A"
+        if col_key in _UAR_SOURCED_COLS and not uar_ran:
+            return "N/A"
+        if col_key in _CROSS_MODULE_COLS and not (at_ran or uar_ran):
+            return "N/A"
+        raw = row_data.get(col_key)
+        if pd.isna(raw):
+            # Module ran but value missing — render 0 rather than blank.
+            return 0
+        return raw
+
     for ri, (_, row_data) in enumerate(pdf.iterrows(), 4):
         posture_r = str(row_data.get("DI_Posture", "—"))
         p_bg_r, p_fg_r = _POSTURE_COLORS.get(posture_r, (C_GREY, "1A1A1A"))
         for ci, (_, col_key, _) in enumerate(trend_cols, 1):
-            val = row_data.get(col_key, "—")
-            if pd.isna(val): val = "—"
-            if isinstance(val, float) and col_key.endswith("_pct_chg"):
-                val = f"{val:+.1f}%" if val != "—" else "—"
-            c = ws2.cell(row=ri, column=ci, value=val)
-            if col_key in ("DI_Posture", "AT_Posture", "UAR_Posture"):
-                _pbg, _pfg = _POSTURE_COLORS.get(str(val), (C_GREY, "1A1A1A"))
-                c.font = Font(name="Calibri", bold=True, size=9, color=_pfg)
-                c.fill = _fill(_pbg)
-            elif col_key.endswith("_trend"):
-                tc  = _TREND_COLORS.get(str(val), "1A1A1A")
-                tbg = _TREND_BG.get(str(val), C_GREY)
-                c.font = Font(name="Calibri", size=9, color=tc,
-                              bold=("Increase" in str(val) or "Decrease" in str(val)))
-                c.fill = _fill(tbg)
-            elif col_key.endswith("_pct_chg") and val != "—":
-                raw_pct = row_data.get(col_key)
-                if pd.notna(raw_pct):
-                    pf  = float(raw_pct)
-                    fc  = "B91C1C" if pf > 15 else "C2410C" if pf > 5 else \
-                          "15803D" if pf < -5 else "1A1A1A"
-                    fbg = "FEF2F2" if pf > 15 else "FFF7ED" if pf > 5 else \
-                          "F0FDF4" if pf < -5 else C_GREY
-                    c.font = Font(name="Calibri", size=9, bold=True, color=fc)
-                    c.fill = _fill(fbg)
+            try:
+                # ── Resolve value ────────────────────────────────────────────
+                if col_key == "Review_Period":
+                    val = str(row_data.get(col_key, "—")) or "—"
+                elif col_key in ("DI_Posture", "AT_Posture",
+                                 "UAR_Posture", "Posture_Driver"):
+                    val = row_data.get(col_key, "—")
+                    if pd.isna(val) or val in (None, ""):
+                        val = "—"
+                    val = str(val)
+                elif col_key.endswith("_pct_chg"):
+                    raw_pct = row_data.get(col_key)
+                    if pd.isna(raw_pct):
+                        val = "—"
+                    else:
+                        val = f"{float(raw_pct):+.1f}%"
+                elif col_key.endswith("_trend"):
+                    val = row_data.get(col_key, "—")
+                    if pd.isna(val) or val in (None, ""):
+                        val = "—"
+                    val = str(val)
+                elif col_key in (_AT_SOURCED_COLS | _UAR_SOURCED_COLS
+                                 | _CROSS_MODULE_COLS):
+                    val = _q1q2_resolve_count(col_key, row_data)
                 else:
-                    c.font = Font(name="Calibri", size=9)
-            else:
-                c.font = Font(name="Calibri", size=9, color="2C3E50")
-                if ri % 2 == 0: c.fill = _fill("F8FAFC")
-            c.alignment = Alignment(horizontal="center" if ci > 1 else "left",
-                                    vertical="center")
-            c.border = bdr
+                    # Fallback for any future column not explicitly classified.
+                    val = row_data.get(col_key, "—")
+                    if pd.isna(val) or val in (None, ""):
+                        val = "—"
+
+                c = ws2.cell(row=ri, column=ci, value=val)
+
+                # ── Formatting ───────────────────────────────────────────────
+                if col_key in ("DI_Posture", "AT_Posture", "UAR_Posture"):
+                    _pbg, _pfg = _POSTURE_COLORS.get(str(val),
+                                                     (C_GREY, "1A1A1A"))
+                    c.font = Font(name="Calibri", bold=True, size=9, color=_pfg)
+                    c.fill = _fill(_pbg)
+                elif col_key.endswith("_trend"):
+                    tc  = _TREND_COLORS.get(str(val), "1A1A1A")
+                    tbg = _TREND_BG.get(str(val), C_GREY)
+                    c.font = Font(name="Calibri", size=9, color=tc,
+                                  bold=("Increase" in str(val)
+                                        or "Decrease" in str(val)))
+                    c.fill = _fill(tbg)
+                elif col_key.endswith("_pct_chg") and val != "—":
+                    raw_pct = row_data.get(col_key)
+                    if pd.notna(raw_pct):
+                        pf  = float(raw_pct)
+                        fc  = ("B91C1C" if pf > 15 else
+                               "C2410C" if pf > 5  else
+                               "15803D" if pf < -5 else "1A1A1A")
+                        fbg = ("FEF2F2" if pf > 15 else
+                               "FFF7ED" if pf > 5  else
+                               "F0FDF4" if pf < -5 else C_GREY)
+                        c.font = Font(name="Calibri", size=9,
+                                      bold=True, color=fc)
+                        c.fill = _fill(fbg)
+                    else:
+                        c.font = Font(name="Calibri", size=9)
+                elif val == "N/A":
+                    # Grey-out N/A count cells so reviewers see at a glance
+                    # that the module didn't run (vs ran clean).
+                    c.font = Font(name="Calibri", size=9, italic=True,
+                                  color="94A3B8")
+                    if ri % 2 == 0:
+                        c.fill = _fill("F8FAFC")
+                else:
+                    c.font = Font(name="Calibri", size=9, color="2C3E50")
+                    if ri % 2 == 0:
+                        c.fill = _fill("F8FAFC")
+                c.alignment = Alignment(
+                    horizontal="center" if ci > 1 else "left",
+                    vertical="center")
+                c.border = bdr
+            except Exception:
+                # Defensive guard — a bad single cell must never blank the row.
+                c = ws2.cell(row=ri, column=ci, value="—")
+                c.font = Font(name="Calibri", size=9, italic=True,
+                              color="94A3B8")
+                c.alignment = Alignment(
+                    horizontal="center" if ci > 1 else "left",
+                    vertical="center")
+                c.border = bdr
         ws2.row_dimensions[ri].height = 16
 
     ws2.freeze_panes = "A4"
