@@ -15866,6 +15866,14 @@ def show_periodic_review(user: str, role: str, model_id: str):
         show_user_access_review(user, role, model_id)
         return
 
+    if active == "dci_review":
+        # Deferred import — dci_module only loads on first DCI click.
+        # Keeps generator.py cold-start fast and avoids Streamlit parse-
+        # stage timeout from the v95 single-file attempt.
+        from dci_module import show_dci_review
+        show_dci_review(user, role, model_id)
+        return
+
     if active in ("report_drafter",):
         st.markdown("<br>", unsafe_allow_html=True)
         label = "User Access Review Intelligence" if active == "access_review" \
@@ -15992,6 +16000,10 @@ div.vl-btn-soon > div.stButton > button {
     if active == "access_review":
         show_user_access_review(user, role, model_id)
         return
+    if active == "dci_review":
+        from dci_module import show_dci_review
+        show_dci_review(user, role, model_id)
+        return
 
     # ── 3 module cards ────────────────────────────────────────────────────────
     # ── All 3 cards in one CSS grid block (guarantees equal height) ───────────
@@ -16013,10 +16025,10 @@ div.vl-btn-soon > div.stButton > button {
     <p class="vl-card-ref">21 CFR Part 11 §11.300 · EU Annex 11 Cl. 12</p>
     <p class="vl-card-desc">Upload your user access export to flag SoD conflicts, dormant accounts, admin misuse, and privilege accumulation. 10 deterministic rules.</p>
   </div>
-  <div class="vl-card vl-card-soon" id="vl-card-dci">
-    <div class="vl-card-glow" style="background:linear-gradient(90deg,#cbd5e1,#e2e8f0);"></div>
+  <div class="vl-card" id="vl-card-dci">
+    <div class="vl-card-glow" style="background:linear-gradient(90deg,#059669,#34d399);"></div>
     <span class="vl-card-icon">📋</span>
-    <span class="vl-badge vl-badge-soon">Coming Soon</span>
+    <span class="vl-badge vl-badge-live">Live</span>
     <p class="vl-card-title">Deviation &amp; CAPA Review</p>
     <p class="vl-card-ref">21 CFR Part 820.100 · ICH Q10 §3.2</p>
     <p class="vl-card-desc">Upload your CAPA log to detect weak investigations, vague root causes, repeat failures post-closure, and SLA breaches. 14 deterministic rules.</p>
@@ -16079,8 +16091,10 @@ div.vl-btn-soon > div.stButton > button {
             st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
     with _oc3:
-        st.markdown('<div class="vl-card-click-wrap vl-card-click-disabled">', unsafe_allow_html=True)
-        st.button("Coming Soon", key="pr_open_dci", use_container_width=True, disabled=True)
+        st.markdown('<div class="vl-card-click-wrap">', unsafe_allow_html=True)
+        if st.button("Launch Deviation & CAPA Review", key="pr_open_dci", use_container_width=True):
+            st.session_state["pr_active_module"] = "dci_review"
+            st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
 
 
