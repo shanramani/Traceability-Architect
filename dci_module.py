@@ -1611,6 +1611,130 @@ def dci_classify_event_category(rule_triggered):
 # ═══════════════════════════════════════════════════════════════════════════
 #  UI — main entry point
 # ═══════════════════════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════════════════
+#  UI helper — render results from session state (no upload required)
+# ═══════════════════════════════════════════════════════════════════════════
+def _render_dci_results_from_session(user, model_id):
+    """Render previously-computed DCI results without requiring re-upload.
+
+    Called from show_dci_review when user navigates back to DCI after
+    visiting another module — the file_uploader has been reset to None
+    but the analysis is still in session state. Mirrors the active-flow
+    Results + Download + Bank sections.
+    """
+    scored_df = st.session_state.get("dci_scored_df")
+    if scored_df is None or scored_df.empty:
+        return
+    sys_name  = st.session_state.get("dci_system_name", "System")
+    file_name = st.session_state.get("dci_file_name", "")
+    cfg_hash  = st.session_state.get("dci_config_hash", "")
+    cfg       = st.session_state.get("dci_rule_config", dict(_DCI_RULE_DEFAULTS))
+
+    # Reconstruct review-period strings if available
+    _ds = st.session_state.get("dci_review_start")
+    _de = st.session_state.get("dci_review_end")
+    dci_r_start = _ds.strftime("%d-%b-%Y") if _ds else ""
+    dci_r_end   = _de.strftime("%d-%b-%Y") if _de else ""
+
+    n_crit = int((scored_df["Risk_Tier"] == "Critical").sum())
+    n_high = int((scored_df["Risk_Tier"] == "High").sum())
+    n_med  = int((scored_df["Risk_Tier"] == "Medium").sum())
+    n_low  = int((scored_df["Risk_Tier"] == "Low").sum())
+
+    st.markdown("---")
+    st.markdown("### Results")
+    kc1, kc2, kc3, kc4 = st.columns(4)
+    with kc1: st.metric("Critical", n_crit)
+    with kc2: st.metric("High",     n_high)
+    with kc3: st.metric("Medium",   n_med)
+    with kc4: st.metric("Low",      n_low)
+
+    review_df = scored_df[scored_df["Risk_Tier"].isin(
+        ["Critical", "High", "Medium"])]
+    if not review_df.empty:
+        st.markdown("**Records for Review** (Critical + High + Medium):")
+        display_cols = ["record_id", "record_type", "deviation_category",
+                        "system_name", "status", "Risk_Tier", "Risk_Score",
+                        "Primary_Rule"]
+        display_cols = [c for c in display_cols if c in review_df.columns]
+        st.dataframe(
+            review_df[display_cols].head(50),
+            use_container_width=True, hide_index=True,
+        )
+        if len(review_df) > 50:
+            st.caption(f"Showing 50 of {len(review_df)} review records. "
+                       "Download Excel for full set.")
+    else:
+        st.success("✅ No records flagged at Medium or higher.")
+
+    # Download + Bank
+    st.markdown("---")
+    st.markdown("### Download Evidence Package & Bank to DIM")
+
+    dc1, dc2 = st.columns(2)
+    with dc1:
+        try:
+            xlsx_bytes = dci_build_excel(
+                scored_df,
+                system_name=sys_name,
+                r_start=dci_r_start,
+                r_end=dci_r_end,
+                fname=file_name,
+                config_hash=cfg_hash,
+                operator_user=user,
+                model_used=model_id,
+                rule_config=cfg,
+            )
+            st.download_button(
+                "📥 Download DCI Evidence Package (xlsx)",
+                data=xlsx_bytes,
+                file_name=f"DCI_{sys_name}_{dci_r_end}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True,
+                key="dci_download_btn_persistent",
+                on_click=lambda: _gen()["log_audit"](
+                    user, "DCI_DOWNLOAD", "REPORT",
+                    new_value=f"DCI_{sys_name}",
+                    reason=f"System: {sys_name} (re-download from session)",
+                ),
+            )
+        except Exception as e:
+            st.error(f"Excel build failed: {e}")
+
+    with dc2:
+        if st.button(
+            "🏦 Bank to Data Integrity Monitor (DIM)",
+            use_container_width=True,
+            key="dci_bank_btn_persistent",
+        ):
+            try:
+                _ec_fn = _gen().get("_dim_event_category")
+                period_label = f"{dci_r_start} → {dci_r_end}" \
+                    if (dci_r_start and dci_r_end) else \
+                    f"DCI Period {st.session_state.get('dim_periods_banked', 0) + 1}"
+                banked = _dci_bank_to_dim(
+                    scored_df, period_label, sys_name, file_name,
+                    event_category_fn=_ec_fn
+                )
+                if banked == 1 and n_crit == 0 and n_high == 0:
+                    st.success(
+                        f"✅ Banked sentinel row for clean period "
+                        f"({period_label})."
+                    )
+                else:
+                    st.success(
+                        f"✅ Banked {banked} High/Critical finding(s) to DIM."
+                    )
+                _gen()["log_audit"](
+                    user, "DCI_BANK_TO_DIM", "DATASET",
+                    new_value=f"DCI_{sys_name}",
+                    reason=f"Period: {period_label} · Banked: {banked} rows (re-bank from session)",
+                )
+                st.rerun()
+            except Exception as e:
+                st.error(f"Banking failed: {e}")
+
+
 def show_dci_review(user, role, model_id):
     """Render Periodic Review — Module 3: Deviation & CAPA Investigation.
     Mirrors show_user_access_review structure."""
@@ -1677,6 +1801,37 @@ def show_dci_review(user, role, model_id):
         type=["xlsx", "xls", "csv"],
         key="dci_uploader",
     )
+
+    # ── Persistent-results path ──────────────────────────────────────────────
+    # Streamlit's file_uploader resets to None when the user navigates away
+    # and comes back. If we have analysis results from a prior run, surface
+    # them instead of forcing a fresh upload. User can hit "Clear results"
+    # to start over.
+    _prior_scored = st.session_state.get("dci_scored_df")
+    _prior_done   = st.session_state.get("dci_analysis_done", False)
+    _prior_fname  = st.session_state.get("dci_file_name", "")
+
+    if dci_file is None and _prior_done and _prior_scored is not None:
+        st.info(
+            f"📊 Showing results from previous analysis of "
+            f"**{_prior_fname or 'last uploaded file'}**. "
+            "Upload a new file or click **Clear results** to start over."
+        )
+        # Clear button — single click to reset the whole DCI session
+        _cc1, _cc2 = st.columns([1, 4])
+        with _cc1:
+            if st.button("🗑️ Clear results", key="dci_clear_results_btn",
+                         use_container_width=True):
+                for _k in ("dci_scored_df", "dci_analysis_done",
+                           "dci_last_run_fingerprint", "dci_config_hash",
+                           "dci_file_name"):
+                    if _k in st.session_state:
+                        del st.session_state[_k]
+                st.rerun()
+
+        # Render results from session state — bypass upload/validate/run flow
+        _render_dci_results_from_session(user, model_id)
+        return
 
     if dci_file is None:
         st.info(
@@ -1876,7 +2031,18 @@ def show_dci_review(user, role, model_id):
         return
 
     st.markdown("---")
-    st.markdown("### 4. Results")
+    _hr1, _hr2 = st.columns([4, 1])
+    with _hr1:
+        st.markdown("### 4. Results")
+    with _hr2:
+        if st.button("🗑️ Clear results", key="dci_clear_results_btn_inflow",
+                     use_container_width=True):
+            for _k in ("dci_scored_df", "dci_analysis_done",
+                       "dci_last_run_fingerprint", "dci_config_hash",
+                       "dci_file_name"):
+                if _k in st.session_state:
+                    del st.session_state[_k]
+            st.rerun()
 
     n_crit = int((scored_df["Risk_Tier"] == "Critical").sum())
     n_high = int((scored_df["Risk_Tier"] == "High").sum())
