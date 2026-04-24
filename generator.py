@@ -6889,19 +6889,26 @@ _AT_VAGUE_TERMS = {"fixed","update","updated","error","changed","change","test",
                    "recheck","rechecked","redo","redone","retry"}
 
 def _dim_event_category(rule_triggered: str) -> str:
-    """Classify a Rule_Triggered label into a DIM Event_Category for keyword grouping."""
+    """Classify a Rule_Triggered label into a DIM Event_Category for keyword grouping.
+
+    v96: dropped mappings for AT rules removed in v96 refactor (admin/gxp merged into
+    privileged user modification; timestamp gap, duplicate timestamp, duplicate row,
+    missing record id, dormant account, first-time, role/permission, workflow status
+    all dropped or moved to UAR). Added U11 (dormant_privileged) → User Attribution
+    and "privileged user modification" → Change Control per AT v2.0 §6.
+    """
     r = str(rule_triggered).lower()
-    if any(x in r for x in ("vague rationale", "change control", "missing before", "missing record id",
-                              "duplicate row", "record reconstruction", "audit trail integrity")):
+    if any(x in r for x in ("vague rationale", "change control", "missing before",
+                              "record reconstruction", "audit trail integrity")):
         return "Data Integrity"
-    if any(x in r for x in ("admin/gxp", "privileged user", "self-approval", "modification after approval",
-                              "workflow status")):
+    if any(x in r for x in ("privileged user modification", "privileged user",
+                              "self-approval", "modification after approval")):
         return "Change Control"
-    if any(x in r for x in ("missing user", "service/shared", "failed login", "dormant account",
-                              "first-time", "role/permission")):
+    if any(x in r for x in ("missing user", "service/shared", "failed login",
+                              "dormant privileged", "dormant_privileged")):
         return "User Attribution"
     if any(x in r for x in ("timestamp reversal", "missing timestamp", "future timestamp",
-                              "timestamp gap", "duplicate timestamp", "contemporaneous")):
+                              "contemporaneous")):
         return "Timestamp"
     if any(x in r for x in ("off-hours", "holiday", "burst")):
         return "Behaviour"
@@ -7072,38 +7079,46 @@ def _at_del_recreate_scores(df: pd.DataFrame) -> pd.Series:
 
 def at_score_events(df: pd.DataFrame, rule_config: dict = None) -> pd.DataFrame:
     """
-    Score every event across 25 named detection rules.
+    Score every event across the AT v96 ruleset (16 active rules; 9 v94e rules
+    are present as dead score columns for backward compatibility but are gated
+    OFF via _RULE_DEFAULTS and the V96 hard-cutover guard).
     rule_config: dict mapping 'at_rN_on' keys to bool. If None, all rules active.
     Disabled rules still compute scores (for Full Audit Log completeness) but
     their scores are zeroed before tier assignment so they never drive Events for Review.
     Returns sorted DataFrame with individual scores, rule flags, and tier.
     """
     # ── Config-to-score-column mapping ────────────────────────────────────────
+    # v96: at_r8_on now drives the merged "Privileged User Modification of GxP Data"
+    # rule (new Rule 10), absorbing both score_privilege AND score_rule3_admin_conflict.
+    # Toggles for dropped rules (at_r3_on, at_r9_on, at_r13_on, at_r14_on, at_r20_on,
+    # at_r21_on, at_r22_on, at_r23_on, at_r24_on) remain in the map but default to OFF
+    # and are hidden from the UI per AT v2.0 §1. If a session forces them ON
+    # (legacy state restore), they still fire correctly — backward-compatible.
     _CFG_SCORE_MAP = {
         "at_r1_on":  ["score_rule1_vague_rationale"],
         "at_r2_on":  ["score_rule2_burst"],
-        "at_r3_on":  ["score_rule3_admin_conflict"],
+        "at_r3_on":  ["score_rule3_admin_conflict"],          # v96: dropped (merged into r8)
         "at_r4_on":  ["score_rule4_drift"],
         "at_r5_on":  ["score_rule5_failed_login"],
         "at_r6_on":  ["score_del_recreate"],
         "at_r7_on":  ["score_record"],
-        "at_r8_on":  ["score_privilege"],
-        "at_r9_on":  ["score_gap"],
+        "at_r8_on":  ["score_privilege", "score_rule3_admin_conflict"],   # v96 Rule 10 (merged 3+8)
+        "at_r9_on":  ["score_gap"],                            # v96: dropped
         "at_r10_on": ["score_temporal"],
         "at_r11_on": ["score_rule12_timestamp_reversal"],
         "at_r12_on": ["score_rule13_service_account"],
-        "at_r13_on": ["score_rule14_dormant_account"],
-        "at_r14_on": ["score_rule16_first_time_behavior"],
+        "at_r13_on": ["score_rule14_dormant_account"],         # v96: moved to UAR (U11)
+        "at_r14_on": ["score_rule16_first_time_behavior"],     # v96: dropped
         "at_r15_on": ["score_rule15_missing_ts"],
         "at_r16_on": ["score_rule16_missing_user"],
         "at_r17_on": ["score_rule17_missing_values"],
         "at_r18_on": ["score_rule18_self_approval"],
         "at_r19_on": ["score_rule19_mod_after_approval"],
-        "at_r20_on": ["score_rule20_workflow_reversal"],
-        "at_r21_on": ["score_rule21_role_change"],
-        "at_r22_on": ["score_rule22_dup_timestamp"],
-        "at_r23_on": ["score_rule23_missing_record_id"],
-        "at_r24_on": ["score_rule24_dup_rows"],
+        "at_r20_on": ["score_rule20_workflow_reversal"],       # v96: dropped
+        "at_r21_on": ["score_rule21_role_change"],             # v96: dropped (UAR scope, but U13 also dropped per UAR v1.2)
+        "at_r22_on": ["score_rule22_dup_timestamp"],           # v96: dropped
+        "at_r23_on": ["score_rule23_missing_record_id"],       # v96: dropped
+        "at_r24_on": ["score_rule24_dup_rows"],                # v96: dropped
         "at_r25_on": ["score_rule25_future_ts"],
     }
     df = df.copy()
@@ -10658,42 +10673,42 @@ def at_build_excel(top_df, scored_df, system_name, r_start, r_end, fname) -> byt
     ws4.column_dimensions["G"].width = 22  # EU Annex 11
     ws4.column_dimensions["H"].width = 14  # Status
 
-    # Pull active rule config from session state
+    # v96 — 16-rule defaults. The 9 v94e rules dropped per AT Rules Spec v2.0 §2.1
+    # are excluded from this dict (and from _dl_all_rules below) — they no longer
+    # appear in the Detection Logic sheet at all.
     _dl_rule_defaults = {
-        "at_r1_on":True,"at_r2_on":True,"at_r3_on":True,"at_r5_on":True,
-        "at_r6_on":True,"at_r7_on":True,"at_r8_on":True,"at_r11_on":True,
-        "at_r12_on":True,"at_r15_on":True,"at_r16_on":True,"at_r17_on":True,
-        "at_r18_on":True,"at_r19_on":True,"at_r21_on":True,"at_r23_on":True,
-        "at_r24_on":True,"at_r25_on":True,
-        "at_r4_on":False,"at_r9_on":False,"at_r10_on":False,
-        "at_r13_on":False,"at_r14_on":False,"at_r20_on":False,"at_r22_on":False,
+        # Critical (6)
+        "at_r6_on":  True,  "at_r7_on":  True,  "at_r11_on": True,
+        "at_r12_on": True,  "at_r18_on": True,  "at_r19_on": True,
+        # High (8)
+        "at_r1_on":  True,  "at_r4_on":  True,  "at_r5_on":  True,
+        "at_r8_on":  True,  "at_r15_on": True,  "at_r16_on": True,
+        "at_r17_on": True,  "at_r25_on": True,
+        # Medium (2)
+        "at_r2_on":  True,  "at_r10_on": True,
     }
+    # v96 final ruleset — 16 rules in spec order (Critical 1–6, High 7–14, Medium 15–16).
+    # Trigger conditions for narrowed/merged rules updated per AT v2.0 §4.
     _dl_all_rules = [
-        ("at_r1_on",  "1",  "High",     "Tier 1", "Vague Rationale",                "UPDATE/DELETE on GxP record with blank or generic change reason (exempt: SOP ref or 3+ words with domain context).",    "21 CFR Part 211.68; ALCOA+ Attributable and Legible",                   "Clause 9"),
-        ("at_r2_on",  "2",  "Medium",   "Tier 1", "Contemporaneous Burst",           "Same user >10 INSERT/CREATE/UPDATE in any 15-min window. Service accounts excluded.",                                    "ALCOA+ Contemporaneous; 21 CFR Part 11 §11.10(e)",                      "Clause 9"),
-        ("at_r3_on",  "3",  "Critical", "Tier 1", "Admin/GxP Conflict",              "User with Admin/DBA/Sysadmin role performs INSERT/UPDATE/CREATE on SAMPLE_DATA, BATCH_RELEASE, BATCH, or RESULTS.",     "21 CFR Part 11 §11.10(d)",                                              "Clause 12"),
-        ("at_r4_on",  "4",  "High",     "Tier 2", "Change Control Drift",            "Numeric new_value >3 SD from mean of all values for same record_type in the file.",                                     "21 CFR Part 820.70(b); validated state requirements",                   "Clause 10"),
-        ("at_r5_on",  "5",  "Critical", "Tier 1", "Failed Login → Data Manipulation","3+ LOGIN_FAILED within 120 min then successful login, then GxP data modification within 30 min.",                      "21 CFR Part 11 §11.300; ALCOA+ Original and Attributable",              "Clause 12"),
-        ("at_r6_on",  "6",  "Critical", "Tier 1", "Record Reconstruction",           "Same user deletes then recreates the same record_id within 4 hours.",                                                  "21 CFR Part 11 §11.10(e); ALCOA+ Original",                             "Clause 9"),
-        ("at_r7_on",  "7",  "Critical", "Tier 1", "Audit Trail Integrity Event",     "Any action on audit trail config table. High: DELETE on GxP-sensitive record type.",                                   "21 CFR Part 11 §11.10(e)",                                              "Clause 9"),
-        ("at_r8_on",  "8",  "High",     "Tier 1", "Privileged User on GxP Data",    "Admin-role user modifies/deletes GxP-sensitive record type (outside Rule 3 scope).",                                   "21 CFR Part 11 §11.10(d)",                                              "Clause 12"),
-        ("at_r9_on",  "9",  "High",     "Tier 2", "Timestamp Gap",                  "Gap >2 hours between consecutive audit entries. Critical when gap during business hours + nearby rule ≥7.",            "21 CFR Part 11 §11.10(e) — audit trail completeness",                   "Clause 9"),
-        ("at_r10_on", "10", "Medium",   "Tier 2", "Off-Hours / Holiday Activity",    "GxP data actions outside Mon–Fri 07:00–20:00 or on US Federal Holidays.",                                              "21 CFR Part 211.68",                                                    "Clause 9"),
-        ("at_r11_on", "11", "Critical", "Tier 1", "Timestamp Reversal",              "Approval timestamp earlier than creation timestamp for same record_id. Chronologically impossible.",                    "21 CFR Part 11 §11.10(e); ALCOA+ Contemporaneous",                      "Clause 9"),
-        ("at_r12_on", "12", "Critical", "Tier 1", "Service / Shared Account",        "Non-personal account (svc_, batch_, api_, root, daemon, guest, test_) performs GxP data action.",                      "21 CFR Part 11 §11.300",                                                "Clause 12"),
-        ("at_r13_on", "13", "High",     "Tier 2", "Dormant Account Sudden Activity", "User with 4+ prior events has no activity for 90+ days then performs a data action.",                                  "21 CFR Part 11 §11.10(d) — access controls",                           "Clause 12"),
-        ("at_r14_on", "14", "High",     "Tier 2", "First-Time Behavior",             "Established user (5+ prior events) performs action_type never performed before.",                                       "21 CFR Part 11 §11.10(d); ALCOA+ Attributable",                        "Clause 12"),
-        ("at_r15_on", "15", "High",     "Tier 1", "Missing Timestamp",               "Null or unparseable timestamp on any audit trail event.",                                                               "21 CFR Part 11 §11.10(e); ALCOA+ Contemporaneous",                     "—"),
-        ("at_r16_on", "16", "High",     "Tier 1", "Missing User Attribution",        "Null or blank user_id on any audit trail event.",                                                                       "21 CFR Part 11 §11.10(e); ALCOA+ Attributable",                        "—"),
-        ("at_r17_on", "17", "High",     "Tier 1", "Missing Before/After Value",      "UPDATE: old_value = new_value or either null. CREATE: new_value null. DELETE: old_value null. Skipped if cols absent.", "21 CFR Part 11 §11.10(e); ALCOA+ Original",                             "Clause 9"),
-        ("at_r18_on", "18", "Critical", "Tier 1", "Self-Approval SoD Violation",     "Same user appears as creator AND approver on the same record_id.",                                                      "21 CFR Part 11 §11.10(d); EU Annex 11 Clause 12",                      "Clause 12"),
-        ("at_r19_on", "19", "Critical", "Tier 1", "Modification After Approval",     "UPDATE or DELETE on a record_id after an APPROVE or RELEASE action already exists for that record.",                   "21 CFR Part 11 §11.10(e); ALCOA+ Original",                             "Clause 9"),
-        ("at_r20_on", "20", "High",     "Tier 2", "Workflow Status Reversal",        "Status field moves backwards in approved workflow order (e.g. Approved→Draft). Needs workflow column.",                "21 CFR Part 11 §11.10(e); GAMP 5 (2nd Ed, 2022)",                      "Clause 9"),
-        ("at_r21_on", "21", "High",     "Tier 1", "Role / Permission Change",        "Action on a role, permission, privilege, or access control record type by any user.",                                  "21 CFR Part 11 §11.10(d); EU Annex 11 Clause 12",                      "Clause 12"),
-        ("at_r22_on", "22", "Medium",   "Tier 2", "Duplicate Timestamp Collision",   "2+ events share exact same timestamp involving critical actions (APPROVE, DELETE, MODIFY, CREATE).",                   "21 CFR Part 11 §11.10(e); ALCOA+ Contemporaneous",                      "Clause 9"),
-        ("at_r23_on", "23", "High",     "Tier 1", "Missing Record ID",               "UPDATE/DELETE/APPROVE/CREATE event has null or blank record_id.",                                                       "21 CFR Part 11 §11.10(e); ALCOA+ Original",                             "Clause 9"),
-        ("at_r24_on", "24", "High",     "Tier 1", "Duplicate Rows",                  "Exact duplicate row (user + timestamp + action + record_id + values all identical).",                                  "21 CFR Part 11 §11.10(e); ALCOA+ Original",                             "Clause 9"),
-        ("at_r25_on", "25", "High",     "Tier 1", "Future Timestamp",                "Event timestamp is after current UTC time (±1 hour buffer for timezone drift).",                                       "21 CFR Part 11 §11.10(e); ALCOA+ Contemporaneous",                     "—"),
+        # ── Critical (6) ──────────────────────────────────────────────────────
+        ("at_r6_on",  "1",  "Critical", "Tier 1", "Record Reconstruction",                "Same user deletes then recreates the same record_id within 4 hours.",                                                                                                          "21 CFR Part 11 §11.10(e); ALCOA+ Original",                                "Clause 9"),
+        ("at_r7_on",  "2",  "Critical", "Tier 1", "Audit Trail Integrity Event",          "Any action on audit trail config table. High: DELETE on GxP-sensitive record type.",                                                                                           "21 CFR Part 11 §11.10(e)",                                                 "Clause 9"),
+        ("at_r11_on", "3",  "Critical", "Tier 1", "Timestamp Reversal",                   "Approval timestamp earlier than creation timestamp for same record_id. Chronologically impossible.",                                                                          "21 CFR Part 11 §11.10(e); ALCOA+ Contemporaneous",                         "Clause 9"),
+        ("at_r12_on", "4",  "Critical", "Tier 1", "Service / Shared Account",             "Non-personal account (svc_, batch_, api_, root, daemon, guest, test_) performs GxP data action.",                                                                              "21 CFR Part 11 §11.300",                                                   "Clause 12"),
+        ("at_r18_on", "5",  "Critical", "Tier 1", "Self-Approval SoD Violation",          "Same user appears as creator AND approver on the same record_id.",                                                                                                            "21 CFR Part 11 §11.10(d); EU Annex 11 Clause 12",                          "Clause 12"),
+        ("at_r19_on", "6",  "Critical", "Tier 1", "Modification After Approval",          "UPDATE or DELETE on a record_id after an APPROVE or RELEASE action already exists for that record.",                                                                          "21 CFR Part 11 §11.10(e); ALCOA+ Original",                                "Clause 9"),
+        # ── High (8) ──────────────────────────────────────────────────────────
+        ("at_r1_on",  "7",  "High",     "Tier 1", "Vague Rationale",                      "UPDATE/DELETE on GxP record with blank or generic change reason (exempt: SOP ref or 3+ words with domain context).",                                                            "21 CFR Part 211.68; ALCOA+ Attributable and Legible",                      "Clause 9"),
+        ("at_r4_on",  "8",  "High",     "Tier 2", "Change Control Drift (narrowed)",      "Modification to GxP-critical field AND change_reason blank AND approved_by blank (all three conditions). Does NOT fire if either documentation field is populated.",       "21 CFR 211.68(b); EU Annex 11 §10; ALCOA+ Attributable + Original",        "Clause 10"),
+        ("at_r5_on",  "9",  "High",     "Tier 1", "Failed Login → Data Manipulation (narrowed)", "AUTH_FAILURE event followed by write action by same user_id within 15 minutes on a GxP-critical table. Silent-skip if dataset has zero auth events.",                       "21 CFR 11.10(d); 21 CFR 211.68; ALCOA+ Attributable",                      "Clause 12"),
+        ("at_r8_on",  "10", "High",     "Tier 1", "Privileged User Modification of GxP Data (merged 3+8)", "Role contains admin/system/superuser/root/sa/sysadmin/dba AND action_type ∈ {INSERT,UPDATE,DELETE,MODIFY} AND record_type is GxP-critical. Single clean check — old Rule 3/8 distinction removed.", "21 CFR 11.10(c)/(d); EU Annex 11 §2; ICH Q9",                              "Clause 12"),
+        ("at_r15_on", "11", "High",     "Tier 1", "Missing Timestamp",                    "Null or unparseable timestamp on any audit trail event.",                                                                                                                      "21 CFR Part 11 §11.10(e); ALCOA+ Contemporaneous",                         "—"),
+        ("at_r16_on", "12", "High",     "Tier 1", "Missing User Attribution",             "Null or blank user_id on any audit trail event.",                                                                                                                              "21 CFR Part 11 §11.10(e); ALCOA+ Attributable",                            "—"),
+        ("at_r17_on", "13", "High",     "Tier 1", "Missing Before/After Values",          "UPDATE: old_value = new_value or either null. CREATE: new_value null. DELETE: old_value null. Skipped if cols absent.",                                                          "21 CFR Part 11 §11.10(e); ALCOA+ Original",                                "Clause 9"),
+        ("at_r25_on", "14", "High",     "Tier 1", "Future Timestamp",                     "Event timestamp is after current UTC time (±1 hour buffer for timezone drift).",                                                                                               "21 CFR Part 11 §11.10(e); ALCOA+ Contemporaneous",                         "—"),
+        # ── Medium (2) ────────────────────────────────────────────────────────
+        ("at_r2_on",  "15", "Medium",   "Tier 1", "Contemporaneous Burst (narrowed)",     "≥8 events by same human user_id within a 10-minute rolling window on GxP-critical records only. Service/shared accounts excluded.",                                          "ALCOA+ Contemporaneous; 21 CFR Part 11 §11.10(e); EU Annex 11 §9",         "Clause 9"),
+        ("at_r10_on", "16", "Medium",   "Tier 2", "Off-Hours / Holiday Activity (narrowed)", "Off-hours or weekend/holiday write action on a GxP-critical record AND (change_reason blank OR approved_by blank). Off-hours alone with documentation is no longer a finding.", "21 CFR Part 11 §11.10(e); ALCOA+ Contemporaneous",                         "Clause 9"),
     ]
 
     _TIER_FILL = {"Critical": "FEE2E2", "High": "FEF3C7", "Medium": "DBEAFE"}
@@ -10742,6 +10757,100 @@ def at_build_excel(top_df, scored_df, system_name, r_start, r_end, fname) -> byt
                 cell.fill = _fill("FFFFFF" if _active else "F8FAFC")
         ws4.row_dimensions[row_num].height = 36 if len(trigger) > 80 else 22
         row_num += 1
+
+    # ── v96 Rule Mapping Appendix (per AT Rules Spec v2.0 §8) ─────────────────
+    # Customer-facing migration aid. Documents which v94e rules were kept,
+    # narrowed, merged, dropped, or moved to UAR. Ships in Detection Logic
+    # sheet header block, after the 16-rule listing.
+    row_num += 1   # blank spacer row
+    _ra_title = ws4.cell(row=row_num, column=1,
+                          value="v94e → v96 Rule Mapping Appendix (hard cutover reference)")
+    _ra_title.font      = Font(bold=True, color="FFFFFF", name="Calibri", size=10)
+    _ra_title.fill      = _fill("334155")
+    _ra_title.alignment = Alignment(horizontal="left", vertical="center", indent=1)
+    ws4.merge_cells(f"A{row_num}:H{row_num}")
+    ws4.row_dimensions[row_num].height = 18
+    row_num += 1
+
+    _ra_headers = ["v94 #", "v94 Rule Name", "v96 Status", "v96 #", "Notes",
+                   "", "", ""]
+    for ci, hdr in enumerate(_ra_headers, 1):
+        if not hdr:
+            continue
+        hc = ws4.cell(row=row_num, column=ci, value=hdr)
+        hc.font      = Font(bold=True, color="334155", name="Calibri", size=9)
+        hc.fill      = _fill("E2E8F0")
+        hc.alignment = Alignment(horizontal="left", vertical="center", indent=1)
+    ws4.row_dimensions[row_num].height = 16
+    row_num += 1
+
+    # (v94#, v94 name, status, v96#, notes)
+    _RA_ROWS = [
+        ("1",  "Vague Rationale",                 "Kept",                 "7",   ""),
+        ("2",  "Contemporaneous Burst",           "Narrowed",             "15",  "≥8 in 10 min, GxP records, human users only"),
+        ("3",  "Admin/GxP Conflict",              "Merged into Rule 10",  "10",  "Single privileged-user-modification check"),
+        ("4",  "Change Control Drift",            "Narrowed",             "8",   "Modify + reason blank + approver blank (all 3)"),
+        ("5",  "Failed Login → Manipulation",     "Narrowed + silent-skip", "9", "AUTH_FAILURE → write within 15 min on GxP"),
+        ("6",  "Record Reconstruction",           "Kept",                 "1",   ""),
+        ("7",  "Audit Trail Integrity Event",     "Kept",                 "2",   ""),
+        ("8",  "Privileged User on GxP Data",     "Merged + renamed",     "10",  "Now 'Privileged User Modification of GxP Data'"),
+        ("9",  "Timestamp Gap",                   "Dropped",              "—",   "Weekend/low-activity noise"),
+        ("10", "Off-Hours / Holiday Activity",    "Narrowed",             "16",  "Off-hours alone no longer fires; needs doc gap"),
+        ("11", "Timestamp Reversal",              "Kept",                 "3",   ""),
+        ("12", "Service / Shared Account",        "Kept",                 "4",   ""),
+        ("13", "Dormant Account Sudden Activity", "Moved to UAR",         "U11", "UAR snapshot rule: dormant + privileged + no justification"),
+        ("14", "First-Time Behavior",             "Dropped",              "—",   "Required AT event history; UAR cannot host (modular principle)"),
+        ("15", "Missing Timestamp",               "Kept",                 "11",  ""),
+        ("16", "Missing User Attribution",        "Kept",                 "12",  ""),
+        ("17", "Missing Before/After Values",     "Kept",                 "13",  ""),
+        ("18", "Self-Approval SoD Violation",     "Kept",                 "5",   ""),
+        ("19", "Modification After Approval",     "Kept",                 "6",   ""),
+        ("20", "Workflow Status Reversal",        "Dropped",              "—",   "Per §11 final decision"),
+        ("21", "Role / Permission Change",        "Dropped",              "—",   "Required AT event history; UAR cannot host (modular principle)"),
+        ("22", "Duplicate Timestamp Collision",   "Dropped",              "—",   "Sub-second noise, false-positive prone"),
+        ("23", "Missing Record ID",               "Dropped",              "—",   "Overlapped Rule 13"),
+        ("24", "Duplicate Rows",                  "Dropped",              "—",   "Data-quality signal, not compliance"),
+        ("25", "Future Timestamp",                "Kept",                 "14",  ""),
+    ]
+    _STATUS_FILL = {
+        "Kept":                   ("DCFCE7", "15803D"),
+        "Narrowed":               ("FEF3C7", "92400E"),
+        "Narrowed + silent-skip": ("FEF3C7", "92400E"),
+        "Merged into Rule 10":    ("DBEAFE", "1E40AF"),
+        "Merged + renamed":       ("DBEAFE", "1E40AF"),
+        "Moved to UAR":           ("E0E7FF", "3730A3"),
+        "Dropped":                ("FEE2E2", "991B1B"),
+    }
+    for v94n, v94name, status, v96n, notes in _RA_ROWS:
+        _bg, _fg = _STATUS_FILL.get(status, ("FFFFFF", "374151"))
+        _ra_vals = [v94n, v94name, status, v96n, notes]
+        for ci, val in enumerate(_ra_vals, 1):
+            cell = ws4.cell(row=row_num, column=ci, value=val)
+            cell.alignment = Alignment(horizontal="left", vertical="top",
+                                        wrap_text=True, indent=1)
+            if ci == 3:
+                cell.font = Font(bold=True, color=_fg, name="Calibri", size=9)
+                cell.fill = _fill(_bg)
+            else:
+                cell.font = Font(color="1E293B", name="Calibri", size=9)
+                cell.fill = _fill("FFFFFF")
+        ws4.row_dimensions[row_num].height = 16 if len(notes) < 50 else 28
+        row_num += 1
+
+    # Cutover preamble line (reviewer's one-liner positioning per §11)
+    row_num += 1
+    _ra_preamble = ws4.cell(row=row_num, column=1, value=(
+        "Hard cutover from v94e: 9 v94 rules removed (3,9,11(dup),14,16-FTB,20,21,22,23,24); "
+        "5 narrowed/merged (2,4,5,3+8→10,10); 1 moved to UAR as U11. "
+        "Net: 25 → 16 AT rules + 1 new UAR rule. Coverage of dropped behaviors is partially "
+        "addressed by AT Rule 10 (Privileged User Modification) and UAR U11 (Dormant Privileged "
+        "Without Justification). See UAR Detection Logic sheet for U11 details."
+    ))
+    _ra_preamble.font      = Font(italic=True, color="475569", name="Calibri", size=9)
+    _ra_preamble.alignment = Alignment(horizontal="left", vertical="top", wrap_text=True)
+    ws4.merge_cells(f"A{row_num}:H{row_num}")
+    ws4.row_dimensions[row_num].height = 36
+    row_num += 1
 
     # GAMP AI compliance footer
     ws4.row_dimensions[row_num].height = 8
@@ -11194,6 +11303,8 @@ _UAR_SCORE_WEIGHTS = {
     "Dormant_90":             15,    # > 90 days since last login (mutually exclusive with Never)
     "Missing_Justification":  15,
     "Multi_Privilege":        10,    # >= 3 high-risk privilege flags simultaneously
+    # ── v96 extension (UAR Spec v1.2) ─────────────────────────────────────────
+    "Dormant_Privileged_No_Justification":  25,   # U11 — same tier as Can_Release
 }
 
 # ── Risk bands ────────────────────────────────────────────────────────────────
@@ -11302,7 +11413,7 @@ GxP CRITICALITY DERIVATION (from system_name field, case-insensitive)
             Asset Management, IT Support, Confluence
   Medium → All other systems
 
-RISK SCORING — ADDITIVE INTEGER MODEL (Rules U1–U10)
+RISK SCORING — ADDITIVE INTEGER MODEL (Rules U1–U11)
   U1  +40  Is_Admin = Y (privileged system access)
   U2  +30  Can_Delete = Y (record deletion capability)
   U3  +30  Can_Approve = Y (approval authority)
@@ -11321,6 +11432,39 @@ RISK SCORING — ADDITIVE INTEGER MODEL (Rules U1–U10)
   U8  +20  Employment_Status ≠ Active AND Account_Status = Active (ghost account)
   U9  +15  Access_Justification missing or blank (governance gap)
   U10 +10  Three or more high-risk privilege flags simultaneously (privilege accumulation)
+  U11 +25  Dormant Privileged Account Without Justification (NEW v96)
+           Fires when ALL: account_status=Active AND
+             (last_login null OR ≥90 days ago) AND
+             at least one of {Is_Admin, Can_Delete, Can_Approve, Can_Release,
+                              Can_Modify_Master_Data} AND
+             access_justification blank/null
+           Silent-skip: column absent OR no row in dataset has a valid justification
+           Replaces v94 AT Rule 14 (Dormant Account Sudden Activity) — rewritten as
+           a snapshot signal so it works from UAR data alone (no AT dependency).
+           Regulatory: 21 CFR Part 11 §11.10(d); EU Annex 11 §12; NIST 800-53 AC-2(3);
+           ISO 27001 A.9.2.5; ALCOA+ Attributable.
+
+v96 RULE MIGRATION NOTES
+  v94 AT Rule 14 (Dormant Account Sudden Activity) → migrated to UAR U11 (rewritten
+                                                       as snapshot rule)
+  v94 AT Rule 16 (First-Time Behavior, half)        → DROPPED. Functionality gap
+                                                       partially covered by AT Rule 10
+                                                       (Privileged User Modification of
+                                                       GxP Data) which fires on any
+                                                       privileged write — including the
+                                                       first one.
+  v94 AT Rule 21 (Role/Permission Change)            → DROPPED. Functionality gap
+                                                       partially covered by AT Rule 2
+                                                       (Audit Trail Integrity Event)
+                                                       which fires on modifications to
+                                                       privilege/role tables when the
+                                                       change is recorded in a protected
+                                                       GxP table.
+
+POSITIONING (per UAR Spec v1.2 §11)
+  The UAR module focuses on access-control risks required by Part 11 and Annex 11,
+  and extends them with behavioural detection only where it strengthens auditability
+  without introducing noise. U11 is anchored to regulatory language, not heuristic.
 
 RISK TIERS
   Critical  > 90
@@ -11533,6 +11677,26 @@ def _uar_preprocess(df: pd.DataFrame) -> tuple:
         df["has_justification"] = True   # can't penalise what wasn't collected
         rules_skipped.append("U9 (Missing Justification) — access_justification column not provided")
 
+    # ── U11 silent-skip detection (UAR Spec v1.2 §3.1) ───────────────────────
+    # U11 cannot distinguish "undocumented" from "field not captured by this customer"
+    # if the entire dataset has zero non-blank justification values. In that case
+    # U11 silent-skips on every row.
+    if "access_justification" not in df.columns:
+        df["_u11_silent_skip"] = True
+        rules_skipped.append(
+            "U11 (Dormant Privileged Without Justification) — "
+            "access_justification column not present in source export")
+    else:
+        _any_valid_just = bool(df["has_justification"].any())
+        if not _any_valid_just:
+            df["_u11_silent_skip"] = True
+            rules_skipped.append(
+                "U11 (Dormant Privileged Without Justification) — "
+                "access_justification column present but no row has a valid value; "
+                "treated as field not captured by this customer")
+        else:
+            df["_u11_silent_skip"] = False
+
     # ── Training expiry check (optional) ─────────────────────────────────────
     if "training_expiry_date" in df.columns:
         df["training_expiry_parsed"] = pd.to_datetime(
@@ -11650,6 +11814,38 @@ def _uar_score_single(row: pd.Series) -> tuple:
     if int(row.get("privilege_count", 0)) >= 3:
         score += _UAR_SCORE_WEIGHTS["Multi_Privilege"]
         triggered.append("U10: Privilege Accumulation — ≥3 High-Risk Flags (+10)")
+
+    # ── U11 — Dormant Privileged Account Without Justification ───────────────
+    # v96 extension per UAR Spec v1.2 §3.1.
+    # Fires when ALL of:
+    #   - account is active
+    #   - last login is null/never OR ≥ 90 days ago
+    #   - user has at least one high-risk privilege flag
+    #     {Is_Admin, Can_Delete, Can_Approve, Can_Release, Can_Modify_Master_Data}
+    #   - justification field is blank/null  AND  the column exists+has data somewhere
+    #     in the dataset (silent-skip handled in _uar_preprocess)
+    _u11_skip = bool(row.get("_u11_silent_skip", False))
+    if not _u11_skip:
+        _u11_active = (str(row.get("account_status_norm", "")).strip() == "Active")
+        _u11_days   = row.get("days_since_last_login")
+        _u11_days_null = (_u11_days is None
+                           or (isinstance(_u11_days, float) and _u11_days != _u11_days))
+        _u11_dormant = _u11_days_null or (
+            isinstance(_u11_days, (int, float)) and _u11_days >= _UAR_DORMANCY_DAYS
+        )
+        _u11_priv = bool(
+            row.get("Is_Admin") or row.get("Can_Delete") or row.get("Can_Approve")
+            or row.get("Can_Release") or row.get("Can_Modify_Master_Data")
+        )
+        # has_justification == False means: column present, this row's value is blank/invalid
+        _u11_no_just = (row.get("has_justification") is False)
+        if _u11_active and _u11_dormant and _u11_priv and _u11_no_just:
+            score += _UAR_SCORE_WEIGHTS["Dormant_Privileged_No_Justification"]
+            _u11_reason = ("never logged in" if _u11_days_null
+                           else f"{int(_u11_days)} days since last login")
+            triggered.append(
+                f"U11: Dormant Privileged Account Without Justification — "
+                f"{_u11_reason}, no business justification on record (+25)")
 
     return score, triggered
 
@@ -11881,6 +12077,8 @@ def uar_score_users(df: pd.DataFrame, at_top_df: pd.DataFrame = None) -> dict:
         themes.append(f"{len(sod_df)} Segregation of Duties conflicts")
     if "u9:" in all_triggered_text:
         themes.append("Access justifications missing")
+    if "u11:" in all_triggered_text:
+        themes.append("Dormant privileged accounts without justification (U11)")
     if not themes:
         themes.append("No significant risk themes identified")
 
@@ -11888,6 +12086,8 @@ def uar_score_users(df: pd.DataFrame, at_top_df: pd.DataFrame = None) -> dict:
     _ghost_count  = int(df["Triggered_Rules"].str.contains("U8:", na=False).sum())
     _dorm_count   = int(df["Triggered_Rules"].str.contains("Dormant Account", na=False).sum())
     _nojust_count = int(df["Triggered_Rules"].str.contains("U9:", na=False).sum())
+    # v96: U11 firing count (Dormant Privileged No Justification)
+    _u11_count    = int(df["Triggered_Rules"].str.contains("U11:", na=False).sum())
 
     summary = {
         "total_users":         len(df),
@@ -11901,6 +12101,7 @@ def uar_score_users(df: pd.DataFrame, at_top_df: pd.DataFrame = None) -> dict:
         "ghost_count":         _ghost_count,
         "dormant_count":       _dorm_count,
         "no_just_count":       _nojust_count,
+        "u11_count":           _u11_count,                # v96 — UAR Spec §7.2
         "key_themes":          themes[:5],
     }
 
@@ -12327,6 +12528,12 @@ def uar_build_excel(
     _summary_row("% Ghost Accounts",              f"{_pct_ghost}%  (active system, inactive employment)")
     _summary_row("% Dormant Accounts (>90 days)", f"{_pct_dorm}%  (of active users)")
     _summary_row("% Missing Justification",       f"{_pct_just}%  (no valid justification on record)")
+    # v96 — show U11 KPI only when applicable (UAR Spec v1.2 §7.2)
+    _u11_count = int(smry.get("u11_count", 0))
+    if _u11_count > 0:
+        _pct_u11 = round(_u11_count / _total * 100, 1)
+        _summary_row("U11: Dormant Privileged Without Justification",
+                     f"{_u11_count}  ({_pct_u11}% of users)  [NEW v96]")
     row += 1
 
     _summary_row("KEY RISK THEMES", "", section=True)
@@ -12666,13 +12873,52 @@ def show_user_access_review(user: str, role: str, model_id: str):
     st.markdown(
         "<p style='color:#94a3b8;margin-top:-12px;'>"
         "Upload your system user access export to run the deterministic GxP access "
-        "review engine — 10 scoring rules, 6 SoD conflict checks, peer anomaly "
+        "review engine — 11 scoring rules, 6 SoD conflict checks, peer anomaly "
         "detection, and cross-module AT correlation. Produces a GxP evidence package "
         "for your Periodic Review Report per 21 CFR Part 11 §11.10(d) and EU Annex 11 "
         "Clause 12.</p>",
         unsafe_allow_html=True,
     )
     st.markdown("---")
+
+    # ── v96 Detection Rules visibility panel (UAR Spec v1.2 §7.1) ─────────────
+    # Collapsible by default — mirrors the AT module landing page pattern.
+    # 11 rules across 4 categories: Privilege Escalation, Access Governance,
+    # User Attribution, Multi-factor risk.
+    with st.expander("Detection Rules (11 rules across 4 categories)", expanded=False):
+        st.markdown(
+            """
+<div style='font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:0.82rem;
+            line-height:1.55;color:#cbd5e1;background:#0b1220;padding:14px 18px;
+            border-radius:8px;border:1px solid #1e293b;'>
+<span style='color:#fca5a5;font-weight:700;'>🔴 Privilege Escalation (3 rules)</span><br>
+&nbsp;&nbsp;• <b>Is_Admin</b> (+40) — Admin role on GxP system<br>
+&nbsp;&nbsp;• <b>Can_Delete</b> (+30) — Destructive privilege<br>
+&nbsp;&nbsp;• <b>Can_Approve</b> (+30) — Approval authority<br>
+<br>
+<span style='color:#fdba74;font-weight:700;'>🟠 Access Governance (4 rules)</span><br>
+&nbsp;&nbsp;• <b>Can_Release</b> (+25) — Release/publish authority<br>
+&nbsp;&nbsp;• <b>Can_Modify_Master_Data</b> (+25)<br>
+&nbsp;&nbsp;• <b>GxP_High</b> (+25) — GxP-critical system access<br>
+&nbsp;&nbsp;• <b>Dormant_Privileged_No_Justification</b> (+25)
+       <span style='color:#86efac;'>← NEW v96</span><br>
+<br>
+<span style='color:#fde047;font-weight:700;'>🟡 User Attribution (3 rules)</span><br>
+&nbsp;&nbsp;• <b>Never_Logged_In</b> (+20)<br>
+&nbsp;&nbsp;• <b>Ghost_Account</b> (+20) — Terminated but active<br>
+&nbsp;&nbsp;• <b>Dormant_90</b> (+15) — &gt;90 days since last login<br>
+<br>
+<span style='color:#93c5fd;font-weight:700;'>🔵 Multi-factor risk (1 rule)</span><br>
+&nbsp;&nbsp;• <b>Multi_Privilege</b> (+10) — ≥3 high-risk privileges<br>
+<br>
+<span style='color:#94a3b8;font-style:italic;'>
+Regulatory basis: 21 CFR §11.10(d), EU Annex 11 §12,
+NIST 800-53 AC-2, ISO 27001 A.9.2, ALCOA+ Attributable
+</span>
+</div>
+            """,
+            unsafe_allow_html=True,
+        )
 
     # ── System metadata ───────────────────────────────────────────────────────
     mc1, mc2, mc3 = st.columns(3)
@@ -16064,8 +16310,10 @@ div.vl-btn-soon > div.stButton > button {
         }
         var at  = doc.getElementById('vl-card-at');
         var uar = doc.getElementById('vl-card-uar');
+        var dci = doc.getElementById('vl-card-dci');
         if (at)  { at.onclick  = function() { clickBtn('Launch Audit Trail'); }; }
         if (uar) { uar.onclick = function() { clickBtn('Launch User Access');  }; }
+        if (dci) { dci.onclick = function() { clickBtn('Launch Deviation');     }; }
         if (at || uar) return true;
         return false;
     }
@@ -16117,20 +16365,61 @@ def show_audit_trail(user: str, role: str, model_id: str):
     st.markdown("---")
 
     # ── Initialise rule config defaults ───────────────────────────────────────
+    # v96 — 16-rule ruleset. Active toggles default ON; dropped rules default OFF
+    # and are hidden from the UI. Old toggle keys preserved (not renamed) so that
+    # existing session state and saved configurations continue to load cleanly.
+    # See AT Rules Spec v2.0 §1 for the v96 ruleset and §2 for the 9 dropped rules.
     _RULE_DEFAULTS = {
-        "at_r1_on": True,  "at_r2_on": True,  "at_r3_on": True,
-        "at_r5_on": True,  "at_r6_on": True,  "at_r7_on": True,
-        "at_r8_on": True,  "at_r11_on": True, "at_r12_on": True,
-        "at_r15_on": True, "at_r16_on": True, "at_r17_on": True,
-        "at_r18_on": True, "at_r19_on": True, "at_r21_on": True,
-        "at_r23_on": True, "at_r24_on": True, "at_r25_on": True,
-        "at_r4_on":  False, "at_r9_on":  False, "at_r10_on": False,
-        "at_r13_on": False, "at_r14_on": False, "at_r20_on": False,
-        "at_r22_on": False,
+        # ── v96 Critical (6) ──────────────────────────────────────────────────
+        "at_r6_on":  True,    # v96 #1  Record Reconstruction
+        "at_r7_on":  True,    # v96 #2  Audit Trail Integrity Event
+        "at_r11_on": True,    # v96 #3  Timestamp Reversal
+        "at_r12_on": True,    # v96 #4  Service / Shared Account
+        "at_r18_on": True,    # v96 #5  Self-Approval SoD Violation
+        "at_r19_on": True,    # v96 #6  Modification After Approval
+        # ── v96 High (8) ──────────────────────────────────────────────────────
+        "at_r1_on":  True,    # v96 #7  Vague Rationale
+        "at_r4_on":  True,    # v96 #8  Change Control Drift (narrowed)
+        "at_r5_on":  True,    # v96 #9  Failed Login → Data Manipulation (narrowed)
+        "at_r8_on":  True,    # v96 #10 Privileged User Modification (merged 3+8)
+        "at_r15_on": True,    # v96 #11 Missing Timestamp
+        "at_r16_on": True,    # v96 #12 Missing User Attribution
+        "at_r17_on": True,    # v96 #13 Missing Before/After Values
+        "at_r25_on": True,    # v96 #14 Future Timestamp
+        # ── v96 Medium (2) ────────────────────────────────────────────────────
+        "at_r2_on":  True,    # v96 #15 Contemporaneous Burst (narrowed)
+        "at_r10_on": True,    # v96 #16 Off-Hours / Holiday Activity (narrowed)
+        # ── DROPPED in v96 — default OFF, hidden from UI ──────────────────────
+        "at_r3_on":  False,   # merged into v96 #10 via at_r8_on
+        "at_r9_on":  False,   # Timestamp Gap — dropped (weekend/low-activity noise)
+        "at_r13_on": False,   # Dormant Account — moved to UAR U11
+        "at_r14_on": False,   # First-Time Behavior — dropped (UAR U12 also dropped per UAR v1.2)
+        "at_r20_on": False,   # Workflow Status Reversal — dropped
+        "at_r21_on": False,   # Role/Permission Change — dropped (UAR U13 also dropped per UAR v1.2)
+        "at_r22_on": False,   # Duplicate Timestamp — dropped (sub-second noise)
+        "at_r23_on": False,   # Missing Record ID — dropped (overlaps Rule 13)
+        "at_r24_on": False,   # Duplicate Rows — dropped (data quality, not compliance)
     }
     for _k, _v in _RULE_DEFAULTS.items():
         if _k not in st.session_state:
             st.session_state[_k] = _v
+
+    # v96 hard cutover: even if a legacy session state has any dropped rule
+    # toggled ON, force it OFF here. The UI no longer shows these toggles, so
+    # the user has no way to change them — and we never want them to fire.
+    _V96_DROPPED_KEYS = (
+        "at_r3_on",   # merged into r8 (Rule 10)
+        "at_r9_on",   # Timestamp Gap dropped
+        "at_r13_on",  # Dormant Account → UAR U11
+        "at_r14_on",  # First-Time Behavior dropped
+        "at_r20_on",  # Workflow Status Reversal dropped
+        "at_r21_on",  # Role/Permission Change dropped
+        "at_r22_on",  # Duplicate Timestamp dropped
+        "at_r23_on",  # Missing Record ID dropped
+        "at_r24_on",  # Duplicate Rows dropped
+    )
+    for _dk in _V96_DROPPED_KEYS:
+        st.session_state[_dk] = False
 
     _AT_RULE_CONFIG   = {k: st.session_state.get(k, v) for k, v in _RULE_DEFAULTS.items()}
     _at_rules_active  = sum(1 for v in _AT_RULE_CONFIG.values() if v)
@@ -16223,49 +16512,49 @@ def show_audit_trail(user: str, role: str, model_id: str):
                     unsafe_allow_html=True
                 )
 
-        # ── Rules grouped by section, globally sequential 1–25 ─────────────────
-        # Section order determines display grouping.
-        # Numbers follow original rule IDs 1-25 (match Detection Logic sheet).
-        # # === CLAUDE PROTECTED START ===
-        # DO NOT MODIFY THIS BLOCK
+        # ── v96 Rule List — 16 rules across 5 sections ─────────────────────────
+        # AT Rules Spec v2.0 §1: 6 Critical + 8 High + 2 Medium = 16 rules.
+        # Numbering 1–16 follows the v96 spec exactly (matches Detection Logic sheet).
+        # Toggle keys (at_rN_on) are PRESERVED from v94e to keep session state and
+        # saved-config files backward compatible — only display number/name changes.
+        # The 9 dropped rules are not shown here; they default OFF and are forced OFF
+        # in session state above to prevent legacy state from firing them.
+        #
+        # Display grouping: each category shown once, severity-ordered within.
+        # Rule numbers 1–16 are not contiguous within a category by design — they
+        # follow the spec's tier-first numbering (Critical 1–6, High 7–14, Medium 15–16).
+        #
+        # PROTECTED ZONE NOTE (v96 cutover): The previous "CLAUDE PROTECTED START/END"
+        # markers around the v94e 25-rule block have been deliberately retired for
+        # this refactor — user-approved Option (c). The 4-zone protected baseline is
+        # now: ESIG_MEANINGS, two MANUAL EDIT v29-custom blocks, and a fourth zone
+        # to be designated post-v96 (this block is no longer a protected zone).
 
         _section_header("🔴  Data Integrity", "integrity")
-        _rule_row_b("at_r3_on",   1, "Admin/GxP Conflict",              "Critical · T1", "21 CFR Part 11 §11.10(d)",                          "")
-        _rule_row_b("at_r6_on",   2, "Record Reconstruction",           "Critical · T1", "21 CFR Part 11 §11.10(e) · ALCOA+ Original",        "")
-        _rule_row_b("at_r7_on",   3, "Audit Trail Integrity Event",     "Critical · T1", "21 CFR Part 11 §11.10(e)",                          "")
-        _rule_row_b("at_r18_on",  4, "Self-Approval SoD Violation",     "Critical · T1", "21 CFR Part 11 §11.10(d) · EU Annex 11 Clause 12",  "")
-        _rule_row_b("at_r19_on",  5, "Modification After Approval",     "Critical · T1", "21 CFR Part 11 §11.10(e) · ALCOA+ Original",        "")
+        _rule_row_b("at_r6_on",   1, "Record Reconstruction",            "Critical · T1", "21 CFR Part 11 §11.10(e) · ALCOA+ Original",        "integrity")
+        _rule_row_b("at_r7_on",   2, "Audit Trail Integrity Event",      "Critical · T1", "21 CFR Part 11 §11.10(e)",                          "integrity")
+        _rule_row_b("at_r17_on", 13, "Missing Before/After Values",      "High · T1",     "21 CFR Part 11 §11.10(e) · ALCOA+ Original",        "integrity")
 
         _section_header("🔵  Change Documentation", "change")
-        _rule_row_b("at_r1_on",   6, "Vague Rationale",                 "High · T1",     "21 CFR Part 211.68 · ALCOA+ Attributable",          "")
-        _rule_row_b("at_r4_on",   7, "Change Control Drift",            "High · T2",     "21 CFR Part 820.70(b)",                             "")
-        _rule_row_b("at_r17_on",  8, "Missing Before/After Value",      "High · T1",     "21 CFR Part 11 §11.10(e) · ALCOA+ Original",        "")
-        _rule_row_b("at_r23_on",  9, "Missing Record ID",               "High · T1",     "21 CFR Part 11 §11.10(e) · ALCOA+ Original",        "")
-        _rule_row_b("at_r24_on", 10, "Duplicate Rows",                  "High · T1",     "21 CFR Part 11 §11.10(e) · ALCOA+ Original",        "")
+        _rule_row_b("at_r18_on",  5, "Self-Approval SoD Violation",      "Critical · T1", "21 CFR Part 11 §11.10(d) · EU Annex 11 Clause 12",  "change")
+        _rule_row_b("at_r19_on",  6, "Modification After Approval",      "Critical · T1", "21 CFR Part 11 §11.10(e) · ALCOA+ Original",        "change")
+        _rule_row_b("at_r1_on",   7, "Vague Rationale",                  "High · T1",     "21 CFR Part 211.68 · ALCOA+ Attributable",          "change")
+        _rule_row_b("at_r4_on",   8, "Change Control Drift",             "High · T2",     "21 CFR Part 211.68(b) · EU Annex 11 §10",           "change")
 
         _section_header("🟢  User & Access", "user")
-        _rule_row_b("at_r5_on",   11, "Failed Login → Manipulation",     "Critical · T1", "21 CFR Part 11 §11.300",                            "")
-        _rule_row_b("at_r8_on",   12, "Privileged User on GxP Data",    "High · T1",     "21 CFR Part 11 §11.10(d)",                          "")
-        _rule_row_b("at_r12_on",  13, "Service/Shared Account",          "Critical · T1", "21 CFR Part 11 §11.300",                            "")
-        _rule_row_b("at_r16_on",  14, "Missing User Attribution",        "High · T1",     "21 CFR Part 11 §11.10(e) · ALCOA+ Attributable",    "")
-        _rule_row_b("at_r21_on",  15, "Role/Permission Change",          "High · T1",     "21 CFR Part 11 §11.10(d) · EU Annex 11 Clause 12",  "")
+        _rule_row_b("at_r12_on",  4, "Service / Shared Account",         "Critical · T1", "21 CFR Part 11 §11.300",                            "user")
+        _rule_row_b("at_r5_on",   9, "Failed Login → Data Manipulation", "High · T1",     "21 CFR Part 11 §11.300 · ALCOA+ Attributable",      "user")
+        _rule_row_b("at_r8_on",  10, "Privileged User Modification of GxP Data", "High · T1", "21 CFR Part 11 §11.10(c)/(d) · EU Annex 11 §2", "user")
+        _rule_row_b("at_r16_on", 12, "Missing User Attribution",         "High · T1",     "21 CFR Part 11 §11.10(e) · ALCOA+ Attributable",    "user")
 
         _section_header("🟣  Timestamps", "timestamp")
-        _rule_row_b("at_r9_on",   16, "Timestamp Gap",                   "High · T2",     "21 CFR Part 11 §11.10(e)",                          "")
-        _rule_row_b("at_r11_on",  17, "Timestamp Reversal",              "Critical · T1", "21 CFR Part 11 §11.10(e) · ALCOA+ Contemporaneous", "")
-        _rule_row_b("at_r15_on",  18, "Missing Timestamp",               "High · T1",     "21 CFR Part 11 §11.10(e) · ALCOA+ Contemporaneous", "")
-        _rule_row_b("at_r22_on",  19, "Duplicate Timestamp Collision",   "Medium · T2",   "21 CFR Part 11 §11.10(e)",                          "")
-        _rule_row_b("at_r25_on",  20, "Future Timestamp",                "High · T1",     "21 CFR Part 11 §11.10(e) · ALCOA+ Contemporaneous", "")
+        _rule_row_b("at_r11_on",  3, "Timestamp Reversal",               "Critical · T1", "21 CFR Part 11 §11.10(e) · ALCOA+ Contemporaneous", "timestamp")
+        _rule_row_b("at_r15_on", 11, "Missing Timestamp",                "High · T1",     "21 CFR Part 11 §11.10(e) · ALCOA+ Contemporaneous", "timestamp")
+        _rule_row_b("at_r25_on", 14, "Future Timestamp",                 "High · T1",     "21 CFR Part 11 §11.10(e) · ALCOA+ Contemporaneous", "timestamp")
 
         _section_header("🟡  Behaviour", "behaviour")
-        _rule_row_b("at_r2_on",   21, "Contemporaneous Burst",           "Medium · T1",   "ALCOA+ Contemporaneous · 21 CFR Part 11 §11.10(e)", "")
-        _rule_row_b("at_r13_on",  22, "Dormant Account Sudden Activity", "High · T2",     "21 CFR Part 11 §11.10(d)",                          "")
-        _rule_row_b("at_r14_on",  23, "First-Time Behavior",             "High · T2",     "21 CFR Part 11 §11.10(d)",                          "")
-
-        _section_header("🩵  Heuristic", "heuristic")
-        _rule_row_b("at_r10_on", 24, "Off-Hours / Holiday Activity",    "Medium · T2",   "21 CFR Part 211.68",                                "")
-        _rule_row_b("at_r20_on", 25, "Workflow Status Reversal",        "High · T2",     "21 CFR Part 11 §11.10(e)",                          "")
-        # === CLAUDE PROTECTED END ===
+        _rule_row_b("at_r2_on",  15, "Contemporaneous Burst",            "Medium · T1",   "ALCOA+ Contemporaneous · 21 CFR Part 11 §11.10(e)", "behaviour")
+        _rule_row_b("at_r10_on", 16, "Off-Hours / Holiday Activity",     "Medium · T2",   "21 CFR Part 11 §11.10(e) · ALCOA+ Contemporaneous", "behaviour")
         # ── Guard rail ────────────────────────────────────────────────────────
         st.markdown("---")
         _active_count = sum(1 for k in _RULE_DEFAULTS if st.session_state.get(k, False))
@@ -16295,7 +16584,7 @@ def show_audit_trail(user: str, role: str, model_id: str):
     # ── Config summary pill (shown on all subsequent steps) ───────────────────
     _cfg_col, _edit_col = st.columns([5, 1])
     with _cfg_col:
-        st.caption(f"⚙️ {_at_rules_active}/25 rules active for this run")
+        st.caption(f"⚙️ {_at_rules_active}/16 rules active for this run")
     with _edit_col:
         if st.button("Edit Rules", key="at_edit_rules", use_container_width=True):
             st.session_state["at_config_confirmed"] = False
@@ -18874,7 +19163,7 @@ match your system's export column names to the fields above — rename nothing i
                     except Exception:
                         pass   # date parse failure — treat all rows as in-period
 
-                st.write(f"⚡ Step 2: Scoring {len(scored):,} events across 25 rules...")
+                st.write(f"⚡ Step 2: Scoring {len(scored):,} events across {_at_rules_active} rules...")
                 _ = prog.progress(0.45)
                 # ── Select Top N — simplified architecture (v93) ──────────────
                 # Rule: Critical → always in. High → always in. Medium → dedup ok.
