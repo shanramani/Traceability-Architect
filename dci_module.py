@@ -31,22 +31,38 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
-# ── Helpers imported from the main app ─────────────────────────────────────
-# These are stable, pre-existing functions in generator.py. Importing at
-# module load keeps the dependency explicit.
-from generator import (
-    log_audit,
-    _render_validator_verdict,
-    _scroll_top,
-    _cols_lower,
-    _matching_cols,
-    _find_col,
-    _verdict_from_results,
-    _VALINTEL_SHEET_FINGERPRINTS,
-    _VALINTEL_COLUMN_FINGERPRINTS,
-    _AT_VOCAB_COLUMNS,
-    _UAR_VOCAB_COLUMNS,
-)
+# ── Helpers from generator.py — LAZY import pattern ───────────────────────
+# We MUST NOT do `from generator import ...` at module top level.
+# Reason: when Streamlit first imports dci_module (via the deferred import
+# in generator.py's dispatcher), generator.py is still mid-execution. A
+# top-level `from generator import X` would re-enter generator, which
+# re-runs `st.set_page_config()` — but widgets have already rendered, so
+# Streamlit raises StreamlitSetPageConfigMustBeFirstCommandError.
+#
+# Solution: defer the import inside a cached accessor. First call actually
+# imports (generator.py is fully loaded by then). Subsequent calls return
+# cached references.
+_gen_helpers = None
+
+def _gen():
+    """Lazy-load helpers from generator.py. Only imports on first use."""
+    global _gen_helpers
+    if _gen_helpers is None:
+        import generator as _g
+        _gen_helpers = {
+            "log_audit":                      _g.log_audit,
+            "_render_validator_verdict":      _g._render_validator_verdict,
+            "_scroll_top":                    _g._scroll_top,
+            "_cols_lower":                    _g._cols_lower,
+            "_matching_cols":                 _g._matching_cols,
+            "_find_col":                      _g._find_col,
+            "_verdict_from_results":          _g._verdict_from_results,
+            "_VALINTEL_SHEET_FINGERPRINTS":   _g._VALINTEL_SHEET_FINGERPRINTS,
+            "_VALINTEL_COLUMN_FINGERPRINTS":  _g._VALINTEL_COLUMN_FINGERPRINTS,
+            "_AT_VOCAB_COLUMNS":              _g._AT_VOCAB_COLUMNS,
+            "_UAR_VOCAB_COLUMNS":             _g._UAR_VOCAB_COLUMNS,
+        }
+    return _gen_helpers
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -190,7 +206,7 @@ def _validate_dci_input_file(raw_bytes: bytes, file_name: str, df: pd.DataFrame,
             alias for alias, canon in _DCI_COLUMN_ALIASES.items()
             if canon == canonical
         }
-        cols_norm = _cols_lower(df)
+        cols_norm = _gen()["_cols_lower"](df)
         hit = cols_norm & aliases_for_canonical
         if hit:
             return True, sorted(hit)[0]
@@ -200,8 +216,8 @@ def _validate_dci_input_file(raw_bytes: bytes, file_name: str, df: pd.DataFrame,
     _sheet_hits = set()
     if all_sheet_names:
         _sheet_hits = ({str(s).strip().lower() for s in all_sheet_names}
-                       & _VALINTEL_SHEET_FINGERPRINTS)
-    _col_hits = _cols_lower(df) & _VALINTEL_COLUMN_FINGERPRINTS
+                       & _gen()["_VALINTEL_SHEET_FINGERPRINTS"])
+    _col_hits = _gen()["_cols_lower"](df) & _gen()["_VALINTEL_COLUMN_FINGERPRINTS"]
     _f1_passed = not _sheet_hits and not _col_hits
     _f1_detail = "Not a VALINTEL output"
     if not _f1_passed:
@@ -283,8 +299,8 @@ def _validate_dci_input_file(raw_bytes: bytes, file_name: str, df: pd.DataFrame,
     })
 
     # ── DCI-N3: AT vocabulary does NOT dominate ───────────────────────────
-    _at_cols  = _matching_cols(df, _AT_VOCAB_COLUMNS)
-    _dci_cols = _matching_cols(df, _DCI_VOCAB_COLUMNS)
+    _at_cols  = _gen()["_matching_cols"](df, _gen()["_AT_VOCAB_COLUMNS"])
+    _dci_cols = _gen()["_matching_cols"](df, _DCI_VOCAB_COLUMNS)
     _n3_dominated = (len(_at_cols) >= 3 and len(_at_cols) > len(_dci_cols))
     _n3_passed = not _n3_dominated
     if _n3_passed:
@@ -302,7 +318,7 @@ def _validate_dci_input_file(raw_bytes: bytes, file_name: str, df: pd.DataFrame,
     })
 
     # ── DCI-N4: UAR vocabulary does NOT dominate ──────────────────────────
-    _uar_cols = _matching_cols(df, _UAR_VOCAB_COLUMNS)
+    _uar_cols = _gen()["_matching_cols"](df, _gen()["_UAR_VOCAB_COLUMNS"])
     _n4_dominated = (len(_uar_cols) >= 3 and len(_uar_cols) > len(_dci_cols))
     _n4_passed = not _n4_dominated
     if _n4_passed:
@@ -324,7 +340,7 @@ def _validate_dci_input_file(raw_bytes: bytes, file_name: str, df: pd.DataFrame,
     _n5_detail = "Record uniqueness check skipped (no record_id column)."
     if _f2_has and _f2_col and len(df) > 0:
         try:
-            _rid_col_actual = _find_col(df, {_f2_col})
+            _rid_col_actual = _gen()["_find_col"](df, {_f2_col})
             _rid_vals = df[_rid_col_actual].astype(str)
             _unique_ratio = len(set(_rid_vals)) / max(len(_rid_vals), 1)
             _n5_passed = _unique_ratio >= 0.50
@@ -345,7 +361,7 @@ def _validate_dci_input_file(raw_bytes: bytes, file_name: str, df: pd.DataFrame,
     })
 
     # ── Verdict ───────────────────────────────────────────────────────────
-    _severity = _verdict_from_results(results)
+    _severity = _gen()["_verdict_from_results"](results)
     _title = ""
     if _severity == "hard_reject":
         _title = ("File rejected — does not match "
@@ -1542,7 +1558,7 @@ def dci_classify_event_category(rule_triggered):
 def show_dci_review(user, role, model_id):
     """Render Periodic Review — Module 3: Deviation & CAPA Investigation.
     Mirrors show_user_access_review structure."""
-    _scroll_top()
+    _gen()["_scroll_top"]()
     st.title("🔍 Deviation & CAPA Investigation")
     st.markdown(
         "<p style='color:#94a3b8;margin-top:-12px;'>"
@@ -1646,7 +1662,7 @@ def show_dci_review(user, role, model_id):
     override_key = f"validator_override__DCI__{file_name}"
     already_overridden = st.session_state.get(override_key, False)
 
-    if not (_render_validator_verdict(
+    if not (_gen()["_render_validator_verdict"](
         v_sev, v_title, v_results, v_evidence,
         file_name, user, module="DCI"
     ) or already_overridden):
@@ -1746,7 +1762,7 @@ def show_dci_review(user, role, model_id):
                     hashlib.sha256(cfg_str.encode()).hexdigest()[:16]
             except Exception:
                 st.session_state["dci_config_hash"] = ""
-            log_audit(
+            _gen()["log_audit"](
                 user, "DCI_ANALYSIS_RUN", "DATASET",
                 new_value=f"DCI_{st.session_state.get('dci_system_name','')}",
                 reason=(
@@ -1831,7 +1847,7 @@ def show_dci_review(user, role, model_id):
                 file_name=f"DCI_{sys_name}_{dci_r_end}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True,
-                on_click=lambda: log_audit(
+                on_click=lambda: _gen()["log_audit"](
                     user, "DCI_DOWNLOAD", "REPORT",
                     new_value=f"DCI_{sys_name}",
                     reason=f"System: {sys_name}",
@@ -1871,7 +1887,7 @@ def show_dci_review(user, role, model_id):
                         f"✅ Banked {banked} High/Critical finding(s) to DIM "
                         f"for period {period_label}."
                     )
-                log_audit(
+                _gen()["log_audit"](
                     user, "DCI_BANK_TO_DIM", "DATASET",
                     new_value=f"DCI_{sys_name}",
                     reason=f"Period: {period_label} · Banked: {banked} rows",
