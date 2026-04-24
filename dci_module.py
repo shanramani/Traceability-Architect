@@ -45,23 +45,79 @@ from openpyxl.utils import get_column_letter
 _gen_helpers = None
 
 def _gen():
-    """Lazy-load helpers from generator.py. Only imports on first use."""
+    """
+    Lazy-load helpers from generator.py — looking up the ALREADY-RUNNING
+    generator module via sys.modules, NEVER using `import generator`.
+
+    Why this matters in Streamlit:
+      - Streamlit runs generator.py as the entry script. Python stores it
+        under the module name "__main__" (or an ephemeral name), NOT under
+        "generator".
+      - Doing `import generator` would cause Python to find generator.py
+        on the path, see no cached entry under that exact name, and RUN
+        the file top-to-bottom AGAIN. That re-executes `st.set_page_config()`
+        which Streamlit forbids past the first call.
+      - The fix: walk sys.modules to find the module object that contains
+        the helpers we need. That object is already loaded and in memory.
+    """
     global _gen_helpers
-    if _gen_helpers is None:
-        import generator as _g
-        _gen_helpers = {
-            "log_audit":                      _g.log_audit,
-            "_render_validator_verdict":      _g._render_validator_verdict,
-            "_scroll_top":                    _g._scroll_top,
-            "_cols_lower":                    _g._cols_lower,
-            "_matching_cols":                 _g._matching_cols,
-            "_find_col":                      _g._find_col,
-            "_verdict_from_results":          _g._verdict_from_results,
-            "_VALINTEL_SHEET_FINGERPRINTS":   _g._VALINTEL_SHEET_FINGERPRINTS,
-            "_VALINTEL_COLUMN_FINGERPRINTS":  _g._VALINTEL_COLUMN_FINGERPRINTS,
-            "_AT_VOCAB_COLUMNS":              _g._AT_VOCAB_COLUMNS,
-            "_UAR_VOCAB_COLUMNS":             _g._UAR_VOCAB_COLUMNS,
-        }
+    if _gen_helpers is not None:
+        return _gen_helpers
+
+    import sys as _sys
+
+    # Strategy: find the module object that defines the functions we need.
+    # Generator.py is guaranteed to be loaded (we're running from it) but
+    # its module name depends on how Streamlit invoked it. Search both
+    # the obvious candidates and the full module registry.
+    _candidate_names = ["__main__", "generator", "streamlit.generator"]
+    _gen_mod = None
+    for _name in _candidate_names:
+        _m = _sys.modules.get(_name)
+        if _m is not None and hasattr(_m, "log_audit") and hasattr(_m, "_scroll_top"):
+            _gen_mod = _m
+            break
+
+    # Fallback: scan all loaded modules for one whose __file__ ends with
+    # generator.py. Handles any naming convention Streamlit might use.
+    if _gen_mod is None:
+        for _name, _m in list(_sys.modules.items()):
+            try:
+                _f = getattr(_m, "__file__", "") or ""
+            except Exception:
+                continue
+            if _f.endswith("generator.py") and hasattr(_m, "log_audit"):
+                _gen_mod = _m
+                break
+
+    if _gen_mod is None:
+        # sys.modules didn't contain a match. We deliberately do NOT fall back
+        # to `import generator` — that would re-execute generator.py and
+        # re-trigger st.set_page_config, which is exactly the bug this
+        # function exists to avoid. Raise a clear error instead.
+        raise RuntimeError(
+            "dci_module._gen() could not locate the already-loaded generator "
+            "module in sys.modules. Candidates searched: "
+            f"{_candidate_names}. Loaded modules count: {len(_sys.modules)}. "
+            "This usually means dci_module.py was loaded before generator.py "
+            "finished its top-level execution, or the two files are not in "
+            "the same folder. Verify deployment layout."
+        )
+
+    _gen_helpers = {
+        "log_audit":                      _gen_mod.log_audit,
+        "_render_validator_verdict":      _gen_mod._render_validator_verdict,
+        "_scroll_top":                    _gen_mod._scroll_top,
+        "_cols_lower":                    _gen_mod._cols_lower,
+        "_matching_cols":                 _gen_mod._matching_cols,
+        "_find_col":                      _gen_mod._find_col,
+        "_verdict_from_results":          _gen_mod._verdict_from_results,
+        "_VALINTEL_SHEET_FINGERPRINTS":   _gen_mod._VALINTEL_SHEET_FINGERPRINTS,
+        "_VALINTEL_COLUMN_FINGERPRINTS":  _gen_mod._VALINTEL_COLUMN_FINGERPRINTS,
+        "_AT_VOCAB_COLUMNS":              _gen_mod._AT_VOCAB_COLUMNS,
+        "_UAR_VOCAB_COLUMNS":             _gen_mod._UAR_VOCAB_COLUMNS,
+        "_dim_event_category":            getattr(_gen_mod, "_dim_event_category", None),
+    }
     return _gen_helpers
 
 
@@ -1863,12 +1919,9 @@ def show_dci_review(user, role, model_id):
             key="dci_bank_btn",
         ):
             try:
-                # Lazy-import _dim_event_category from generator.py so the
-                # DIM banking uses the same Event_Category logic as AT/UAR.
-                try:
-                    from generator import _dim_event_category as _ec_fn
-                except Exception:
-                    _ec_fn = None
+                # Use _gen() lookup instead of `from generator import` to avoid
+                # re-executing generator.py (would re-run st.set_page_config).
+                _ec_fn = _gen().get("_dim_event_category")
 
                 period_label = f"{dci_r_start} → {dci_r_end}" \
                     if (dci_r_start and dci_r_end) else \
