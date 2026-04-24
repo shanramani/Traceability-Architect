@@ -1795,11 +1795,42 @@ def show_dci_review(user, role, model_id):
 
     dci_running = st.session_state.get("dci_running", False)
 
+    # ── Fingerprint of current inputs ────────────────────────────────────────
+    # If file + config haven't changed since last successful run, the Run
+    # button is disabled with a helpful message. User must change the file
+    # OR toggle a rule config to enable a re-run.
+    import json as _json_fp, hashlib as _hash_fp
+    _input_fp = _hash_fp.sha256(
+        _json_fp.dumps(
+            {
+                "file":  file_name,
+                "rows":  len(dci_df),
+                "cols":  sorted(dci_df.columns.tolist()),
+                "cfg":   {k: bool(v) for k, v in cfg.items()},
+            },
+            sort_keys=True,
+        ).encode()
+    ).hexdigest()[:16]
+    _last_run_fp = st.session_state.get("dci_last_run_fingerprint")
+    _already_analyzed_this_input = (
+        _last_run_fp == _input_fp
+        and st.session_state.get("dci_analysis_done", False)
+    )
+
     run_col1, _run_col2 = st.columns([1, 3])
     with run_col1:
+        if dci_running:
+            _btn_label    = "⏳ Running…"
+            _btn_disabled = True
+        elif _already_analyzed_this_input:
+            _btn_label    = "✓ Analyzed — change file or rules to re-run"
+            _btn_disabled = True
+        else:
+            _btn_label    = "🚀 Run DCI Analysis"
+            _btn_disabled = False
         run_clicked = st.button(
-            "🚀 Run DCI Analysis" if not dci_running else "⏳ Running…",
-            disabled=dci_running,
+            _btn_label,
+            disabled=_btn_disabled,
             key="dci_run_btn",
             use_container_width=True,
         )
@@ -1811,11 +1842,11 @@ def show_dci_review(user, role, model_id):
                 scored_df = dci_score_records(dci_df, rule_config=cfg)
             st.session_state["dci_scored_df"] = scored_df
             st.session_state["dci_analysis_done"] = True
+            st.session_state["dci_last_run_fingerprint"] = _input_fp
             try:
-                import json as _json
-                cfg_str = _json.dumps(cfg, sort_keys=True)
+                cfg_str = _json_fp.dumps(cfg, sort_keys=True)
                 st.session_state["dci_config_hash"] = \
-                    hashlib.sha256(cfg_str.encode()).hexdigest()[:16]
+                    _hash_fp.sha256(cfg_str.encode()).hexdigest()[:16]
             except Exception:
                 st.session_state["dci_config_hash"] = ""
             _gen()["log_audit"](
@@ -1830,6 +1861,7 @@ def show_dci_review(user, role, model_id):
         except Exception as e:
             st.error(f"Analysis failed: {e}")
             st.session_state["dci_analysis_done"] = False
+            st.session_state["dci_last_run_fingerprint"] = None
         finally:
             st.session_state["dci_running"] = False
             st.rerun()
