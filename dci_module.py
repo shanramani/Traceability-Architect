@@ -117,6 +117,10 @@ def _gen():
         "_AT_VOCAB_COLUMNS":              _gen_mod._AT_VOCAB_COLUMNS,
         "_UAR_VOCAB_COLUMNS":             _gen_mod._UAR_VOCAB_COLUMNS,
         "_dim_event_category":            getattr(_gen_mod, "_dim_event_category", None),
+        # v96 — cross-module upload invalidation helpers
+        "_file_content_hash":             getattr(_gen_mod, "_file_content_hash", None),
+        "_check_and_invalidate_on_new_upload": getattr(_gen_mod, "_check_and_invalidate_on_new_upload", None),
+        "_record_run_hash":               getattr(_gen_mod, "_record_run_hash", None),
     }
     return _gen_helpers
 
@@ -1748,6 +1752,12 @@ def show_dci_review(user, role, model_id):
         "package for 21 CFR 820.100, ICH Q10 §3.2, and EU Annex 11 §10.</p>",
         unsafe_allow_html=True,
     )
+
+    # v96 — invalidation banner: shown when a new-file upload cleared prior results
+    _dci_inv_msg = st.session_state.get("dci_invalidation_msg", "")
+    if _dci_inv_msg:
+        st.warning(_dci_inv_msg)
+
     st.markdown("---")
 
     # System metadata
@@ -1796,6 +1806,182 @@ def show_dci_review(user, role, model_id):
 
     # Upload
     st.markdown("### 1. Upload Deviation/CAPA Log")
+
+    # ── v96 — Collapsible "What columns do you need" expander ─────────────────
+    with st.expander("📋 What columns do you need? (click to expand)",
+                     expanded=False):
+        st.markdown(
+            """
+**Required columns** (★) — DCI cannot run without these. Common aliases (e.g.
+`deviation_id` → `record_id`) are auto-detected:
+
+| Column | Purpose | Example |
+|---|---|---|
+| ★ `record_id` | Unique deviation/CAPA identifier | DEV-2024-001 |
+| ★ `record_type` | Deviation, CAPA, NC, Investigation | Deviation |
+| ★ `deviation_category` | Cause category / classification | Equipment, Procedure |
+| ★ `system_name` | Source GxP system | LIMS, MES, EQMS |
+| ★ `open_date` | When the record was opened | 2024-03-15 |
+| ★ `close_date` | When the record was closed (blank if open) | 2024-04-22 |
+| ★ `rca_text` | Root cause analysis narrative | Free-text |
+| ★ `capa_text` | CAPA description / actions taken | Free-text |
+| ★ `assigned_to` | Investigator assigned | jdoe |
+| ★ `approved_by` | QA approver | jsmith |
+| ★ `status` | Open, Closed, Cancelled | Closed |
+| ★ `sla_days` | Target close-by SLA in days | 30 |
+
+**14 detection rules across 4 engines:**
+- **RCA Recurrence** (Rules 1–3): Repeat categories, repeat systems
+- **Weak Investigation** (Rules 4–7): Short RCA, vague cause, missing CAPA
+- **CAPA Effectiveness** (Rules 8–10): Re-opened, weak training-only CAPAs
+- **SLA Aging** (Rules 11–14): Overdue, near-breach, no-activity records
+            """
+        )
+
+    # ── v96 — Sample template download ────────────────────────────────────────
+    @st.cache_data
+    def _build_dci_sample_xlsx() -> bytes:
+        from openpyxl import Workbook
+        from openpyxl.styles import Font, PatternFill, Alignment
+        from openpyxl.utils import get_column_letter
+        wb = Workbook()
+        ws = wb.active
+        wb.remove(ws)
+
+        # Sheet 1 — Usage Instructions
+        ws_use = wb.create_sheet("Usage Instructions")
+        ws_use.sheet_view.showGridLines = False
+        ws_use["A1"] = "Sample Deviation/CAPA Log Template — Usage Instructions"
+        ws_use["A1"].font = Font(bold=True, size=14, color="FFFFFF")
+        ws_use["A1"].fill = PatternFill("solid", fgColor="1E3A5F")
+        ws_use.merge_cells("A1:B1")
+        ws_use.row_dimensions[1].height = 32
+
+        instructions = [
+            ("How to use this template",
+             "Replace the sample rows on the 'Deviation Log' sheet with your "
+             "own deviation/CAPA register export. Required columns are marked "
+             "with ★. Save the file and upload it to VALINTEL's DCI module."),
+            ("★ record_id",
+             "Unique identifier for the deviation, CAPA, or NC record. "
+             "Aliases accepted: deviation_id, capa_id, nc_id, event_id."),
+            ("★ record_type",
+             "Deviation / CAPA / NC / Investigation — drives rule applicability."),
+            ("★ deviation_category",
+             "Root-cause category or classification (Equipment Failure, "
+             "Procedural Non-Compliance, Human Error, etc.). Required for "
+             "Rules 1–3 (recurrence detection)."),
+            ("★ system_name",
+             "Source GxP system or process owner. Required for Rule 3 "
+             "(repeat-system detection)."),
+            ("★ open_date / close_date",
+             "Dates in any common format. close_date can be blank for open "
+             "records. Required for Rules 11–14 (SLA aging)."),
+            ("★ rca_text",
+             "Root cause analysis narrative. Length and content are scored "
+             "against Rule 4 (Short RCA) and Rule 5 (Vague RCA — generic "
+             "human-error / training-issue language)."),
+            ("★ capa_text",
+             "CAPA actions taken. Used by Rule 7 (Missing CAPA) and Rule 8 "
+             "(Weak training-only CAPA)."),
+            ("★ assigned_to / approved_by",
+             "Investigator and QA approver user IDs."),
+            ("★ status",
+             "Open, Closed, Cancelled, Re-opened. Used by Rule 9 (repeat "
+             "deviation post-closure) and Rule 10 (re-opened CAPA)."),
+            ("★ sla_days",
+             "Target close-by SLA in days. Used by Rules 11–14 to measure "
+             "compliance against your own internal SLA."),
+            ("Run DCI",
+             "Once uploaded, DCI will validate column presence, score every "
+             "record across 14 rules, surface pattern findings (recurrence, "
+             "weak investigations, SLA breaches), and produce a 5-sheet Excel "
+             "evidence package."),
+        ]
+        ws_use.column_dimensions["A"].width = 38
+        ws_use.column_dimensions["B"].width = 100
+        for r, (k, v) in enumerate(instructions, 3):
+            cell_k = ws_use.cell(row=r, column=1, value=k)
+            cell_k.font = Font(bold=True, color="334155", size=10)
+            cell_k.alignment = Alignment(vertical="top", wrap_text=True)
+            cell_v = ws_use.cell(row=r, column=2, value=v)
+            cell_v.font = Font(color="475569", size=10)
+            cell_v.alignment = Alignment(vertical="top", wrap_text=True)
+            ws_use.row_dimensions[r].height = 38
+
+        # Sheet 2 — Deviation Log (sample data)
+        ws_data = wb.create_sheet("Deviation Log")
+        ws_data.sheet_view.showGridLines = False
+        DCI_HEADERS = [
+            "record_id", "record_type", "deviation_category", "system_name",
+            "open_date", "close_date", "rca_text", "capa_text",
+            "assigned_to", "approved_by", "status", "sla_days",
+        ]
+        for ci, h in enumerate(DCI_HEADERS, 1):
+            c = ws_data.cell(row=1, column=ci, value=h)
+            c.font = Font(bold=True, color="FFFFFF", size=10)
+            c.fill = PatternFill("solid", fgColor="1E3A5F")
+            c.alignment = Alignment(horizontal="left", vertical="center", indent=1)
+
+        # 25 sample rows demonstrating all 14 detection rules
+        SAMPLE_ROWS = [
+            ("DEV-2024-001","Deviation","Equipment Failure","LIMS","2024-01-08","2024-02-15","Probe drift identified during weekly verification; calibration was within tolerance at last verification but had drifted over the 7-day period due to ambient temperature swings affecting the probe housing.","Probe replaced with temperature-compensated unit (P/N 47821); revised calibration interval from 7 to 3 days for this lab area; updated SOP-LIMS-014 §4.2.3.","jdoe","jsmith","Closed","30"),
+            ("DEV-2024-002","Deviation","Equipment Failure","LIMS","2024-01-22","2024-02-25","Same probe drift issue.","Recalibrate.","jdoe","jsmith","Closed","30"),  # Rule 1 + Rule 4 (short RCA)
+            ("DEV-2024-003","Deviation","Equipment Failure","LIMS","2024-02-14","2024-03-08","Probe drift again.","Replaced probe.","mclark","jsmith","Closed","30"),  # Rule 2 (repeat HIGH volume)
+            ("DEV-2024-004","Deviation","Procedural Non-Compliance","MES","2024-02-05","2024-03-22","Operator failed to record batch start time within required 5 minutes — recorded 18 minutes late. Investigation traced delay to operator dealing with a concurrent equipment alarm on adjacent line.","Re-trained operator on SOP-MFG-007 §3.1; added secondary confirmation step requiring supervisor sign-off when alarm-handling delays primary documentation.","ptan","bjones","Closed","30"),
+            ("DEV-2024-005","Deviation","Procedural Non-Compliance","MES","2024-02-19","2024-03-30","Same procedural issue, different operator.","Re-trained.","asmith","bjones","Closed","30"),  # Rule 1 again, Rule 8 (training-only CAPA)
+            ("DEV-2024-006","CAPA","Human Error","LIMS","2024-03-01","2024-04-15","Operator entered wrong sample ID","Trained operator","jdoe","jsmith","Closed","30"),  # Rule 5 (vague human error) + Rule 8
+            ("CAPA-2024-007","CAPA","Procedure Gap","QMS","2024-03-12","2024-05-08","SOP-QMS-022 §6 required interpretation by reviewer regarding which records constituted 'related batches'. Multiple investigators interpreted differently leading to inconsistent classifications.","Revised SOP-QMS-022 §6 with explicit decision tree; trained 12 QA reviewers; added quarterly calibration check on classification consistency.","ghoward","bjones","Closed","45"),
+            ("DEV-2024-008","Deviation","Out of Specification","LIMS","2024-03-20","","","","","","Open","30"),  # Rule 6 (missing RCA), Rule 7 (missing CAPA), Rule 12 (overdue, currently)
+            ("CAPA-2024-009","CAPA","Equipment Failure","LIMS","2024-04-02","2024-04-09","Probe drift.","Calibrate.","jdoe","jsmith","Closed","30"),  # Rule 11 (short close cycle)
+            ("DEV-2024-010","Deviation","Documentation Gap","DMS","2024-04-08","2024-05-10","Approval signature missing on validation protocol VAL-2024-005 prior to execution. Discovered during in-process review when QA noted ambiguity in protocol §4.","Approval secured retrospectively with QA risk assessment documenting no impact; revised protocol issuance checklist requiring electronic confirmation of all approvals before assignment to executor.","ghoward","jsmith","Closed","30"),
+            ("DEV-2024-011","Deviation","Documentation Gap","DMS","2024-04-22","2024-06-15","Same issue.","Same fix.","ghoward","jsmith","Closed","30"),  # Rule 1 (repeat)
+            ("DEV-2024-012","Deviation","Documentation Gap","DMS","2024-05-08","2024-07-01","Documentation gap identified.","Approval secured retrospectively with QA documentation.","tnovak","jsmith","Closed","30"),
+            ("CAPA-2024-013","CAPA","Procedural Non-Compliance","MES","2024-05-15","","Procedure non-compliance recurring across multiple operators despite 2024-Q1 retraining initiative. Root cause investigation identified that the training material did not address the alarm-handling delay scenario, which was the most common contributor.","Revised training material to include alarm-handling scenarios; added a competency-assessment quiz before unsupervised work; engineering controls being evaluated to reduce alarm frequency.","bjones","ghoward","Open","45"),  # Rule 13 (near-breach if SLA approaching)
+            ("DEV-2024-014","Deviation","Equipment Failure","MES","2024-06-01","2024-08-20","Mixer interlock failure resulting in unplanned hold.","","jdoe","jsmith","Closed","30"),  # Rule 7 (missing CAPA), overdue
+            ("DEV-2024-015","Deviation","Out of Specification","LIMS","2024-06-12","2024-07-18","Sample preparation step skipped.","Operator retrained.","ptan","bjones","Closed","30"),  # Rule 8
+            ("CAPA-2024-016","CAPA","Equipment Failure","LIMS","2024-07-02","","Probe failure investigation continues.","","jdoe","jsmith","Open","30"),  # Rule 14 (no activity if old)
+            ("DEV-2024-017","Deviation","Software Bug","EQMS","2024-07-15","2024-09-10","Software bug in EQMS preventing proper rendering of CAPA timelines on dashboard. Patch validated and deployed.","Patch v2.4.1 deployed; validation testing performed per VAL-2024-018; users notified of fix.","fchen","ghoward","Closed","60"),
+            ("DEV-2024-018","Deviation","Procedural Non-Compliance","MES","2024-08-04","2024-09-22","Operator skipped step.","Retrained.","hrivera","bjones","Closed","30"),  # Rule 5 + Rule 8
+            ("DEV-2024-019","Deviation","Out of Specification","LIMS","2024-08-25","2024-09-30","OOS investigation; assignable cause identified as instrument calibration drift exceeding action limit. Hardware replaced and calibration program revised.","Hardware replacement; calibration interval reduced from monthly to bi-weekly; trend monitoring added to weekly QC review.","jdoe","jsmith","Closed","30"),
+            ("CAPA-2024-020","CAPA","Equipment Failure","LIMS","2024-09-12","2024-09-15","Calibration issue.","Calibrated.","jdoe","jsmith","Closed","30"),  # Rule 11 (short close, 3 days)
+            ("DEV-2024-021","Deviation","Equipment Failure","MES","2024-10-08","","Mixer failure being investigated.","","ikim","jsmith","Open","30"),  # Rule 12 overdue
+            ("CAPA-2024-022","CAPA","Equipment Failure","MES","2024-10-15","2024-11-20","Mixer interlock recurrence; deeper root cause analysis revealed PLC firmware regression on controller v3.2.1 that was not caught in pre-deployment testing.","Reverted to PLC firmware v3.1.8; extended pre-deployment testing protocol to include interlock-stress scenarios; documented in CC-2024-089.","ikim","jsmith","Closed","45"),
+            ("DEV-2024-023","Deviation","Out of Specification","LIMS","2024-11-02","","Investigation in progress","","jdoe","jsmith","Open","30"),  # Rule 4 (short RCA), Rule 12 (overdue)
+            ("DEV-2024-024","Deviation","Equipment Failure","MES","2024-11-15","2024-12-10","Recurring mixer failure post-CAPA closure on CAPA-2024-022. Suggests CAPA effectiveness not yet realized; new investigation underway.","Re-opened CAPA-2024-022 (now CAPA-2024-022-R1); engineering escalation to vendor for design review.","ikim","jsmith","Closed","30"),  # Rule 9 (repeat post-closure), Rule 10 (re-opened)
+            ("CAPA-2024-022-R1","CAPA","Equipment Failure","MES","2024-12-12","","Re-opened from CAPA-2024-022. Vendor engaged for design review; interim controls in place.","","ikim","jsmith","Re-opened","45"),  # Rule 10
+        ]
+        for ri, row in enumerate(SAMPLE_ROWS, 2):
+            for ci, val in enumerate(row, 1):
+                cell = ws_data.cell(row=ri, column=ci, value=val)
+                cell.font = Font(color="1E293B", size=9)
+                cell.alignment = Alignment(horizontal="left", vertical="top",
+                                            wrap_text=True, indent=1)
+            ws_data.row_dimensions[ri].height = 60
+        col_widths = [16, 12, 22, 14, 12, 12, 50, 50, 12, 12, 11, 9]
+        for ci, w in enumerate(col_widths, 1):
+            ws_data.column_dimensions[get_column_letter(ci)].width = w
+        ws_data.freeze_panes = "A2"
+        ws_data.auto_filter.ref = f"A1:{get_column_letter(len(DCI_HEADERS))}1"
+
+        buf = io.BytesIO()
+        wb.save(buf)
+        return buf.getvalue()
+
+    st.download_button(
+        label="📥 Download Sample Deviation/CAPA Template",
+        data=_build_dci_sample_xlsx(),
+        file_name="valintel_sample_dci_template.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        key="dci_sample_download",
+        help=(
+            "25-row sample deviation/CAPA log covering all 14 detection rules. "
+            "Sheet 1 (Usage) explains every column; Sheet 2 (Deviation Log) is "
+            "the data — replace with your own export."
+        ),
+    )
+    st.markdown("<div style='margin-top:10px;'></div>", unsafe_allow_html=True)
+
     dci_file = st.file_uploader(
         "Excel or CSV file containing your deviation and CAPA records",
         type=["xlsx", "xls", "csv"],
@@ -1844,6 +2030,23 @@ def show_dci_review(user, role, model_id):
     try:
         raw_bytes = dci_file.getvalue()
         file_name = dci_file.name
+
+        # v96 — upload invalidation: detect content change vs last successful run
+        _dci_check = _gen().get("_check_and_invalidate_on_new_upload")
+        _dci_hash_fn = _gen().get("_file_content_hash")
+        if _dci_check and _dci_hash_fn:
+            _dci_new_hash = _dci_hash_fn(raw_bytes)
+            _dci_check(
+                module="dci",
+                new_hash=_dci_new_hash,
+                new_filename=file_name,
+                invalidate_keys=[
+                    "dci_scored_df", "dci_analysis_done",
+                    "dci_last_run_fingerprint", "dci_config_hash",
+                ],
+            )
+            st.session_state["dci_pending_hash"] = _dci_new_hash
+
         st.session_state["dci_file_name"] = file_name
         if file_name.lower().endswith(".csv"):
             dci_df_raw = pd.read_csv(io.BytesIO(raw_bytes), dtype=str).fillna("")
@@ -1997,6 +2200,15 @@ def show_dci_review(user, role, model_id):
                 scored_df = dci_score_records(dci_df, rule_config=cfg)
             st.session_state["dci_scored_df"] = scored_df
             st.session_state["dci_analysis_done"] = True
+
+            # v96 — record run hash for upload invalidation on next file
+            _dci_record = _gen().get("_record_run_hash")
+            if _dci_record:
+                _dci_record(
+                    module="dci",
+                    file_hash=st.session_state.get("dci_pending_hash", ""),
+                    filename=st.session_state.get("dci_file_name", ""),
+                )
             st.session_state["dci_last_run_fingerprint"] = _input_fp
             try:
                 cfg_str = _json_fp.dumps(cfg, sort_keys=True)
@@ -2146,3 +2358,43 @@ def show_dci_review(user, role, model_id):
                 st.rerun()
             except Exception as e:
                 st.error(f"Banking failed: {e}")
+
+    # ── v96 — Start New Analysis ──────────────────────────────────────────────
+    st.markdown("<div style='margin-top:14px;'></div>", unsafe_allow_html=True)
+    _na_col, _ = st.columns([3, 5])
+    with _na_col:
+        if st.button("🔄 Start New Analysis", key="dci_reset_btn",
+                     use_container_width=True):
+            for k in ["dci_scored_df", "dci_analysis_done",
+                      "dci_last_run_fingerprint", "dci_config_hash",
+                      "dci_file_name", "dci_pending_hash",
+                      "dci_last_run_hash", "dci_last_run_filename",
+                      "dci_invalidation_msg",
+                      "dci_review_start", "dci_review_end"]:
+                if k in st.session_state:
+                    del st.session_state[k]
+            st.rerun()
+
+    # ── v96 — Compliance-language DIM banked confirmation ─────────────────────
+    if st.session_state.get("dci_analysis_done"):
+        st.markdown(
+            "<div style='background:#f0fdf4;border:1.5px solid #16a34a;"
+            "border-radius:10px;padding:10px 18px;margin-top:14px;'>"
+            "<span style='color:#15803d;font-size:0.92rem;'>"
+            "✓ <b>This run is now part of your DIM evidence package.</b> "
+            "DCI findings have been banked for cross-module convergence."
+            "</span></div>",
+            unsafe_allow_html=True,
+        )
+
+        # ── v96 — Open DIM button ─────────────────────────────────────────────
+        st.markdown("<div style='margin-top:8px;'></div>", unsafe_allow_html=True)
+        _ddim_col, _ = st.columns([3, 5])
+        with _ddim_col:
+            if st.button("📊 Open Data Integrity Monitor →",
+                         key="dci_open_dim_btn",
+                         use_container_width=True, type="primary"):
+                st.session_state["main_view"] = "dim"
+                st.session_state["dim_analysis_done"] = False
+                st.session_state["dim_autorun_pending"] = True
+                st.rerun()
