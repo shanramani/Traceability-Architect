@@ -17065,10 +17065,16 @@ def show_audit_trail(user: str, role: str, model_id: str):
             "timestamp":   ("#0f0a1a","#a855f7","#d8b4fe","#4c1d95"),  # purple
             "behaviour":   ("#1a1200","#f59e0b","#fcd34d","#78350f"),  # amber
             "heuristic":   ("#0a1515","#06b6d4","#67e8f9","#164e63"),  # cyan
+            "workflow":    ("#0f1419","#64748b","#cbd5e1","#334155"),  # slate (v96 — Rule 17)
         }
 
         def _section_header(label, key):
-            bg, ac, txt, dark = _SEC_COLORS[key]
+            # Defensive: if a future section is added without registering a
+            # palette entry, fall back to slate rather than KeyError-crashing
+            # the entire AT screen.
+            bg, ac, txt, dark = _SEC_COLORS.get(
+                key, ("#0f1419", "#64748b", "#cbd5e1", "#334155")
+            )
             st.markdown(
                 f"<div style='background:{bg};border-left:4px solid {ac};"
                 f"border-radius:0 8px 8px 0;padding:10px 16px;margin:20px 0 10px;'>"
