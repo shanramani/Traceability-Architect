@@ -13109,99 +13109,115 @@ def _uar_finding_rationale(row: dict) -> str:
 def uar_generate_justifications(top_df: pd.DataFrame, model_id: str) -> pd.DataFrame:
     """
     Generate one-sentence factual risk narrative per user.
-    Primary: LLM via litellm (temperature 0.05 for near-determinism).
-    Fallback: deterministic Python (_uar_deterministic_narrative).
+    Primary: single batched LLM call for all rows (one network round-trip).
+    Fallback: deterministic Python (_uar_deterministic_narrative) per row.
     The reviewer never sees an error string in the output.
-    Mirrors at_generate_justifications pattern exactly.
+
+    Batching: all rows are sent in one prompt asking for a JSON array of
+    sentences in the same order as the input rows. This reduces N sequential
+    API calls (N * ~5s latency) to one call (~5s total), regardless of row count.
     """
-    narratives = []
+    if top_df.empty:
+        return top_df
 
+    _SVC_PAT = ("svc_", "svc-", "service_", "srv_", "int_", "api_",
+                "batch_", "auto_", "system_")
+
+    # ── Build per-row data dicts (used for both batch prompt and fallback) ────
+    row_data = []
     for _, row in top_df.iterrows():
-        text = None
+        username  = str(row.get("username", "unknown"))
+        acct_type = str(row.get("account_type", ""))
+        days      = row.get("days_since_last_login")
+        is_svc    = (acct_type.lower() in ("service", "integration", "shared", "generic")
+                     or any(username.lower().startswith(p) for p in _SVC_PAT))
+        days_str  = (f"{int(days)} days" if isinstance(days, (int, float))
+                     and days == days else "never logged in")
+        row_data.append({
+            "username":   username,
+            "full_name":  str(row.get("full_name", "")),
+            "job_title":  str(row.get("job_title", "")),
+            "department": str(row.get("department", "")),
+            "acct_type":  acct_type,
+            "role":       str(row.get("role", "unknown"))[:120],
+            "system":     str(row.get("system_name", "")),
+            "emp_norm":   str(row.get("employment_status_norm", "")),
+            "days_str":   days_str,
+            "triggered":  str(row.get("Triggered_Rules", "")),
+            "cross":      str(row.get("Cross_Module_Flag", "N")),
+            "is_svc":     is_svc,
+        })
 
-        # ── Primary: LLM ─────────────────────────────────────────────────────
-        try:
-            from litellm import completion as _comp
+    # ── Primary: single batched LLM call ─────────────────────────────────────
+    narratives = None
+    try:
+        from litellm import completion as _comp
 
-            username   = str(row.get("username", "unknown"))
-            role_raw   = str(row.get("role", "unknown"))[:120]
-            risk_level = str(row.get("Risk_Level", ""))
-            triggered  = str(row.get("Triggered_Rules", ""))
-            days       = row.get("days_since_last_login")
-            full_name  = str(row.get("full_name", ""))
-            dept       = str(row.get("department", ""))
-            job_title  = str(row.get("job_title", ""))
-            emp_norm   = str(row.get("employment_status_norm", ""))
-            cross      = str(row.get("Cross_Module_Flag", "N"))
-            system     = str(row.get("system_name", ""))
-            acct_type  = str(row.get("account_type", ""))
+        user_blocks = "\n".join(
+            f'[{i+1}] Username={d["username"]} | Role={d["role"]} | '
+            f'JobTitle={d["job_title"]} | Dept={d["department"]} | '
+            f'System={d["system"]} | EmpStatus={d["emp_norm"]} | '
+            f'DaysSinceLogin={d["days_str"]} | '
+            f'AccountType={d["acct_type"]} | '
+            f'CrossModuleFlag={d["cross"]} | '
+            f'TriggeredRules={d["triggered"][:120]}'
+            for i, d in enumerate(row_data)
+        )
 
-            _SVC_PAT = ("svc_","svc-","service_","srv_","int_","api_","batch_","auto_","system_")
-            is_svc   = acct_type.lower() in ("service","integration","shared","generic") \
-                       or any(username.lower().startswith(p) for p in _SVC_PAT)
+        batch_prompt = f"""You are writing the System Narrative column in a GxP user access review table.
 
-            days_str   = (f"{int(days)} days" if isinstance(days, (int, float))
-                          and days == days else "never logged in")
-            cross_note = (" This user also appears in Audit Trail findings this period."
-                          if cross == "Y" else "")
-            svc_note   = " This is a service/integration account (non-human)." if is_svc else ""
+For EACH numbered user below, write exactly ONE sentence of observable facts.
 
-            prompt = f"""You are writing the System Narrative column in a GxP user access review table.
-
-YOUR ONLY JOB: Write exactly ONE sentence stating the observable facts about this user's access profile.
-
-HARD RULES — no exceptions:
+HARD RULES:
 1. State ONLY observable facts: username, role, job title if relevant, system, days since login.
-2. If job_title indicates a non-admin role (e.g. Analyst, Technician) but the user holds Admin access, you MUST mention this mismatch.
-3. If the username starts with svc_, service_, or account_type is Service/Integration, you MUST identify it as a service account.
-4. Do NOT use regulatory language: no "violates", "non-compliant", "raises concerns", "21 CFR".
-5. Do NOT recommend any action.
-6. ONE sentence. Max 50 words.
+2. If job_title is non-admin (Analyst, Technician) but role is Admin, mention the mismatch.
+3. If username starts with svc_/service_/api_ or AccountType is Service/Integration, call it a service account.
+4. NO regulatory language: no "violates", "non-compliant", "raises concerns", "21 CFR".
+5. NO action recommendations.
+6. ONE sentence per user. Max 50 words each.
 
-User data:
-  Username:           {username}
-  Full Name:          {full_name}
-  Job Title:          {job_title}
-  Department:         {dept}
-  Account Type:       {acct_type}
-  Role:               {role_raw}
-  System:             {system}
-  Employment Status:  {emp_norm}
-  Days Since Login:   {days_str}
-  Triggered Rules:    {triggered}
-  Cross-Module Flag:  {cross}
+Respond with ONLY a JSON array of strings, one per user, in the same order. No preamble, no keys, no markdown.
+Example for 2 users: ["Sentence for user 1.", "Sentence for user 2."]
 
-CORRECT (admin mismatch): "admin_qc_bad holds 'Administrator' role in LabVantage LIMS but job title is 'QC Analyst', indicating admin access on a non-admin function."
-CORRECT (service account): "svc_lims_integration is a service account holding 'Administrator' role on LabVantage LIMS with no documented access justification."
-WRONG: "This user may represent a compliance risk and should be reviewed."
+Users:
+{user_blocks}"""
 
-Write only the one sentence. No labels, no preamble."""
+        response = _comp(
+            model=model_id,
+            messages=[
+                {"role": "system", "content": (
+                    "You write one-sentence factual access profile summaries for "
+                    "pharmaceutical QA tables. Return only a JSON array of strings."
+                )},
+                {"role": "user", "content": batch_prompt},
+            ],
+            max_tokens=120 * len(row_data),
+            temperature=0.05,
+            timeout=60,
+        )
+        raw = response.choices[0].message.content.strip()
+        # Strip markdown fences if present
+        if raw.startswith("```"):
+            raw = raw.split("```")[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+            raw = raw.strip()
+        import json as _json
+        parsed = _json.loads(raw)
+        if (isinstance(parsed, list)
+                and len(parsed) == len(row_data)
+                and all(isinstance(s, str) and len(s) > 10 for s in parsed)):
+            narratives = parsed
 
-            candidate = _call_ai_with_fallback(
-                user_prompt=prompt,
-                system_prompt=(
-                    "You write one-sentence factual access profile summaries for pharmaceutical QA tables. "
-                    "Always mention job-title/role mismatches and service account patterns when present. "
-                    "State only observable facts. No regulatory language. No action instructions."
-                ),
-                max_tokens=90,
-                temperature=0.05,
-            )
-            if candidate and len(candidate) > 20 and "error" not in candidate.lower()[:20]:
-                text = candidate
+    except Exception:
+        pass  # fall through to per-row deterministic fallback
 
-        except Exception:
-            pass  # silently fall through to deterministic fallback
-
-        # ── Fallback: deterministic ───────────────────────────────────────────
-        if not text:
-            text = _uar_deterministic_narrative(row.to_dict())
-
-        narratives.append(text)
+    # ── Fallback: deterministic per row (no network call) ────────────────────
+    if narratives is None:
+        narratives = [_uar_deterministic_narrative(dict(zip(top_df.columns, row)))
+                      for row in top_df.values]
 
     top_df = top_df.copy()
-    # Drop existing System_Narrative if present — prevents duplicate column crash
-    # when top_df was previously returned with this column and is re-processed.
     top_df = top_df.drop(columns=["System_Narrative"], errors="ignore")
     top_df["System_Narrative"] = narratives
     return top_df
@@ -14661,7 +14677,7 @@ them in Step 2.
                 "<p style='font-size:0.76rem;margin:0 0 4px;visibility:hidden;'>_</p>",
                 unsafe_allow_html=True,
             )
-            if st.button("🔄 Start New Analysis", key="uar_reset_btn",
+            if st.button("🔄 Start New Analysis", key="uar_reset_btn_dl",
                          use_container_width=True):
                 _uar_cache_keys = [k for k in st.session_state if k.startswith("uar_xlsx_cache_")]
                 for k in ["uar_raw_df", "uar_scored_result", "uar_analysis_done",
