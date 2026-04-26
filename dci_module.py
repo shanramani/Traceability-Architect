@@ -1902,10 +1902,10 @@ def show_dci_review(user, role, model_id):
         ws_use.column_dimensions["B"].width = 100
         for r, (k, v) in enumerate(instructions, 3):
             cell_k = ws_use.cell(row=r, column=1, value=k)
-            cell_k.font = Font(bold=True, color="334155", size=10)
+            cell_k.font = Font(bold=True, color="334155", size=11)
             cell_k.alignment = Alignment(vertical="top", wrap_text=True)
             cell_v = ws_use.cell(row=r, column=2, value=v)
-            cell_v.font = Font(color="475569", size=10)
+            cell_v.font = Font(color="475569", size=11)
             cell_v.alignment = Alignment(vertical="top", wrap_text=True)
             ws_use.row_dimensions[r].height = 38
 
@@ -1919,7 +1919,7 @@ def show_dci_review(user, role, model_id):
         ]
         for ci, h in enumerate(DCI_HEADERS, 1):
             c = ws_data.cell(row=1, column=ci, value=h)
-            c.font = Font(bold=True, color="FFFFFF", size=10)
+            c.font = Font(bold=True, color="FFFFFF", size=11)
             c.fill = PatternFill("solid", fgColor="1E3A5F")
             c.alignment = Alignment(horizontal="left", vertical="center", indent=1)
 
@@ -1954,7 +1954,7 @@ def show_dci_review(user, role, model_id):
         for ri, row in enumerate(SAMPLE_ROWS, 2):
             for ci, val in enumerate(row, 1):
                 cell = ws_data.cell(row=ri, column=ci, value=val)
-                cell.font = Font(color="1E293B", size=9)
+                cell.font = Font(color="1E293B", size=11)
                 cell.alignment = Alignment(horizontal="left", vertical="top",
                                             wrap_text=True, indent=1)
             ws_data.row_dimensions[ri].height = 60
