@@ -18039,7 +18039,7 @@ def show_audit_trail(user: str, role: str, model_id: str):
         # DO NOT MODIFY THIS BLOCK
 
         _section_header("🔴  Data Integrity", "integrity")
-        _rule_row_b("at_r6_on",   1, "Record Reconstruction",            "Critical · T1", "21 CFR Part 11 §11.10(e) · ALCOA+ Original")
+        _rule_row_b("at_r6_on",   1, "Record Reconstruction",            "Critical · T1", "21 CFR Part 11 §11.10(e) · ALCOA+ Original",        "")
         _rule_row_b("at_r7_on",   2, "Audit Trail Integrity Event",      "Critical · T1", "21 CFR Part 11 §11.10(e)",                          "integrity")
         _rule_row_b("at_r17_on",  3, "Missing Before/After Values",      "High · T1",     "21 CFR Part 11 §11.10(e) · ALCOA+ Original",        "integrity")
 
