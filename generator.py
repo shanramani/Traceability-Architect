@@ -10878,8 +10878,8 @@ def at_build_excel(top_df, scored_df, system_name, r_start, r_end, fname) -> byt
                                            "Suggested_Disposition", 30),
         ("Decision Basis",                 "Suggested_Disposition_Rationale", 40),
         ("Reviewer Decision\n(independent — tick one)",
-                                           "Reviewer_Disposition", 34),
-        ("Reviewer Notes",                 "Reviewer_Notes",    28),
+                                           "Reviewer_Disposition", 50),
+        ("Reviewer Notes",                 "Reviewer_Notes",    50),
     ]
 
     top_out = top_df.copy().reset_index(drop=True)
@@ -10941,11 +10941,19 @@ def at_build_excel(top_df, scored_df, system_name, r_start, r_end, fname) -> byt
         if _banner_high: _tier_parts.append(f"{_banner_high} High")
         if _banner_med:  _tier_parts.append(f"{_banner_med} Medium")
         _tier_str = " · ".join(_tier_parts) if _tier_parts else "no findings"
-        note_text = (
-            f"Showing {n_shown} escalated event(s) from the Full Audit Log "
-            f"({_tier_str}). Each event triggered at least one named detection rule "
-            f"(Rules 1–25) at or above its threshold. All events remain visible in the Full Audit Log sheet."
-        )
+        if _tier_parts:
+            note_text = (
+                f"Showing {n_shown} escalated event(s) from the Full Audit Log "
+                f"({_tier_str}). Each event triggered at least one named detection rule "
+                f"(Rules 1–17) at or above its threshold. All events remain visible "
+                f"in the Full Audit Log sheet."
+            )
+        else:
+            note_text = (
+                f"No events met the escalation threshold in this review period. "
+                f"All {n_shown or 0} events were auto-cleared by the 17-rule detection engine. "
+                f"The Full Audit Log sheet contains the complete scored event list."
+            )
     ws2.merge_cells(f"A1:{get_column_letter(len(reviewer_cols))}1")
     note_cell = ws2.cell(row=1, column=1, value=note_text)
     note_cell.font      = Font(bold=False, color="1E40AF", name="Calibri", size=8.5)
@@ -11015,7 +11023,9 @@ def at_build_excel(top_df, scored_df, system_name, r_start, r_end, fname) -> byt
                 c.font = _body_font(color="78350F", size=9)
             elif data_col in ("Reviewer_Disposition", "Reviewer_Notes"):
                 c.fill = _fill(C_ALT_ROW)
-                c.font = _body_font(color=C_LABEL_FG)
+                c.font = _body_font(color=C_LABEL_FG, size=11)
+                c.alignment = Alignment(horizontal="left", vertical="top",
+                                        wrap_text=True, indent=1)
             else:
                 c.fill = _fill(alt_bg)
                 c.font = _body_font(color=C_VALUE_FG,
@@ -11695,30 +11705,41 @@ def at_build_excel(top_df, scored_df, system_name, r_start, r_end, fname) -> byt
 
 # ── Column alias map: raw export headers → normalised internal names ──────────
 _UAR_COL_ALIASES: dict = {
-    # username
+    # username — all common variants including no-separator forms
     "username": "username", "user_id": "username", "login_name": "username",
     "user_name": "username", "login": "username", "userid": "username",
     "operator_id": "username", "account": "username", "logon_id": "username",
+    "accountname": "username", "account_name": "username",  # AccountName
+    "loginid": "username", "userlogin": "username", "useraccount": "username",
     # full_name
     "full_name": "full_name", "display_name": "full_name", "name": "full_name",
     "user_full_name": "full_name", "employee_name": "full_name",
     "common_name": "full_name",
-    # account_status
+    # account_status — critical: include no-separator form accountstatus
     "status": "account_status", "account_status": "account_status",
+    "accountstatus": "account_status", "acct_status": "account_status",   # AccountStatus
+    "acctstatus": "account_status",
     "active": "account_status", "is_active": "account_status",
-    "active_flag": "account_status", "enabled": "account_status",
-    "user_status": "account_status", "acc_status": "account_status",
+    "isactive": "account_status", "active_flag": "account_status",
+    "activeflag": "account_status", "enabled": "account_status",
+    "user_status": "account_status", "userstatus": "account_status",
+    "acc_status": "account_status",
     # role
     "role": "role", "role_group": "role", "permission_group": "role",
-    "security_role": "role", "access_level": "role", "roles": "role",
-    "user_role": "role", "profile": "role", "permission_profile": "role",
-    "security_profile": "role",
-    # last_login_date
+    "rolegroup": "role", "permissiongroup": "role",
+    "security_role": "role", "securityrole": "role",
+    "access_level": "role", "accesslevel": "role", "roles": "role",
+    "user_role": "role", "userrole": "role", "profile": "role",
+    "permission_profile": "role", "security_profile": "role",
+    # last_login_date — include no-separator form lastlogindate
     "last_login": "last_login_date", "last_login_date": "last_login_date",
+    "lastlogindate": "last_login_date", "lastlogin": "last_login_date",  # LastLoginDate
     "last_activity_date": "last_login_date", "last_sign_in": "last_login_date",
-    "last_activity": "last_login_date", "lastlogin": "last_login_date",
-    "last_logon": "last_login_date", "last_access": "last_login_date",
-    "last_access_date": "last_login_date",
+    "last_activity": "last_login_date", "lastactivity": "last_login_date",
+    "last_logon": "last_login_date", "lastlogon": "last_login_date",
+    "last_access": "last_login_date", "lastaccess": "last_login_date",
+    "last_access_date": "last_login_date", "lastaccessdate": "last_login_date",
+    "last_logon_date": "last_login_date", "lastlogondate": "last_login_date",
     # account_created_date
     "created_date": "account_created_date",
     "account_created_date": "account_created_date",
@@ -11732,6 +11753,17 @@ _UAR_COL_ALIASES: dict = {
     "job_title": "job_title", "title": "job_title", "position": "job_title",
     "job_function": "job_title", "role_description": "job_title",
     "employee_type": "job_title",
+    # is_admin / privilege flags — IsPrivileged, IS_Admin, Admin all → is_admin
+    # _uar_preprocess then uses is_admin column to set Is_Admin scoring flag
+    "is_admin": "is_admin", "isadmin": "is_admin", "admin": "is_admin",
+    "is_privileged": "is_admin", "isprivileged": "is_admin",   # IsPrivileged
+    "privileged": "is_admin", "is_administrator": "is_admin",
+    "administrator": "is_admin",
+    "can_delete": "can_delete", "candelete": "can_delete",
+    "can_approve": "can_approve", "canapprove": "can_approve",
+    "can_release": "can_release", "canrelease": "can_release",
+    "can_modify_master_data": "can_modify_master_data",
+    "canmodifymasterdata": "can_modify_master_data",
     # account_type
     "account_type": "account_type", "user_type": "account_type",
     "type": "account_type",
@@ -12062,12 +12094,21 @@ def _uar_normalise_columns(df: pd.DataFrame) -> pd.DataFrame:
     Map raw export column headers to normalised internal names using
     _UAR_COL_ALIASES. Returns df with renamed columns.
     Unrecognised columns are passed through unchanged.
+
+    v96: key normalisation also strips underscores so that e.g.
+    'AccountStatus' → 'accountstatus' matches 'account_status' variants,
+    and 'LastLoginDate' → 'lastlogindate' matches 'last_login_date' variants.
     """
     rename_map = {}
     for col in df.columns:
-        key = col.strip().lower().replace(" ", "_").replace("-", "_")
-        if key in _UAR_COL_ALIASES:
-            rename_map[col] = _UAR_COL_ALIASES[key]
+        # Build lookup key: lowercase + strip all common separators
+        key_with_sep    = col.strip().lower().replace(" ", "_").replace("-", "_")
+        key_without_sep = col.strip().lower().replace(" ", "").replace("-", "").replace("_", "")
+        # Try with-separator key first (exact alias match), then without
+        if key_with_sep in _UAR_COL_ALIASES:
+            rename_map[col] = _UAR_COL_ALIASES[key_with_sep]
+        elif key_without_sep in _UAR_COL_ALIASES:
+            rename_map[col] = _UAR_COL_ALIASES[key_without_sep]
     return df.rename(columns=rename_map)
 
 
@@ -13888,6 +13929,22 @@ them in Step 2.
             r = _row2(ws_use, r, label, detail, label_color="065F46")
         r = _blank(ws_use, r)
 
+        # ── Rule count confirmation ────────────────────────────────────────────
+        r = _blank(ws_use, r)
+        _rs_note = ws_use.cell(row=r, column=1, value=(
+            "VALINTEL UAR has 11 scoring rules in total (U1–U11). "
+            "U11 (Dormant Privileged Without Justification) is the most recently added rule (v96). "
+            "The 11 rules cover Privilege Escalation (U1–U6), User Attribution (U7–U8), "
+            "Access Governance (U9, U11), and Multi-factor risk (U10). "
+            "All rules score additively — a single user can accumulate points across multiple rules."
+        ))
+        _rs_note.font = Font(bold=True, color="064E3B", size=11, name="Calibri")
+        _rs_note.fill = PatternFill("solid", fgColor="DCFCE7")
+        _rs_note.alignment = Alignment(vertical="top", wrap_text=True, indent=1)
+        ws_use.merge_cells(f"A{r}:B{r}")
+        ws_use.row_dimensions[r].height = 40
+        r += 1
+
         # ── Column alias note ─────────────────────────────────────────────────
         r = _hdr(ws_use, r, "COLUMN NAME FLEXIBILITY", fg="374151", font_size=10)
         note_cell = ws_use.cell(row=r, column=1, value=(
@@ -14064,9 +14121,12 @@ them in Step 2.
     st.markdown("### Step 2 — Column Detection")
     normed = _uar_normalise_columns(raw_df)
     detected   = [c for c in normed.columns if c in _UAR_COL_ALIASES.values()]
-    undetected = [c for c in raw_df.columns
-                  if c.strip().lower().replace(" ", "_").replace("-", "_")
-                  not in _UAR_COL_ALIASES]
+    undetected = []
+    for c in raw_df.columns:
+        k1 = c.strip().lower().replace(" ", "_").replace("-", "_")
+        k2 = c.strip().lower().replace(" ", "").replace("-", "").replace("_", "")
+        if k1 not in _UAR_COL_ALIASES and k2 not in _UAR_COL_ALIASES:
+            undetected.append(c)
 
     col_a, col_b = st.columns(2)
     with col_a:
@@ -16605,47 +16665,42 @@ def show_dim(user: str, role: str, model_id: str):
 
     # ── DIM period limit + clear banking ──────────────────────────────────
     _DIM_MAX_PERIODS = 20
-    _dim_col1, _dim_col2 = st.columns([6, 1])
-    with _dim_col1:
-        st.caption(
-            f"📊 {_banked} period{'s' if _banked != 1 else ''} banked · "
-            f"Maximum recommended: {_DIM_MAX_PERIODS} periods. "
-            f"Beyond {_DIM_MAX_PERIODS} periods, session memory and render time may degrade."
-            if _banked > 0 else
-            f"📊 No periods banked · Maximum recommended: {_DIM_MAX_PERIODS} periods."
-        )
-    with _dim_col2:
-        if _banked > 0:
-            _dim_btn_col1, _dim_btn_col2 = st.columns(2)
-            with _dim_btn_col1:
-                if st.button("🗑 Clear DIM Results", key="dim_clear_all",
-                             help="Remove all banked periods — clears DIM results only, does not affect your AT/UAR/DCI uploads",
-                             use_container_width=True):
-                    st.session_state["dim_accumulated_rows"] = []
-                    st.session_state["dim_periods_banked"]   = 0
-                    st.session_state["dim_analysis_done"]    = False
-                    st.session_state["dim_autorun_pending"]  = False
-                    st.rerun()
-            with _dim_btn_col2:
-                if st.button("🔄 Start New Analysis", key="dim_start_new",
-                             help="Clear DIM results and reset all module analyses — returns to a clean state",
-                             use_container_width=True):
-                    # Clear DIM banking
-                    st.session_state["dim_accumulated_rows"] = []
-                    st.session_state["dim_periods_banked"]   = 0
-                    st.session_state["dim_analysis_done"]    = False
-                    st.session_state["dim_autorun_pending"]  = False
-                    # Clear AT/UAR module state
-                    for _k in ["at_raw_df","at_mapped_df","at_scored_df","at_top20_df",
-                               "at_file_name","at_mapping_done","at_analysis_done",
-                               "at_total_events","at_review_start","at_review_end",
-                               "at_config_confirmed","at_force_config",
-                               "at_last_run_hash","at_last_run_filename","at_invalidation_msg",
-                               "uar_raw_df","uar_scored_result","uar_analysis_done",
-                               "uar_file_name","uar_last_run_hash","uar_last_run_filename"]:
-                        if _k in st.session_state:
-                            del st.session_state[_k]
-                    st.rerun()
+    st.caption(
+        f"📊 {_banked} period{'s' if _banked != 1 else ''} banked · "
+        f"Maximum recommended: {_DIM_MAX_PERIODS} periods. "
+        f"Beyond {_DIM_MAX_PERIODS} periods, session memory and render time may degrade."
+        if _banked > 0 else
+        f"📊 No periods banked · Maximum recommended: {_DIM_MAX_PERIODS} periods."
+    )
+    if _banked > 0:
+        _dim_btn_col1, _dim_btn_col2, _dim_btn_spacer = st.columns([3, 3, 6])
+        with _dim_btn_col1:
+            if st.button("🗑 Clear DIM Results", key="dim_clear_all",
+                         help="Remove all banked periods — does not affect AT/UAR/DCI uploads",
+                         use_container_width=True):
+                st.session_state["dim_accumulated_rows"] = []
+                st.session_state["dim_periods_banked"]   = 0
+                st.session_state["dim_analysis_done"]    = False
+                st.session_state["dim_autorun_pending"]  = False
+                st.rerun()
+        with _dim_btn_col2:
+            if st.button("🔄 Start New Analysis", key="dim_start_new",
+                         help="Clear DIM results and reset all module analyses",
+                         use_container_width=True):
+                st.session_state["dim_accumulated_rows"] = []
+                st.session_state["dim_periods_banked"]   = 0
+                st.session_state["dim_analysis_done"]    = False
+                st.session_state["dim_autorun_pending"]  = False
+                for _k in ["at_raw_df","at_mapped_df","at_scored_df","at_top20_df",
+                           "at_file_name","at_mapping_done","at_analysis_done",
+                           "at_total_events","at_review_start","at_review_end",
+                           "at_config_confirmed","at_force_config",
+                           "at_last_run_hash","at_last_run_filename","at_invalidation_msg",
+                           "uar_raw_df","uar_scored_result","uar_analysis_done",
+                           "uar_file_name","uar_last_run_hash","uar_last_run_filename"]:
+                    if _k in st.session_state:
+                        del st.session_state[_k]
+                st.rerun()
 
     if _banked >= _DIM_MAX_PERIODS:
         st.warning(
@@ -21633,6 +21688,14 @@ section[data-testid="stSidebar"] .stRadio [data-baseweb="radio"] div div {
     _main_view = st.session_state.get("main_view", "periodic_review")
 
     if _main_view == "periodic_review":
+        # v96 — auto-restore: if AT/UAR/DCI analysis is already done and the user
+        # is returning from DIM (pr_active_module is None), restore the last active
+        # module so results are immediately visible without re-clicking the card.
+        if st.session_state.get("pr_active_module") is None:
+            if st.session_state.get("at_analysis_done"):
+                st.session_state["pr_active_module"] = "audit_trail"
+            elif st.session_state.get("uar_analysis_done"):
+                st.session_state["pr_active_module"] = "access_review"
         show_periodic_review(user, role, _model_id)
         return
 
