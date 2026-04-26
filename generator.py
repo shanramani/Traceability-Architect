@@ -5668,14 +5668,15 @@ def _validate_uar_input_file(raw_bytes: bytes, file_name: str, df: pd.DataFrame,
     })
 
     # ── UAR-F2: User identifier column present ─────────────────────────────
-    _user_candidates = {"user", "user_name", "username", "user_id",
-                        "account", "operator", "employee", "employee_id",
-                        "login", "login_id"}
+    # Derive candidate set from _UAR_COL_ALIASES (single source of truth) so
+    # the validator matches exactly the same columns the normaliser will map.
+    # All keys whose alias target is "username" are valid user identifier cols.
+    _user_candidates = {k for k, v in _UAR_COL_ALIASES.items() if v == "username"}
     _user_col = _find_col(df, _user_candidates)
     _f2_passed = _user_col is not None
     _f2_detail = (f"User identifier column: '{_user_col}'" if _user_col
                   else "No user identifier column found (expected: user, "
-                       "username, user_id, account, login, employee)")
+                       "username, user_id, account, login, employee, UserID, AccountName)")
     if not _f2_passed:
         evidence.append("No user-identifier column found in the file")
     results.append({
@@ -5704,10 +5705,7 @@ def _validate_uar_input_file(raw_bytes: bytes, file_name: str, df: pd.DataFrame,
     })
 
     # ── UAR-N1: Role/permission column exists ──────────────────────────────
-    _role_candidates = {"role", "roles", "permission", "permissions",
-                        "group", "groups", "profile", "access_level",
-                        "privilege", "privileges", "authorization",
-                        "authorizations", "entitlement"}
+    _role_candidates = {k for k, v in _UAR_COL_ALIASES.items() if v == "role"}
     _role_col = _find_col(df, _role_candidates)
     _n1_passed = _role_col is not None
     _n1_detail = (f"Role/permission column: '{_role_col}'" if _role_col
@@ -5721,14 +5719,13 @@ def _validate_uar_input_file(raw_bytes: bytes, file_name: str, df: pd.DataFrame,
     })
 
     # ── UAR-N2: Status column exists ───────────────────────────────────────
-    _status_candidates = {"active", "status", "account_status",
-                          "employment_status", "account_state", "disabled",
-                          "enabled", "is_active", "active_yn"}
+    _status_candidates = {k for k, v in _UAR_COL_ALIASES.items()
+                          if v in ("account_status", "employment_status")}
     _status_col = _find_col(df, _status_candidates)
     _n2_passed = _status_col is not None
     _n2_detail = (f"Status column: '{_status_col}'" if _status_col
                   else "No status column found (expected: active, status, "
-                       "employment_status, account_status, disabled, enabled)")
+                       "employment_status, account_status, AccountStatus, disabled, enabled)")
     if not _n2_passed:
         evidence.append("No status column found")
     results.append({
