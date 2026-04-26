@@ -12174,17 +12174,43 @@ def _uar_normalise_columns(df: pd.DataFrame) -> pd.DataFrame:
     v96: key normalisation also strips underscores so that e.g.
     'AccountStatus' → 'accountstatus' matches 'account_status' variants,
     and 'LastLoginDate' → 'lastlogindate' matches 'last_login_date' variants.
+
+    Dedup rule: when two input columns map to the same canonical name,
+    prefer the column whose name is purely alphabetic (no digits) over one
+    that contains digits - e.g. AccountName beats UserID for 'username'.
+    If both are equally alphanumeric, keep the first one encountered.
     """
-    rename_map = {}
+    def _has_digit(s: str) -> bool:
+        return any(ch.isdigit() for ch in s)
+
+    # Pass 1: resolve conflicts - for each canonical target, pick the winner
+    candidate_map: dict = {}
     for col in df.columns:
-        # Build lookup key: lowercase + strip all common separators
         key_with_sep    = col.strip().lower().replace(" ", "_").replace("-", "_")
         key_without_sep = col.strip().lower().replace(" ", "").replace("-", "").replace("_", "")
-        # Try with-separator key first (exact alias match), then without
-        if key_with_sep in _UAR_COL_ALIASES:
-            rename_map[col] = _UAR_COL_ALIASES[key_with_sep]
-        elif key_without_sep in _UAR_COL_ALIASES:
-            rename_map[col] = _UAR_COL_ALIASES[key_without_sep]
+        canon = _UAR_COL_ALIASES.get(key_with_sep) or _UAR_COL_ALIASES.get(key_without_sep)
+        if canon is None:
+            continue
+        if canon not in candidate_map:
+            candidate_map[canon] = col
+        else:
+            # Conflict: prefer alphabetic-only (no digits) over alphanumeric
+            existing = candidate_map[canon]
+            if _has_digit(existing) and not _has_digit(col):
+                candidate_map[canon] = col
+            # else keep existing (first-seen wins among equally alphanumeric)
+
+    # Pass 2: build rename_map only for winning columns
+    winners = set(candidate_map.values())
+    rename_map = {}
+    for col in df.columns:
+        if col not in winners:
+            continue
+        key_with_sep    = col.strip().lower().replace(" ", "_").replace("-", "_")
+        key_without_sep = col.strip().lower().replace(" ", "").replace("-", "").replace("_", "")
+        canon = _UAR_COL_ALIASES.get(key_with_sep) or _UAR_COL_ALIASES.get(key_without_sep)
+        if canon and col != canon:
+            rename_map[col] = canon
     return df.rename(columns=rename_map)
 
 
@@ -12337,15 +12363,44 @@ def _uar_preprocess(df: pd.DataFrame) -> tuple:
         for alias in aliases:
             _collapsed_to_canon[_collapse_col(alias)] = canon
 
-    # Apply: rename columns where we find a match
-    rename_map = {}
+    # Apply: rename columns where we find a match.
+    # Dedup rule: when two columns map to the same canonical name, prefer the
+    # alphabetic-only column (no digits) over alphanumeric — e.g. AccountName
+    # beats UserID for 'username'. Equal candidates: first-seen wins.
+    def _has_digit_pp(s: str) -> bool:
+        return any(ch.isdigit() for ch in s)
+
+    # Pass 1: pick winner per canonical target
+    _pp_candidates: dict = {}
     for col in df.columns:
         if col in _UAR_COL_ALIAS_MAP:
-            continue  # already canonical, skip
+            # Already canonical — always wins over any alias
+            _pp_candidates[col] = col
+            continue
         ccol = _collapse_col(col)
         if ccol in _collapsed_to_canon:
             canon = _collapsed_to_canon[ccol]
-            if canon not in df.columns:  # don't overwrite an existing canonical col
+            if canon not in _pp_candidates:
+                _pp_candidates[canon] = col
+            else:
+                existing = _pp_candidates[canon]
+                if existing == canon:
+                    pass  # canonical col already present — it always wins
+                elif _has_digit_pp(existing) and not _has_digit_pp(col):
+                    _pp_candidates[canon] = col
+
+    # Pass 2: build rename_map only for winners, skip already-canonical cols
+    rename_map = {}
+    _pp_winners = set(_pp_candidates.values())
+    for col in df.columns:
+        if col in _UAR_COL_ALIAS_MAP:
+            continue  # already canonical, no rename needed
+        if col not in _pp_winners:
+            continue  # lost conflict — leave unchanged (will be ignored downstream)
+        ccol = _collapse_col(col)
+        if ccol in _collapsed_to_canon:
+            canon = _collapsed_to_canon[ccol]
+            if canon not in df.columns:
                 rename_map[col] = canon
     if rename_map:
         df = df.rename(columns=rename_map)
