@@ -7191,6 +7191,393 @@ def _at_del_recreate_scores(df: pd.DataFrame) -> pd.Series:
     return scores
 
 
+
+
+# =============================================================================
+# v96 — Module-level AT output helpers
+# These were previously nested inside at_score_events(), which made them
+# inaccessible to show_audit_trail() where deferred Top-20 processing runs.
+# Promoted to module level — no logic changes, same behaviour.
+# =============================================================================
+
+# v96 UI-sequence rule number remap (internal v94 → v96 UI number)
+_RULE_NUM_REMAP = {
+    "1":  "6",    # Vague Rationale
+    "2":  "15",   # Contemporaneous Burst
+    "3":  "10",   # Admin/GxP Conflict (merged into UI #10)
+    "4":  "7",    # Change Control Drift
+    "5":  "9",    # Failed Login → Data Manipulation
+    "6":  "1",    # Record Reconstruction
+    "7":  "2",    # Audit Trail Integrity Event
+    "8":  "10",   # Privileged User on GxP (merged with rule 3)
+    "10": "16",   # Off-Hours / Holiday Activity
+    "11": "12",   # Timestamp Reversal
+    "12": "8",    # Service / Shared Account
+    "15": "13",   # Missing Timestamp
+    "16": "11",   # Missing User Attribution
+    "17": "3",    # Missing Before/After Values
+    "18": "4",    # Self-Approval SoD Violation
+    "19": "5",    # Modification After Approval
+    "20": "17",   # Workflow Status Reversal (re-instated v96)
+    "25": "14",   # Future Timestamp
+}
+
+
+def _relabel_rule(s: str) -> str:
+    """Replace internal Rule N numbers in any output string with v96 UI labels."""
+    import re as _re
+    def _sub(m):
+        n = m.group(1)
+        return f"Rule {_RULE_NUM_REMAP.get(n, n)}"
+    return _re.sub(r'\bRule (\d+)\b', _sub, str(s))
+
+
+def _dim_rationale(row) -> str:
+    """Build plain-English rationale for dimension-based findings."""
+    parts = []
+    rec_s = float(row.get("score_record", 0))
+    pri_s = float(row.get("score_privilege", 0))
+    vel_s = float(row.get("score_velocity", 0))
+    gap_s = float(row.get("score_gap", 0))
+    tmp_s = float(row.get("score_temporal", 0))
+    usr   = str(row.get("user_id","Unknown"))
+    act   = str(row.get("action_type","Unknown"))
+    rec   = str(row.get("record_type","Unknown"))
+    ts    = str(row.get("timestamp","Unknown"))
+
+    if rec_s >= 10:
+        parts.append(
+            f"Rule 7 — Audit Trail Integrity Event [CRITICAL]: "
+            f"Action '{act}' was performed on audit trail configuration or records. "
+            "Any modification to the audit trail system is a critical data integrity finding "
+            "requiring immediate investigation (21 CFR Part 11 §11.10(e))."
+        )
+    elif rec_s >= 8:
+        parts.append(
+            f"Rule 7 — Sensitive Record Deletion [HIGH]: "
+            f"A deletion was performed on a GxP-critical record type ('{rec}'). "
+            "Deletions of GxP records must be fully justified and authorised "
+            "(21 CFR Part 11 §11.10(e), ALCOA+ Original)."
+        )
+    if pri_s >= 7:
+        parts.append(
+            f"Rule 8 — Privileged User on GxP Data [HIGH]: "
+            f"User '{usr}' holds an administrative or privileged role and performed "
+            f"'{act}' on '{rec}'. Privileged accounts must be restricted to system "
+            "configuration only and must not directly modify production data "
+            "(21 CFR Part 11 §11.10(d))."
+        )
+    if vel_s >= 3.5:
+        parts.append(
+            f"Rule 9 — High-Volume Activity Burst [MEDIUM]: "
+            f"User '{usr}' performed the same action repeatedly in a short time window. "
+            "This pattern may indicate automated or retrospective data entry rather than "
+            "real-time recording, inconsistent with ALCOA+ Contemporaneous."
+        )
+    if gap_s >= 7:
+        parts.append(
+            f"Rule 10 — Audit Trail Timestamp Gap [HIGH]: "
+            f"A gap of more than 2 hours was detected in the audit trail before this event at {ts}. "
+            "Continuous audit trail coverage is required (21 CFR Part 11 §11.10(e))."
+        )
+    if tmp_s >= 5:
+        try:
+            is_hol, hol_name = _is_us_federal_holiday(pd.Timestamp(ts))
+        except Exception:
+            is_hol, hol_name = False, ""
+        if is_hol:
+            parts.append(
+                f"Rule 11 — Federal Holiday Activity [{hol_name}]: "
+                f"User '{usr}' performed '{act}' on a US Federal Holiday. "
+                "Activity on scheduled non-working days requires documented justification."
+            )
+        else:
+            parts.append(
+                f"Rule 11 — Off-Hours Activity: "
+                f"User '{usr}' performed '{act}' at {ts}, outside normal business hours."
+            )
+    return " | ".join(parts)
+
+
+def _combined_rat(row):
+    """Aggregate all per-rule rationale strings into one evidence narrative."""
+    parts = [r for r in [
+        row.get("rule1_rationale",""),
+        row.get("rule2_rationale",""),
+        row.get("rule3_rationale",""),
+        row.get("rule4_rationale",""),
+        row.get("rule5_rationale",""),
+        row.get("rule12_rationale",""),
+        row.get("rule13_rationale",""),
+        row.get("rule14_rationale",""),
+        row.get("rule15_rationale",""),
+        row.get("rule16_rationale",""),
+        row.get("rule16_user_rationale",""),
+        row.get("rule17_rationale",""),
+        row.get("rule18_rationale",""),
+        row.get("rule19_rationale",""),
+        row.get("rule20_rationale",""),
+        row.get("rule21_rationale",""),
+        row.get("rule22_rationale",""),
+        row.get("rule23_rationale",""),
+        row.get("rule24_rationale",""),
+        row.get("rule25_rationale",""),
+        _dim_rationale(row),
+    ] if r]
+    return " | ".join(parts)
+
+
+
+def _suggested_disposition(row) -> tuple:
+    """Return (disposition_label, rationale_text) — reviewer-facing language only."""
+    r3   = float(row.get("score_rule3_admin_conflict",       0))
+    r5   = float(row.get("score_rule5_failed_login",         0))
+    r1   = float(row.get("score_rule1_vague_rationale",      0))
+    r4   = float(row.get("score_rule4_drift",                0))
+    r6   = float(row.get("score_del_recreate",               0))
+    rg   = float(row.get("score_gap",                        0))
+    rr   = float(row.get("score_record",                     0))
+    rp   = float(row.get("score_privilege",                  0))
+    rt   = float(row.get("score_temporal",                   0))
+    r12  = float(row.get("score_rule12_timestamp_reversal",  0))
+    r13  = float(row.get("score_rule13_service_account",     0))
+    r14  = float(row.get("score_rule14_dormant_account",     0))
+    r16  = float(row.get("score_rule16_first_time_behavior", 0))
+    r2   = float(row.get("score_rule2_burst",                0))
+    # New rules
+    r18  = float(row.get("score_rule18_self_approval",       0))
+    r19  = float(row.get("score_rule19_mod_after_approval",  0))
+    r25  = float(row.get("score_rule25_future_ts",           0))
+    r15m = float(row.get("score_rule15_missing_ts",          0))
+    r16u = float(row.get("score_rule16_missing_user",        0))
+    r17  = float(row.get("score_rule17_missing_values",      0))
+    r20  = float(row.get("score_rule20_workflow_reversal",   0))
+    r21  = float(row.get("score_rule21_role_change",         0))
+    r22  = float(row.get("score_rule22_dup_timestamp",       0))
+    r23  = float(row.get("score_rule23_missing_record_id",   0))
+    r24  = float(row.get("score_rule24_dup_rows",            0))
+    r15r = float(row.get("score_del_recreate", 0))  # legacy alias
+    cmt     = str(row.get("comments","")).lower().strip()
+    has_cmt = bool(cmt and cmt not in ("nan","none","-","—",""))
+
+    # TIER 1 — Structural: always Escalate regardless of documentation
+    if r19 >= 8:
+        return ("Escalate to CAPA",
+                "A GxP record was modified after its approval or release — "
+                "this is a critical data integrity violation. The record must "
+                "be quarantined pending investigation and formal non-conformance raised.")
+    if r18 >= 8:
+        return ("Escalate to CAPA",
+                "Self-approval detected — the same individual created and approved "
+                "the same record. This is a direct Segregation of Duties violation "
+                "requiring immediate investigation and CAPA.")
+    if r25 >= 8:
+        return ("Escalate to CAPA",
+                "A future-dated timestamp was detected — this is not possible in a "
+                "correctly functioning system. Investigate server clock configuration, "
+                "timezone settings, and potential manual record manipulation.")
+    if r15r >= 9:
+        return ("Escalate to CAPA",
+                "Update, Delete, and re-Insert were performed on the same record "
+                "within 30 minutes — this sequence is the primary method for "
+                "altering locked GxP records while obscuring the original data.")
+    if r12 >= 9:
+        return ("Escalate to CAPA",
+                "Approval or release timestamp precedes the creation timestamp "
+                "on the same record — this is chronologically impossible in a "
+                "correctly functioning system and requires immediate investigation.")
+    if r13 >= 9:
+        return ("Escalate to CAPA",
+                "A service or shared account directly modified a GxP record — "
+                "this action cannot be attributed to a named individual as required.")
+    if r5 >= 8:
+        return ("Escalate to CAPA",
+                "Three or more failed login attempts preceded a GxP data action "
+                "within 30 minutes — this sequence requires investigation for "
+                "potential unauthorised access.")
+    if r3 >= 8:
+        return ("Escalate to CAPA",
+                "An administrative account directly modified production GxP data — "
+                "administrative accounts are authorised for system configuration "
+                "only, not direct data modification.")
+    if r6 >= 9:
+        return ("Escalate to CAPA",
+                "The same record was deleted then recreated — this pattern may "
+                "replace original GxP data with altered values, breaking the "
+                "traceability chain.")
+    if rr >= 10:
+        return ("Escalate to CAPA",
+                "The audit trail system itself was modified — any change to "
+                "audit trail configuration requires immediate investigation.")
+
+    # TIER 2 — Data completeness/integrity structural findings
+    if r15m >= 7:
+        return ("Escalate to CAPA",
+                "This event has a missing or unparseable timestamp — it cannot "
+                "be placed in sequence or verified as contemporaneous. "
+                "Rectify the logging configuration and review all events in this window.")
+    if r16u >= 7:
+        return ("Escalate to CAPA",
+                "This event has no user attribution — it cannot be linked to a "
+                "specific individual. Investigate the logging configuration and "
+                "identify who performed this action.")
+    if r24 >= 7:
+        return ("Escalate to CAPA",
+                "An exact duplicate audit trail row was detected. Duplicate entries "
+                "indicate potential batch insertion or log manipulation. "
+                "Investigate all events sharing this timestamp, user, and action.")
+
+    # TIER 3 — Destructive/high-risk: documentation downgrades to Investigate
+    if rr >= 8:
+        if has_cmt:
+            return ("Investigate — Verify Source Data",
+                    "A GxP-sensitive record was deleted with a comment on file — "
+                    "verify the comment constitutes adequate justification and "
+                    "the deletion was formally authorised.")
+        return ("Escalate to CAPA",
+                "A GxP-sensitive record was deleted with no documented "
+                "justification — authorisation must be established before "
+                "this event can be closed.")
+
+    if rg >= 7:
+        try:
+            gap_ts = pd.Timestamp(str(row.get("timestamp", "")))
+            is_biz = (not pd.isnull(gap_ts)
+                      and gap_ts.weekday() < 5
+                      and _AT_BIZ_START <= gap_ts.hour < _AT_BIZ_END)
+        except Exception:
+            is_biz = False
+        if is_biz:
+            return ("Escalate to CAPA",
+                    "An unexplained gap in audit trail coverage occurred during "
+                    "normal business hours — continuous logging is required and "
+                    "any pause during working hours requires investigation.")
+        return ("Investigate — Verify Source Data",
+                "A gap in audit trail coverage was detected — verify whether "
+                "this aligns with an approved maintenance window or scheduled "
+                "system downtime.")
+
+    if r4 >= 7:
+        if has_cmt:
+            return ("Investigate — Verify Source Data",
+                    "The recorded value is significantly outside the expected range "
+                    "for this record type, with a comment on file — verify the "
+                    "comment references an approved Change Control or specification.")
+        return ("Escalate to CAPA",
+                "The recorded value is significantly outside the expected range "
+                "with no documented justification — verify against the approved "
+                "specification before this event can be closed.")
+
+    if rp >= 7:
+        if has_cmt:
+            return ("Investigate — Verify Source Data",
+                    "A privileged account acted on GxP data with a comment on file — "
+                    "verify the comment constitutes adequate business justification "
+                    "and that an Emergency Access Request was approved if required.")
+        return ("Escalate to CAPA",
+                "A privileged account modified GxP production data with no "
+                "documented justification — authorisation must be established.")
+
+    if r17 >= 6.5:
+        return ("Investigate — Verify Source Data",
+                "Before/after values are missing or invalid for this data modification. "
+                "Verify source documentation to establish what the original value was "
+                "and what it was changed to.")
+
+    if r23 >= 7:
+        return ("Investigate — Verify Source Data",
+                "This event has no record_id — it cannot be linked to a specific "
+                "GxP record. Verify source documentation to identify which record "
+                "was affected.")
+
+    if r21 >= 7:
+        return ("Investigate — Verify Source Data",
+                "A role, permission, or access control record was modified — "
+                "verify this change was formally authorised via Change Control "
+                "and the access review log is current.")
+
+    if r20 >= 7:
+        return ("Investigate — Verify Source Data",
+                "A workflow status reversal was detected — verify this was an "
+                "authorised rejection or rework, not an attempt to re-open "
+                "a locked record for modification.")
+
+    # TIER 4 — Documentation gap
+    if r1 >= 8 and not has_cmt:
+        return ("Escalate to CAPA",
+                "A GxP data modification was recorded with no change reason — "
+                "retrospective justification is required before this event "
+                "can be closed.")
+    if r1 >= 6:
+        return ("Justified — Amendment Required",
+                "The change reason recorded is insufficient or uses "
+                "non-descriptive language — a retrospective written amendment "
+                "from the analyst is required.")
+
+    # TIER 5 — Statistical/behavioural
+    if r14 >= 7:
+        return ("Investigate — Verify Source Data",
+                "This account had no recorded activity for 90 or more days "
+                "before this GxP action — verify current employment status "
+                "and confirm access was formally re-authorised.")
+    if r2 >= 6:
+        return ("Investigate — Verify Source Data",
+                "More than ten data entries were recorded by the same user "
+                "within 15 minutes — verify that contemporaneous source "
+                "records exist for each entry.")
+    if r16 >= 5:
+        return ("Investigate — Verify Source Data",
+                "This user performed a high-risk action type for the first "
+                "time in their recorded history — verify this was within "
+                "their approved access rights at the time.")
+    if r22 >= 6:
+        return ("Investigate — Verify Source Data",
+                "Multiple events share the exact same timestamp — verify "
+                "whether this reflects a system clock limitation or potential "
+                "batch insertion of records.")
+
+    # TIER 6 — Temporal
+    if rt >= 9:
+        return (
+            "Justified — Document Rationale" if has_cmt else "Investigate — Verify Source Data",
+            ("Activity at an unusually late or early hour was detected with a "
+             "comment on file — confirm a corresponding approved overtime record "
+             "or maintenance window covers this period.")
+            if has_cmt else
+            ("Activity at an unusually late or early hour was detected with no "
+             "documented reason — obtain business justification before closing "
+             "this finding.")
+        )
+    if rt >= 5:
+        return (
+            "Justified — Document Rationale" if has_cmt else "Investigate — Verify Source Data",
+            ("Off-hours activity was detected with a comment on file — confirm "
+             "a corresponding approved overtime record or maintenance window "
+             "covers this period.")
+            if has_cmt else
+            ("Off-hours activity was detected with no documented reason — "
+             "obtain business justification before closing this finding.")
+        )
+
+    # TIER 7 — Service account non-GxP
+    if r13 >= 6:
+        return ("Investigate — Verify Source Data",
+                "A service or shared account performed this action — verify "
+                "that a responsible individual can be identified and that "
+                "the action was authorised.")
+
+    # TIER 8 — Hard gate
+    named_max = max(r16,r15r,r12,r13,r5,r3,r6,rg,rr,r4,r1,r2,rp,rt,r14,
+                    r18,r19,r25,r15m,r16u,r17,r20,r21,r22,r23,r24)
+    if named_max >= 7.0:
+        return ("Investigate — Verify Source Data",
+                "A risk indicator was detected that warrants documented "
+                "reviewer investigation before this event can be closed.")
+
+    return ("Justified — No Action Required",
+            "No significant risk indicator was detected — a brief review "
+            "and documented disposition is sufficient.")
+
 def at_score_events(df: pd.DataFrame, rule_config: dict = None) -> pd.DataFrame:
     """
     Score every event across the AT v96 ruleset (16 active rules; 9 v94e rules
@@ -7283,33 +7670,8 @@ def at_score_events(df: pd.DataFrame, rule_config: dict = None) -> pd.DataFrame:
     #   Rule 14 (First-Time Behavior), Rule 20 (Workflow Reversal),
     #   Rule 21 (Role/Permission), Rule 22 (Duplicate Timestamp),
     #   Rule 23 (Missing Record ID), Rule 24 (Duplicate Rows).
-    _RULE_NUM_REMAP = {
-        "1":  "6",    # Vague Rationale
-        "2":  "15",   # Contemporaneous Burst
-        "3":  "10",   # Admin/GxP Conflict (merged into UI #10)
-        "4":  "7",    # Change Control Drift
-        "5":  "9",    # Failed Login → Data Manipulation
-        "6":  "1",    # Record Reconstruction
-        "7":  "2",    # Audit Trail Integrity Event
-        "8":  "10",   # Privileged User on GxP (merged with rule 3)
-        "10": "16",   # Off-Hours / Holiday Activity (score_temporal finding)
-        "11": "12",   # Timestamp Reversal
-        "12": "8",    # Service / Shared Account
-        "15": "13",   # Missing Timestamp
-        "16": "11",   # Missing User Attribution
-        "17": "3",    # Missing Before/After Values
-        "18": "4",    # Self-Approval SoD Violation
-        "19": "5",    # Modification After Approval
-        "20": "17",   # Workflow Status Reversal (re-instated v96)
-        "25": "14",   # Future Timestamp
-    }
-
-    def _relabel_rule(s: str) -> str:
-        """Replace internal Rule N numbers in any output string with client labels."""
-        def _sub(m):
-            n = m.group(1)
-            return f"Rule {_RULE_NUM_REMAP.get(n, n)}"
-        return re.sub(r'\bRule (\d+)\b', _sub, str(s))
+    # _RULE_NUM_REMAP and _relabel_rule are now module-level (above at_score_events).
+    # They are accessible here as closures and also from show_audit_trail.
 
     # ── Timestamp parsing ─────────────────────────────────────────────────────
     if "timestamp" in df.columns:
@@ -9431,102 +9793,7 @@ def at_score_events(df: pd.DataFrame, rule_config: dict = None) -> pd.DataFrame:
     # This second pass uses _RULE_PRIORITY which includes Rules 15-25.
     df["Primary_Rule"]       = df.apply(_primary_rule, axis=1)
     df["Supporting_Signals"] = df.apply(_supporting_signals, axis=1)
-    def _dim_rationale(row) -> str:
-        """Build plain-English rationale for dimension-based findings."""
-        parts = []
-        rec_s = float(row.get("score_record", 0))
-        pri_s = float(row.get("score_privilege", 0))
-        vel_s = float(row.get("score_velocity", 0))
-        gap_s = float(row.get("score_gap", 0))
-        tmp_s = float(row.get("score_temporal", 0))
-        usr   = str(row.get("user_id","Unknown"))
-        act   = str(row.get("action_type","Unknown"))
-        rec   = str(row.get("record_type","Unknown"))
-        ts    = str(row.get("timestamp","Unknown"))
-
-        if rec_s >= 10:
-            parts.append(
-                f"Rule 7 — Audit Trail Integrity Event [CRITICAL]: "
-                f"Action '{act}' was performed on audit trail configuration or records. "
-                "Any modification to the audit trail system is a critical data integrity finding "
-                "requiring immediate investigation (21 CFR Part 11 §11.10(e))."
-            )
-        elif rec_s >= 8:
-            parts.append(
-                f"Rule 7 — Sensitive Record Deletion [HIGH]: "
-                f"A deletion was performed on a GxP-critical record type ('{rec}'). "
-                "Deletions of GxP records must be fully justified and authorised "
-                "(21 CFR Part 11 §11.10(e), ALCOA+ Original)."
-            )
-        if pri_s >= 7:
-            parts.append(
-                f"Rule 8 — Privileged User on GxP Data [HIGH]: "
-                f"User '{usr}' holds an administrative or privileged role and performed "
-                f"'{act}' on '{rec}'. Privileged accounts must be restricted to system "
-                "configuration only and must not directly modify production data "
-                "(21 CFR Part 11 §11.10(d))."
-            )
-        if vel_s >= 3.5:
-            parts.append(
-                f"Rule 9 — High-Volume Activity Burst [MEDIUM]: "
-                f"User '{usr}' performed the same action repeatedly in a short time window. "
-                "This pattern may indicate automated or retrospective data entry rather than "
-                "real-time recording, which may be inconsistent with the ALCOA+ Contemporaneous principle as described in FDA Data Integrity Guidance (2018)."
-            )
-        if gap_s >= 7:
-            parts.append(
-                f"Rule 10 — Audit Trail Timestamp Gap [HIGH]: "
-                f"A gap of more than 2 hours was detected in the audit trail before this event at {ts}. "
-                "Continuous audit trail coverage is required — gaps may indicate logging was "
-                "suspended during that period (21 CFR Part 11 §11.10(e))."
-            )
-        if tmp_s >= 5:
-            try:
-                is_hol, hol_name = _is_us_federal_holiday(pd.Timestamp(ts))
-            except Exception:
-                is_hol, hol_name = False, ""
-            if is_hol:
-                parts.append(
-                    f"Rule 11 — Federal Holiday Activity [{hol_name}]: "
-                    f"User '{usr}' performed '{act}' on a US Federal Holiday. "
-                    "Activity on scheduled non-working days requires documented business "
-                    "justification and is a classic indicator of unauthorised shadow activity."
-                )
-            else:
-                parts.append(
-                    f"Rule 11 — Off-Hours Activity: "
-                    f"User '{usr}' performed '{act}' at {ts}, outside normal business hours. "
-                    "Off-hours activity on GxP records must be justified by an approved "
-                    "overtime record or maintenance window."
-                )
-        return " | ".join(parts)
-
-    def _combined_rat(row):
-        parts = [r for r in [
-            row.get("rule1_rationale",""),
-            row.get("rule2_rationale",""),
-            row.get("rule3_rationale",""),
-            row.get("rule4_rationale",""),
-            row.get("rule5_rationale",""),
-            row.get("rule12_rationale",""),
-            row.get("rule13_rationale",""),
-            row.get("rule14_rationale",""),
-            row.get("rule15_rationale",""),
-            row.get("rule16_rationale",""),
-            row.get("rule15_rationale",""),       # Rule 15 missing timestamp
-            row.get("rule16_user_rationale",""),  # Rule 16 missing user
-            row.get("rule17_rationale",""),       # Rule 17 missing values
-            row.get("rule18_rationale",""),       # Rule 18 self-approval
-            row.get("rule19_rationale",""),       # Rule 19 mod after approval
-            row.get("rule20_rationale",""),       # Rule 20 workflow reversal
-            row.get("rule21_rationale",""),       # Rule 21 role change
-            row.get("rule22_rationale",""),       # Rule 22 dup timestamp
-            row.get("rule23_rationale",""),       # Rule 23 missing record id
-            row.get("rule24_rationale",""),       # Rule 24 duplicate rows
-            row.get("rule25_rationale",""),       # Rule 25 future timestamp
-            _dim_rationale(row),
-        ] if r]
-        return " | ".join(parts)
+    # _dim_rationale, _combined_rat, _suggested_disposition are now module-level.
     # ── v96 PERF: Rule_Rationale deferred to Top-20 only ─────────────────────
     # _combined_rat() runs as a Python function per row — on 100k rows this takes
     # 30-90 seconds. Since Rule_Rationale is only displayed for Top-20 rows in the
@@ -9579,256 +9846,7 @@ def at_score_events(df: pd.DataFrame, rule_config: dict = None) -> pd.DataFrame:
     # │ default        No significant named rule     │ No Action Required       │
     # └──────────────────────────────────────────────┴──────────────────────────┘
 
-    def _suggested_disposition(row) -> tuple:
-        """Return (disposition_label, rationale_text) — reviewer-facing language only."""
-        r3   = float(row.get("score_rule3_admin_conflict",       0))
-        r5   = float(row.get("score_rule5_failed_login",         0))
-        r1   = float(row.get("score_rule1_vague_rationale",      0))
-        r4   = float(row.get("score_rule4_drift",                0))
-        r6   = float(row.get("score_del_recreate",               0))
-        rg   = float(row.get("score_gap",                        0))
-        rr   = float(row.get("score_record",                     0))
-        rp   = float(row.get("score_privilege",                  0))
-        rt   = float(row.get("score_temporal",                   0))
-        r12  = float(row.get("score_rule12_timestamp_reversal",  0))
-        r13  = float(row.get("score_rule13_service_account",     0))
-        r14  = float(row.get("score_rule14_dormant_account",     0))
-        r16  = float(row.get("score_rule16_first_time_behavior", 0))
-        r2   = float(row.get("score_rule2_burst",                0))
-        # New rules
-        r18  = float(row.get("score_rule18_self_approval",       0))
-        r19  = float(row.get("score_rule19_mod_after_approval",  0))
-        r25  = float(row.get("score_rule25_future_ts",           0))
-        r15m = float(row.get("score_rule15_missing_ts",          0))
-        r16u = float(row.get("score_rule16_missing_user",        0))
-        r17  = float(row.get("score_rule17_missing_values",      0))
-        r20  = float(row.get("score_rule20_workflow_reversal",   0))
-        r21  = float(row.get("score_rule21_role_change",         0))
-        r22  = float(row.get("score_rule22_dup_timestamp",       0))
-        r23  = float(row.get("score_rule23_missing_record_id",   0))
-        r24  = float(row.get("score_rule24_dup_rows",            0))
-        r15r = float(row.get("score_del_recreate", 0))  # legacy alias
-        cmt     = str(row.get("comments","")).lower().strip()
-        has_cmt = bool(cmt and cmt not in ("nan","none","-","—",""))
-
-        # TIER 1 — Structural: always Escalate regardless of documentation
-        if r19 >= 8:
-            return ("Escalate to CAPA",
-                    "A GxP record was modified after its approval or release — "
-                    "this is a critical data integrity violation. The record must "
-                    "be quarantined pending investigation and formal non-conformance raised.")
-        if r18 >= 8:
-            return ("Escalate to CAPA",
-                    "Self-approval detected — the same individual created and approved "
-                    "the same record. This is a direct Segregation of Duties violation "
-                    "requiring immediate investigation and CAPA.")
-        if r25 >= 8:
-            return ("Escalate to CAPA",
-                    "A future-dated timestamp was detected — this is not possible in a "
-                    "correctly functioning system. Investigate server clock configuration, "
-                    "timezone settings, and potential manual record manipulation.")
-        if r15r >= 9:
-            return ("Escalate to CAPA",
-                    "Update, Delete, and re-Insert were performed on the same record "
-                    "within 30 minutes — this sequence is the primary method for "
-                    "altering locked GxP records while obscuring the original data.")
-        if r12 >= 9:
-            return ("Escalate to CAPA",
-                    "Approval or release timestamp precedes the creation timestamp "
-                    "on the same record — this is chronologically impossible in a "
-                    "correctly functioning system and requires immediate investigation.")
-        if r13 >= 9:
-            return ("Escalate to CAPA",
-                    "A service or shared account directly modified a GxP record — "
-                    "this action cannot be attributed to a named individual as required.")
-        if r5 >= 8:
-            return ("Escalate to CAPA",
-                    "Three or more failed login attempts preceded a GxP data action "
-                    "within 30 minutes — this sequence requires investigation for "
-                    "potential unauthorised access.")
-        if r3 >= 8:
-            return ("Escalate to CAPA",
-                    "An administrative account directly modified production GxP data — "
-                    "administrative accounts are authorised for system configuration "
-                    "only, not direct data modification.")
-        if r6 >= 9:
-            return ("Escalate to CAPA",
-                    "The same record was deleted then recreated — this pattern may "
-                    "replace original GxP data with altered values, breaking the "
-                    "traceability chain.")
-        if rr >= 10:
-            return ("Escalate to CAPA",
-                    "The audit trail system itself was modified — any change to "
-                    "audit trail configuration requires immediate investigation.")
-
-        # TIER 2 — Data completeness/integrity structural findings
-        if r15m >= 7:
-            return ("Escalate to CAPA",
-                    "This event has a missing or unparseable timestamp — it cannot "
-                    "be placed in sequence or verified as contemporaneous. "
-                    "Rectify the logging configuration and review all events in this window.")
-        if r16u >= 7:
-            return ("Escalate to CAPA",
-                    "This event has no user attribution — it cannot be linked to a "
-                    "specific individual. Investigate the logging configuration and "
-                    "identify who performed this action.")
-        if r24 >= 7:
-            return ("Escalate to CAPA",
-                    "An exact duplicate audit trail row was detected. Duplicate entries "
-                    "indicate potential batch insertion or log manipulation. "
-                    "Investigate all events sharing this timestamp, user, and action.")
-
-        # TIER 3 — Destructive/high-risk: documentation downgrades to Investigate
-        if rr >= 8:
-            if has_cmt:
-                return ("Investigate — Verify Source Data",
-                        "A GxP-sensitive record was deleted with a comment on file — "
-                        "verify the comment constitutes adequate justification and "
-                        "the deletion was formally authorised.")
-            return ("Escalate to CAPA",
-                    "A GxP-sensitive record was deleted with no documented "
-                    "justification — authorisation must be established before "
-                    "this event can be closed.")
-
-        if rg >= 7:
-            try:
-                gap_ts = pd.Timestamp(str(row.get("timestamp", "")))
-                is_biz = (not pd.isnull(gap_ts)
-                          and gap_ts.weekday() < 5
-                          and _AT_BIZ_START <= gap_ts.hour < _AT_BIZ_END)
-            except Exception:
-                is_biz = False
-            if is_biz:
-                return ("Escalate to CAPA",
-                        "An unexplained gap in audit trail coverage occurred during "
-                        "normal business hours — continuous logging is required and "
-                        "any pause during working hours requires investigation.")
-            return ("Investigate — Verify Source Data",
-                    "A gap in audit trail coverage was detected — verify whether "
-                    "this aligns with an approved maintenance window or scheduled "
-                    "system downtime.")
-
-        if r4 >= 7:
-            if has_cmt:
-                return ("Investigate — Verify Source Data",
-                        "The recorded value is significantly outside the expected range "
-                        "for this record type, with a comment on file — verify the "
-                        "comment references an approved Change Control or specification.")
-            return ("Escalate to CAPA",
-                    "The recorded value is significantly outside the expected range "
-                    "with no documented justification — verify against the approved "
-                    "specification before this event can be closed.")
-
-        if rp >= 7:
-            if has_cmt:
-                return ("Investigate — Verify Source Data",
-                        "A privileged account acted on GxP data with a comment on file — "
-                        "verify the comment constitutes adequate business justification "
-                        "and that an Emergency Access Request was approved if required.")
-            return ("Escalate to CAPA",
-                    "A privileged account modified GxP production data with no "
-                    "documented justification — authorisation must be established.")
-
-        if r17 >= 6.5:
-            return ("Investigate — Verify Source Data",
-                    "Before/after values are missing or invalid for this data modification. "
-                    "Verify source documentation to establish what the original value was "
-                    "and what it was changed to.")
-
-        if r23 >= 7:
-            return ("Investigate — Verify Source Data",
-                    "This event has no record_id — it cannot be linked to a specific "
-                    "GxP record. Verify source documentation to identify which record "
-                    "was affected.")
-
-        if r21 >= 7:
-            return ("Investigate — Verify Source Data",
-                    "A role, permission, or access control record was modified — "
-                    "verify this change was formally authorised via Change Control "
-                    "and the access review log is current.")
-
-        if r20 >= 7:
-            return ("Investigate — Verify Source Data",
-                    "A workflow status reversal was detected — verify this was an "
-                    "authorised rejection or rework, not an attempt to re-open "
-                    "a locked record for modification.")
-
-        # TIER 4 — Documentation gap
-        if r1 >= 8 and not has_cmt:
-            return ("Escalate to CAPA",
-                    "A GxP data modification was recorded with no change reason — "
-                    "retrospective justification is required before this event "
-                    "can be closed.")
-        if r1 >= 6:
-            return ("Justified — Amendment Required",
-                    "The change reason recorded is insufficient or uses "
-                    "non-descriptive language — a retrospective written amendment "
-                    "from the analyst is required.")
-
-        # TIER 5 — Statistical/behavioural
-        if r14 >= 7:
-            return ("Investigate — Verify Source Data",
-                    "This account had no recorded activity for 90 or more days "
-                    "before this GxP action — verify current employment status "
-                    "and confirm access was formally re-authorised.")
-        if r2 >= 6:
-            return ("Investigate — Verify Source Data",
-                    "More than ten data entries were recorded by the same user "
-                    "within 15 minutes — verify that contemporaneous source "
-                    "records exist for each entry.")
-        if r16 >= 5:
-            return ("Investigate — Verify Source Data",
-                    "This user performed a high-risk action type for the first "
-                    "time in their recorded history — verify this was within "
-                    "their approved access rights at the time.")
-        if r22 >= 6:
-            return ("Investigate — Verify Source Data",
-                    "Multiple events share the exact same timestamp — verify "
-                    "whether this reflects a system clock limitation or potential "
-                    "batch insertion of records.")
-
-        # TIER 6 — Temporal
-        if rt >= 9:
-            return (
-                "Justified — Document Rationale" if has_cmt else "Investigate — Verify Source Data",
-                ("Activity at an unusually late or early hour was detected with a "
-                 "comment on file — confirm a corresponding approved overtime record "
-                 "or maintenance window covers this period.")
-                if has_cmt else
-                ("Activity at an unusually late or early hour was detected with no "
-                 "documented reason — obtain business justification before closing "
-                 "this finding.")
-            )
-        if rt >= 5:
-            return (
-                "Justified — Document Rationale" if has_cmt else "Investigate — Verify Source Data",
-                ("Off-hours activity was detected with a comment on file — confirm "
-                 "a corresponding approved overtime record or maintenance window "
-                 "covers this period.")
-                if has_cmt else
-                ("Off-hours activity was detected with no documented reason — "
-                 "obtain business justification before closing this finding.")
-            )
-
-        # TIER 7 — Service account non-GxP
-        if r13 >= 6:
-            return ("Investigate — Verify Source Data",
-                    "A service or shared account performed this action — verify "
-                    "that a responsible individual can be identified and that "
-                    "the action was authorised.")
-
-        # TIER 8 — Hard gate
-        named_max = max(r16,r15r,r12,r13,r5,r3,r6,rg,rr,r4,r1,r2,rp,rt,r14,
-                        r18,r19,r25,r15m,r16u,r17,r20,r21,r22,r23,r24)
-        if named_max >= 7.0:
-            return ("Investigate — Verify Source Data",
-                    "A risk indicator was detected that warrants documented "
-                    "reviewer investigation before this event can be closed.")
-
-        return ("Justified — No Action Required",
-                "No significant risk indicator was detected — a brief review "
-                "and documented disposition is sufficient.")
-
+    # _suggested_disposition is now module-level (see above at_score_events).
     # ── v96 PERF: Suggested_Disposition deferred to Top-20 only ─────────────
     # _suggested_disposition() is a Python function per row — skipped here.
     # The caller applies it to Top-20 rows only after Top-N selection.
@@ -13703,7 +13721,7 @@ them in Step 2.
             ws.row_dimensions[row].height = 28 if not sub else 22
             if sub:
                 cs = ws.cell(row=row + 1, column=1, value=sub)
-                cs.font = Font(italic=True, size=9, color="CBD5E1")
+                cs.font = Font(italic=True, size=11, color="CBD5E1")
                 cs.fill = PatternFill("solid", fgColor=fg)
                 cs.alignment = Alignment(horizontal="left", vertical="center", indent=2)
                 ws.merge_cells(f"A{row+1}:B{row+1}")
@@ -13714,11 +13732,11 @@ them in Step 2.
         def _row2(ws, row, label, detail, label_color="1E3A5F", bold_label=True):
             c1 = ws.cell(row=row, column=1, value=label)
             c1.font = Font(bold=bold_label, color="FFFFFF" if bold_label else "1E293B",
-                           size=10, name="Calibri")
+                           size=11, name="Calibri")
             c1.fill = PatternFill("solid", fgColor=label_color if bold_label else "F8FAFC")
             c1.alignment = Alignment(vertical="top", wrap_text=True, indent=1)
             c2 = ws.cell(row=row, column=2, value=detail)
-            c2.font = Font(color="1E293B", size=10, name="Calibri")
+            c2.font = Font(color="1E293B", size=11, name="Calibri")
             c2.fill = PatternFill("solid", fgColor="FFFFFF")
             c2.alignment = Alignment(vertical="top", wrap_text=True, indent=1)
             ws.row_dimensions[row].height = 48
@@ -13882,7 +13900,7 @@ them in Step 2.
             "If a column is not auto-recognised, the mapping screen lets you pick "
             "the correct field from a dropdown before running analysis."
         ))
-        note_cell.font = Font(italic=True, color="374151", size=9)
+        note_cell.font = Font(italic=True, color="374151", size=11)
         note_cell.alignment = Alignment(vertical="top", wrap_text=True, indent=1)
         ws_use.merge_cells(f"A{r}:B{r}")
         ws_use.row_dimensions[r].height = 72
@@ -13899,7 +13917,7 @@ them in Step 2.
         ]
         for ci, h in enumerate(UAR_HEADERS, 1):
             c = ws_data.cell(row=1, column=ci, value=h)
-            c.font = Font(bold=True, color="FFFFFF", size=10, name="Calibri")
+            c.font = Font(bold=True, color="FFFFFF", size=11, name="Calibri")
             c.fill = PatternFill("solid", fgColor="1E3A5F")   # navy
             c.alignment = Alignment(horizontal="left", vertical="center", indent=1)
         ws_data.row_dimensions[1].height = 22
@@ -13943,7 +13961,7 @@ them in Step 2.
             _bg = "F0F4F8" if _is_alt else "FFFFFF"
             for ci, val in enumerate(row_data, 1):
                 cell = ws_data.cell(row=ri, column=ci, value=val)
-                cell.font = Font(color="1E293B", size=9, name="Calibri")
+                cell.font = Font(color="1E293B", size=11, name="Calibri")
                 cell.fill = PatternFill("solid", fgColor=_bg)
                 cell.alignment = Alignment(horizontal="left", vertical="center", indent=1)
             ws_data.row_dimensions[ri].height = 16
@@ -17821,7 +17839,7 @@ match your system's export column names to the fields above — rename nothing i
                 c1.fill = _fill_c(bg_key)
                 c1.alignment = Alignment(vertical="top", wrap_text=True, indent=1)
                 c2 = ws_usage.cell(row=row_num, column=2, value=desc_val)
-                c2.font = Font(color=GREY_TEXT, size=9, name="Calibri")
+                c2.font = Font(color=GREY_TEXT, size=11, name="Calibri")
                 c2.fill = _fill_c(bg_desc)
                 c2.alignment = Alignment(vertical="top", wrap_text=True, indent=1)
                 ws_usage.row_dimensions[row_num].height = 42
@@ -17843,7 +17861,7 @@ match your system's export column names to the fields above — rename nothing i
 
             c_sub = ws_usage.cell(row=r, column=1,
                                    value="Sample Audit Log Template — Usage Instructions")
-            c_sub.font = Font(italic=True, color="94A3B8", size=9)
+            c_sub.font = Font(italic=True, color="94A3B8", size=11)
             c_sub.fill = _fill_c("0F172A")
             c_sub.alignment = Alignment(horizontal="left", vertical="center", indent=2)
             ws_usage.merge_cells(f"A{r}:B{r}")
@@ -19985,7 +20003,7 @@ match your system's export column names to the fields above — rename nothing i
             ]
 
             # Write header row — professional navy theme
-            hdr_data_font = Font(bold=True, color="FFFFFF", size=9, name="Calibri")
+            hdr_data_font = Font(bold=True, color="FFFFFF", size=11, name="Calibri")
             hdr_data_fill = PatternFill("solid", fgColor="1E3A5F")  # navy
             for ci, col_name in enumerate(HEADER, 1):
                 cell = ws_data.cell(row=1, column=ci, value=col_name)
@@ -19996,7 +20014,7 @@ match your system's export column names to the fields above — rename nothing i
             ws_data.row_dimensions[1].height = 22
 
             # Write data rows — white / light-grey alternating, dark text
-            data_font_light = Font(color="1E293B", size=9, name="Calibri")
+            data_font_light = Font(color="1E293B", size=11, name="Calibri")
             fill_white = PatternFill("solid", fgColor="FFFFFF")
             fill_grey  = PatternFill("solid", fgColor="F0F4F8")
             for ri, row_vals in enumerate(DATA_ROWS, 2):
