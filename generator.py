@@ -41,7 +41,7 @@ Version 78.0
 §9   AUDIT TRAIL (AT) MODULE — Periodic Review Module 1
      at_score_events()          line ~6242
      at_generate_justifications() line ~8058
-     at_build_excel()           line ~8145  (Sheet 6: Compliance Checklist added v78)
+     at_build_excel()           line ~8145  (Sheet 5: Rule Summary — rule firing chart, replaces Compliance Checklist v96)
      show_audit_trail()         line ~11516
 
 §10  UAR MODULE — User Access Review — Periodic Review Module 2
@@ -7517,60 +7517,80 @@ def at_score_events(df: pd.DataFrame, rule_config: dict = None) -> pd.DataFrame:
             )
         return 0.0, ""
 
-    r1_scores    = []
-    r1_rationale = []
-    for _, row in df.iterrows():
-        s, r = _rule1(row)
-        r1_scores.append(s)
-        r1_rationale.append(r)
-    df["score_rule1_vague_rationale"] = r1_scores
-    df["rule1_rationale"]             = r1_rationale
+    # ── v96 PERF: Rule 1 vectorized score + deferred rationale ───────────────
+    # Scores computed with pandas string ops (instant on 100k rows).
+    # Rationale text deferred — only the Top-20 rows ever display it.
+    # The _rule1(row) function above is retained for the deferred call.
+    if "comments" in df.columns:
+        _cmt_s  = df["comments"].astype(str).str.strip()
+        _act_s  = df["action_type"].astype(str).str.upper()
+        _tbl_s  = df.get("record_type", pd.Series("", index=df.index)).astype(str).str.upper()
 
-    # ── Rule 1 sub-check: Copy-paste rationale reuse ──────────────────────────
+        _blank  = _cmt_s.str.lower().isin({"", "nan", "none", "-", "—", "n/a"})
+        _is_del = _act_s.str.contains("DELETE|DEL|REMOVE|PURGE|VOID", na=False)
+        _is_mod = _act_s.str.contains("UPDATE|MODIFY|EDIT|AMEND|CORRECT", na=False)
+        _on_gxp = _tbl_s.apply(lambda t: any(g in t for g in _RULE1_GXP_TABLES))
+
+        # Vectorized domain-term check: ≥3 words AND has a domain term
+        _has_domain = _cmt_s.str.lower().apply(
+            lambda c: any(w in _AT_DOMAIN_TERMS for w in c.split())
+        )
+        _word_count = _cmt_s.apply(lambda c: len([w for w in c.split() if len(w) > 1]))
+        _cleared    = (_word_count >= 3) & _has_domain
+
+        # Vague-term check
+        _vague_pat  = re.compile(
+            r"\b(" + "|".join(re.escape(v) for v in _AT_VAGUE_TERMS) + r")\b",
+            re.IGNORECASE,
+        )
+        _has_vague  = _cmt_s.apply(lambda c: bool(_vague_pat.search(c)))
+
+        # Score matrix — GxP table + action-specific
+        _r1s = pd.Series(0.0, index=df.index)
+        # DELETE on GxP: blank → 9.0, vague → 8.0, short → 7.0
+        _del_gxp = _is_del & _on_gxp
+        _r1s = _r1s.where(~(_del_gxp & _blank),         9.0)
+        _r1s = _r1s.where(~(_del_gxp & ~_blank & _has_vague & ~_cleared), 8.0)
+        _r1s = _r1s.where(~(_del_gxp & ~_blank & ~_has_vague & (_word_count < 2)), 7.0)
+        # UPDATE on GxP: blank → 8.0, vague single → 7.0, vague double → 6.0, vague 3+ → 5.5, too brief → 6.0
+        _upd_gxp = _is_mod & _on_gxp & ~_cleared
+        _r1s = _r1s.where(~(_upd_gxp & _blank),                           8.0)
+        _r1s = _r1s.where(~(_upd_gxp & ~_blank & _has_vague & (_word_count == 1)), 7.0)
+        _r1s = _r1s.where(~(_upd_gxp & ~_blank & _has_vague & (_word_count == 2)), 6.0)
+        _r1s = _r1s.where(~(_upd_gxp & ~_blank & _has_vague & (_word_count >= 3)), 5.5)
+        _r1s = _r1s.where(~(_upd_gxp & ~_blank & ~_has_vague & (_word_count < 2)),  6.0)
+
+        df["score_rule1_vague_rationale"] = _r1s
+        df["rule1_rationale"]             = ""  # deferred to Top-20
+
+        # Copy-paste sub-check: vectorized with groupby count
+        if "record_type" in df.columns:
+            _CP_THRESHOLD = 20
+            _SOP_REF_PAT  = re.compile(
+                r'\b(per|per\s+sop|per\s+stp|per\s+woi|sop[-\s]?\w+|stp[-\s]?\w+)\b',
+                re.IGNORECASE,
+            )
+            _cmt_key = _cmt_s.str.lower()
+            _tbl_key = _tbl_s
+            _combo_df = pd.DataFrame({"_tbl": _tbl_key, "_cmt": _cmt_key})
+            _combo_df["_cnt"] = _combo_df.groupby(["_tbl","_cmt"])["_tbl"].transform("count")
+            _gxp_mask   = _on_gxp & ~_blank & ~_cmt_key.isin({"nan","none","-","—"})
+            _cp_mask    = (
+                _gxp_mask
+                & (_combo_df["_cnt"] >= _CP_THRESHOLD)
+                & ~_cmt_key.apply(lambda c: bool(_SOP_REF_PAT.search(c)))
+            )
+            _r1s_upd = df["score_rule1_vague_rationale"].copy()
+            _r1s_upd.loc[_cp_mask & (_r1s_upd < 7.5)] = 7.5
+            df["score_rule1_vague_rationale"] = _r1s_upd
+    else:
+        df["score_rule1_vague_rationale"] = 0.0
+        df["rule1_rationale"]             = ""
+
+    # Rule 1 sub-check: Copy-paste rationale reuse
     # Identical non-blank comment repeated across 3+ rows of the same GxP table
     # type is a copy-paste finding — the rationale was not written per-record.
     # Applied as a post-loop boost: if the row already fired Rule 1, the score
-    # is kept (it's already flagged). If it had NOT fired (comment was deemed
-    # adequate), the copy-paste pattern overrides with 7.5 HIGH.
-    if "comments" in df.columns and "record_type" in df.columns:
-        _CP_THRESHOLD = 20  # requires meaningful volume before flagging
-        _SOP_REF_PAT  = re.compile(
-            r'\b(per|per\s+sop|per\s+stp|per\s+woi|per\s+procedure|'
-            r'as\s+per\s+sop|sop[-\s]?\w+|stp[-\s]?\w+|woi[-\s]?\w+|'
-            r'standard\s+operating|procedure\s+\w+)\b',
-            re.IGNORECASE
-        )
-        # Build count of each (table, comment) combination
-        from collections import Counter as _Counter
-        _combo_counts = _Counter()
-        for _, _row in df.iterrows():
-            _tbl = str(_row.get("record_type", "")).upper()
-            _cmt = str(_row.get("comments",    "")).strip().lower()
-            if _cmt and _cmt not in ("nan", "none", "-", "—")                     and any(t in _tbl for t in _RULE1_GXP_TABLES):
-                _combo_counts[(_tbl, _cmt)] += 1
-        # Flag rows where the same comment was used >= threshold times
-        for _idx, _row in df.iterrows():
-            _tbl = str(_row.get("record_type", "")).upper()
-            _cmt = str(_row.get("comments",    "")).strip().lower()
-            if not _cmt or _cmt in ("nan", "none", "-", "—"):
-                continue
-            if not any(t in _tbl for t in _RULE1_GXP_TABLES):
-                continue
-            _cnt = _combo_counts.get((_tbl, _cmt), 0)
-            if _cnt >= _CP_THRESHOLD and not _SOP_REF_PAT.search(_cmt):
-                _cp_rationale = (
-                    f"Rule 1 — Copy-Paste Rationale Reuse [HIGH]: "
-                    f"The comment '{_cmt}' appears identically on {_cnt} records "
-                    f"in the '{_tbl}' table. Identical rationale across multiple "
-                    "records indicates the justification was not written for each "
-                    "individual change, which is inconsistent with ALCOA+ Attributable "
-                    "and 21 CFR Part 211.68 requirements for per-record documentation."
-                )
-                # Boost only if not already flagged at a higher score
-                if df.at[_idx, "score_rule1_vague_rationale"] < 7.5:
-                    df.at[_idx, "score_rule1_vague_rationale"] = 7.5
-                    df.at[_idx, "rule1_rationale"]             = _cp_rationale
-
     # ── Rule 2 — Contemporaneous Burst (ALCOA Gap) ────────────────────────────
     # BQ-002: (1) Exclude system/service accounts — they legitimately generate
     #             high-volume automated entries (instrument interfaces, LIMS middleware).
@@ -7961,9 +7981,37 @@ def at_score_events(df: pd.DataFrame, rule_config: dict = None) -> pd.DataFrame:
             )
         return 0.0, ""
 
-    r13_res = [_rule13(row) for _, row in df.iterrows()]
-    df["score_rule13_service_account"] = [x[0] for x in r13_res]
-    df["rule13_rationale"]             = [x[1] for x in r13_res]
+    # ── v96 PERF: Rule 13 vectorized score (defer rationale to Top-20) ────────
+    _uid_lower = df["user_id"].astype(str).str.lower().str.strip()
+    _act_lower13 = df["action_type"].astype(str).str.lower().str.strip()
+    _rec_lower13 = (df["record_type"].astype(str).str.lower().str.strip()
+                    if "record_type" in df.columns
+                    else pd.Series("", index=df.index))
+
+    _is_svc = _uid_lower.apply(
+        lambda u: any(u.startswith(p) for p in _NONPERSONAL_PREFIXES)
+    )
+    _is_gxp_act13 = _act_lower13.apply(
+        lambda a: any(kw in a for kw in _GXP_ACTIONS_13)
+    )
+    _is_gxp_rec13 = _rec_lower13.apply(
+        lambda r: any(kw in r for kw in _AT_SENSITIVE)
+    )
+    _is_consistent = _uid_lower.map(_svc_profiles).fillna(False)
+
+    _r13s = pd.Series(0.0, index=df.index)
+    # Consistent profile + GxP action + GxP rec → MEDIUM 5.0
+    _r13s = _r13s.where(
+        ~(_is_svc & _is_consistent & _is_gxp_act13 & _is_gxp_rec13), 5.0)
+    # Non-consistent + GxP action + GxP rec → CRITICAL 10.0
+    _r13s = _r13s.where(
+        ~(_is_svc & ~_is_consistent & _is_gxp_act13 & _is_gxp_rec13), 10.0)
+    # Non-consistent + GxP action only → HIGH 7.0
+    _r13s = _r13s.where(
+        ~(_is_svc & ~_is_consistent & _is_gxp_act13 & ~_is_gxp_rec13), 7.0)
+
+    df["score_rule13_service_account"] = _r13s
+    df["rule13_rationale"]             = ""  # deferred to Top-20
 
     # ── Rule 14 — Dormant Account Sudden Activity ──────────────────────────────
     # User with ≥90-day gap in activity re-activates and performs GxP action.
@@ -8273,7 +8321,17 @@ def at_score_events(df: pd.DataFrame, rule_config: dict = None) -> pd.DataFrame:
     _has_new = ("new_value" in df.columns and
                 df["new_value"].astype(str).str.strip()
                 .replace({"nan":"","None":"","NaT":""}).ne("").any())
-    _R17_NULL_TOKENS = {"", "nan", "none", "null", "nil", "-", "—", "n/a", "na", "n.a."}
+    _R17_NULL_TOKENS = {
+        # Standard null representations
+        "", "nan", "none", "null", "nil", "-", "—", "n/a", "na", "n.a.",
+        # Bracket/paren forms — exported by LIMS, MES, SAP, Veeva, etc.
+        "[empty]", "[null]", "[none]", "[n/a]", "[na]", "[blank]", "[]",
+        "(empty)", "(null)", "(none)", "(n/a)", "(na)", "(blank)", "()",
+        # Other common system-generated placeholders
+        "not applicable", "not available", "no value", "no data",
+        "empty", "blank", "<empty>", "<null>", "<none>", "<blank>",
+        "#n/a", "#null!", "null value", "undefined", "unknown",
+    }
     def _r17_is_null(v: str) -> bool:
         return v.strip().lower() in _R17_NULL_TOKENS
     def _rule17(row):
@@ -8438,6 +8496,7 @@ def at_score_events(df: pd.DataFrame, rule_config: dict = None) -> pd.DataFrame:
 
     # ── Rule 18 — Self-Approval / SoD Violation [Tier 1 | Critical] ──────────
     # 21 CFR Part 11 §11.10(d); EU Annex 11 Clause 12
+    # Vectorized: groupby record_id to find creator, merge back to find approver rows.
     _APPROVE_ACTS  = {"approve","approved","approval","sign","signed","release",
                       "released","authorise","authorize","authorised","authorized",
                       "endorse","endorsed","certify","certified","accept","accepted"}
@@ -8446,62 +8505,73 @@ def at_score_events(df: pd.DataFrame, rule_config: dict = None) -> pd.DataFrame:
     r18s = pd.Series(0.0, index=df.index)
     r18r = pd.Series("",  index=df.index)
     if "record_id" in df.columns and "user_id" in df.columns and "action_type" in df.columns:
-        df["_act_up"] = df["action_type"].astype(str).str.lower()
-        creator_map = {}   # record_id → user_id of creator
-        for _, row in df.iterrows():
-            rid = str(row.get("record_id","")).strip()
-            act = row["_act_up"]
-            uid = str(row.get("user_id","")).strip()
-            if rid and any(k in act for k in _CREATE_ACTS):
-                if rid not in creator_map:
-                    creator_map[rid] = uid
-        for idx, row in df.iterrows():
-            rid = str(row.get("record_id","")).strip()
-            act = row["_act_up"]
-            uid = str(row.get("user_id","")).strip()
-            if rid and uid and any(k in act for k in _APPROVE_ACTS):
-                if creator_map.get(rid,"") == uid:
-                    r18s.at[idx] = 9.0
-                    r18r.at[idx] = (
-                        f"Self-approval detected: user '{uid}' created and then approved "
-                        f"the same record '{rid}'. This is a direct Segregation of Duties "
-                        "violation — the creator and approver must be different individuals "
-                        "per 21 CFR Part 11 §11.10(d) and EU Annex 11 Clause 12."
-                    )
-        df.drop(columns=["_act_up"], errors="ignore", inplace=True)
+        _act_s18 = df["action_type"].astype(str).str.lower()
+        _is_create18 = _act_s18.apply(lambda a: any(k in a for k in _CREATE_ACTS))
+        _is_approve18 = _act_s18.apply(lambda a: any(k in a for k in _APPROVE_ACTS))
+        _rid18 = df["record_id"].astype(str).str.strip()
+        _uid18 = df["user_id"].astype(str).str.strip()
+
+        # First creator per record_id (ignore empty rids)
+        _create_rows = df[_is_create18 & _rid18.ne("")].copy()
+        _create_rows["_rid"] = _rid18[_is_create18 & _rid18.ne("")]
+        _create_rows["_uid"] = _uid18[_is_create18 & _rid18.ne("")]
+        _creator_map = _create_rows.groupby("_rid")["_uid"].first()
+
+        # Approve rows — check if approver == creator
+        _approve_rows = df[_is_approve18 & _rid18.ne("") & _uid18.ne("")].copy()
+        if not _approve_rows.empty:
+            _approve_rids = _rid18.loc[_approve_rows.index]
+            _approve_uids = _uid18.loc[_approve_rows.index]
+            _creator_for_rid = _approve_rids.map(_creator_map)
+            _sod_mask = (_creator_for_rid == _approve_uids) & _creator_for_rid.notna()
+            _sod_idx = _approve_rows.index[_sod_mask.loc[_approve_rows.index]]
+            if len(_sod_idx):
+                r18s.loc[_sod_idx] = 9.0
+                r18r.loc[_sod_idx] = (
+                    "Self-approval (SoD violation): same user created and approved "
+                    "this record. Creator and approver must be different individuals "
+                    "(21 CFR Part 11 §11.10(d); EU Annex 11 Clause 12)."
+                )
     df["score_rule18_self_approval"] = r18s
     df["rule18_rationale"]           = r18r
 
     # ── Rule 19 — Modification After Approval [Tier 1 | Critical] ────────────
     # 21 CFR Part 11 §11.10(e); ALCOA+ Original
+    # Vectorized: find first approval timestamp per record_id, merge back,
+    # flag modification rows where ts > first_approval_ts.
     r19s = pd.Series(0.0, index=df.index)
     r19r = pd.Series("",  index=df.index)
     if "record_id" in df.columns and "action_type" in df.columns and "timestamp_parsed" in df.columns:
         _MODIFY_ACTS_19 = {"update","modify","edit","amend","correct","revise","delete","remove"}
-        approval_map = {}  # record_id → approval timestamp
-        df_ts = df.sort_values("timestamp_parsed")
-        for _, row in df_ts.iterrows():
-            rid = str(row.get("record_id","")).strip()
-            act = str(row.get("action_type","")).lower()
-            ts  = row.get("timestamp_parsed")
-            if rid and any(k in act for k in _APPROVE_ACTS) and pd.notna(ts):
-                if rid not in approval_map:
-                    approval_map[rid] = ts
-        for idx, row in df.iterrows():
-            rid = str(row.get("record_id","")).strip()
-            act = str(row.get("action_type","")).lower()
-            ts  = row.get("timestamp_parsed")
-            if (rid and pd.notna(ts) and rid in approval_map
-                    and ts > approval_map[rid]
-                    and any(k in act for k in _MODIFY_ACTS_19)):
-                r19s.at[idx] = 9.5
-                r19r.at[idx] = (
-                    f"Modification after approval: record '{rid}' was approved at "
-                    f"{approval_map[rid].strftime('%Y-%m-%d %H:%M') if hasattr(approval_map[rid],'strftime') else approval_map[rid]}, "
-                    f"but a '{act.upper()}' action was performed after that approval. "
-                    "Modifying a GxP record after final approval/release is a critical "
-                    "data integrity violation requiring immediate investigation "
-                    "(21 CFR Part 11 §11.10(e), ALCOA+ Original)."
+        _act_s19  = df["action_type"].astype(str).str.lower()
+        _is_appr19 = _act_s19.apply(lambda a: any(k in a for k in _APPROVE_ACTS))
+        _is_mod19  = _act_s19.apply(lambda a: any(k in a for k in _MODIFY_ACTS_19))
+        _rid19 = df["record_id"].astype(str).str.strip()
+
+        # Earliest approval per record_id
+        _appr_rows = df[_is_appr19 & _rid19.ne("") & df["timestamp_parsed"].notna()].copy()
+        _appr_rows["_rid"] = _rid19.loc[_appr_rows.index]
+        _first_approval = (
+            _appr_rows.sort_values("timestamp_parsed")
+            .groupby("_rid")["timestamp_parsed"].first()
+        )
+        # Modification rows after their record's first approval
+        _mod_rows = df[_is_mod19 & _rid19.ne("") & df["timestamp_parsed"].notna()].copy()
+        if not _mod_rows.empty:
+            _mod_rids = _rid19.loc[_mod_rows.index]
+            _appr_ts  = _mod_rids.map(_first_approval)
+            _after_appr = (
+                _appr_ts.notna()
+                & (df.loc[_mod_rows.index, "timestamp_parsed"] > _appr_ts)
+            )
+            _post_idx = _mod_rows.index[_after_appr.loc[_mod_rows.index]]
+            if len(_post_idx):
+                r19s.loc[_post_idx] = 9.5
+                r19r.loc[_post_idx] = (
+                    "Modification after approval: this record was modified after "
+                    "a final approval or release already exists. Modifying approved "
+                    "GxP records is a critical data integrity violation requiring "
+                    "immediate investigation (21 CFR Part 11 §11.10(e), ALCOA+ Original)."
                 )
     df["score_rule19_mod_after_approval"] = r19s
     df["rule19_rationale"]                = r19r
@@ -8591,78 +8661,55 @@ def at_score_events(df: pd.DataFrame, rule_config: dict = None) -> pd.DataFrame:
     df["score_rule20_workflow_reversal"] = r20s
     df["rule20_rationale"]               = r20r
 
-    # ── Rule 21 — Role / Permission Change [Tier 1 | High] ───────────────────
-    # 21 CFR Part 11 §11.10(d); EU Annex 11 Clause 12
-    _ROLE_CHANGE_KW = [
-        "role","permission","privilege","access","right","group","entitlement",
-        "user_master","user master","account","profile","security","acl",
-    ]
-    _ROLE_CHANGE_ACTS = ["update","modify","edit","change","grant","revoke",
-                          "add","remove","assign","unassign","enable","disable"]
-    def _rule21(row):
-        rec = str(row.get("record_type","")).lower()
-        act = str(row.get("action_type","")).lower()
-        if (any(k in rec for k in _ROLE_CHANGE_KW)
-                and any(k in act for k in _ROLE_CHANGE_ACTS)):
-            uid = str(row.get("user_id","unknown"))
-            return 7.5, (
-                f"User '{uid}' performed a '{act.upper()}' action on '{rec.upper()}' — "
-                "a role, permission, or access configuration record. Changes to access "
-                "control settings must be formally authorised via Change Control and "
-                "documented in the access review log (21 CFR Part 11 §11.10(d), "
-                "EU Annex 11 Clause 12)."
-            )
-        return 0.0, ""
-    r21s, r21r = zip(*[_rule21(r) for _, r in df.iterrows()]) if len(df) else ([],[])
-    df["score_rule21_role_change"] = list(r21s)
-    df["rule21_rationale"]         = list(r21r)
+    # ── Rule 21 — Role / Permission Change — DROPPED in v96 ──────────────────
+    # Kept as zero-score placeholder for backward-compat with score column map.
+    # Session-state guard forces at_r21_on=False; no iterrows needed.
+    df["score_rule21_role_change"] = 0.0
+    df["rule21_rationale"]         = ""
 
     # ── Rule 22 — Duplicate Timestamp Collision [Tier 2 | Medium] ────────────
     # 21 CFR Part 11 §11.10(e); ALCOA+ Contemporaneous
+    # Vectorized: group by timestamp, flag critical-action rows in groups ≥ 2.
     r22s = pd.Series(0.0, index=df.index)
     r22r = pd.Series("",  index=df.index)
     if "timestamp_parsed" in df.columns:
         _COLLISION_ACTS = {"approve","approved","delete","deleted","modify","modified",
                            "update","updated","create","created","insert","inserted"}
-        ts_counts = df["timestamp_parsed"].value_counts()
-        for idx, row in df.iterrows():
-            ts_val = row.get("timestamp_parsed")
-            act    = str(row.get("action_type","")).lower()
-            if pd.isna(ts_val):
-                continue
-            collision_count = ts_counts.get(ts_val, 1)
-            is_critical_act = any(k in act for k in _COLLISION_ACTS)
-            if collision_count >= 2 and is_critical_act:
-                r22s.at[idx] = 6.0
-                r22r.at[idx] = (
-                    f"{collision_count} audit trail events share the exact same timestamp "
-                    f"({ts_val}). For critical actions this may indicate batch insertion "
-                    "of records rather than real-time capture, or manual backdating of "
-                    "audit entries (21 CFR Part 11 §11.10(e), ALCOA+ Contemporaneous)."
-                )
+        _ts_counts = df.groupby("timestamp_parsed", sort=False).transform("count").iloc[:,0]
+        _crit_act  = df["action_type"].astype(str).str.lower().apply(
+                       lambda a: any(k in a for k in _COLLISION_ACTS))
+        _r22_mask  = (_ts_counts >= 2) & _crit_act & df["timestamp_parsed"].notna()
+        if _r22_mask.any():
+            r22s.loc[_r22_mask] = 6.0
+            _ts_str = df.loc[_r22_mask, "timestamp_parsed"].astype(str)
+            _cnt    = _ts_counts.loc[_r22_mask].astype(int)
+            r22r.loc[_r22_mask] = (
+                _cnt.astype(str) + " audit trail events share the exact same timestamp ("
+                + _ts_str + "). For critical actions this may indicate batch insertion "
+                "of records rather than real-time capture, or manual backdating of "
+                "audit entries (21 CFR Part 11 §11.10(e), ALCOA+ Contemporaneous)."
+            )
     df["score_rule22_dup_timestamp"] = r22s
     df["rule22_rationale"]           = r22r
 
-    # ── Rule 23 — Missing Record ID [Tier 1 | High] ───────────────────────────
+    # ── Rule 23 — Missing Record ID [Tier 1 | High] — Vectorized ─────────────
     # 21 CFR Part 11 §11.10(e); ALCOA+ Original
     _RECORD_NEEDED_ACTS = {"update","modify","edit","delete","remove","approve",
                             "create","insert","amend","correct"}
-    def _rule23(row):
-        rid = str(row.get("record_id","")).strip()
-        act = str(row.get("action_type","")).lower()
-        if not any(k in act for k in _RECORD_NEEDED_ACTS):
-            return 0.0, ""
-        if not rid or rid.lower() in ("nan","none","-","—","n/a",""):
-            return 7.0, (
-                f"This {act.upper()} event has no record_id. Every GxP data action must "
-                "reference a specific uniquely identified record to satisfy traceability "
-                "requirements (21 CFR Part 11 §11.10(e), ALCOA+ Original). Actions without "
-                "a record reference cannot be linked to source data."
-            )
-        return 0.0, ""
-    r23s, r23r = zip(*[_rule23(r) for _, r in df.iterrows()]) if len(df) else ([],[])
-    df["score_rule23_missing_record_id"] = list(r23s)
-    df["rule23_rationale"]               = list(r23r)
+    _NULL_RIDS = {"nan","none","-","—","n/a",""}
+    _r23_act  = df["action_type"].astype(str).str.lower()
+    _needs_rid = _r23_act.apply(lambda a: any(k in a for k in _RECORD_NEEDED_ACTS))
+    _rid_null  = (df["record_id"].astype(str).str.strip().str.lower().isin(_NULL_RIDS)
+                  if "record_id" in df.columns else pd.Series(True, index=df.index))
+    _r23_mask  = _needs_rid & _rid_null
+    df["score_rule23_missing_record_id"] = _r23_mask.map({True: 7.0, False: 0.0})
+    df["rule23_rationale"] = ""
+    if _r23_mask.any():
+        df.loc[_r23_mask, "rule23_rationale"] = (
+            "This " + _r23_act.loc[_r23_mask].str.upper()
+            + " event has no record_id — actions without a record reference cannot be "
+              "linked to source data (21 CFR Part 11 §11.10(e), ALCOA+ Original)."
+        )
 
     # ── Rule 24 — Duplicate Rows [Tier 1 | High] ──────────────────────────────
     # 21 CFR Part 11 §11.10(e); ALCOA+ Original
@@ -8690,30 +8737,26 @@ def at_score_events(df: pd.DataFrame, rule_config: dict = None) -> pd.DataFrame:
     df["score_rule24_dup_rows"] = r24s
     df["rule24_rationale"]      = r24r
 
-    # ── Rule 25 — Future Timestamp [Tier 1 | High] ────────────────────────────
+    # ── Rule 25 — Future Timestamp [Tier 1 | High] — Vectorized ─────────────
     # 21 CFR Part 11 §11.10(e); ALCOA+ Contemporaneous
     _NOW = pd.Timestamp.utcnow().tz_localize(None)
-    def _rule25(row):
-        ts = row.get("timestamp_parsed")
-        if pd.isna(ts):
-            return 0.0, ""
-        try:
-            ts_naive = ts.tz_localize(None) if ts.tzinfo else ts
-        except Exception:
-            ts_naive = ts
-        if ts_naive > _NOW + pd.Timedelta(hours=1):  # 1h buffer for timezone drift
-            return 8.0, (
-                f"Future timestamp detected: this event is recorded at {ts}, which is "
-                f"after the current time ({_NOW.strftime('%Y-%m-%d %H:%M')} UTC). "
-                "A future-dated audit trail event is not possible in a correctly functioning "
-                "system — this indicates server clock manipulation, incorrect timezone "
-                "configuration, or manual backdating of records "
+    if "timestamp_parsed" in df.columns:
+        _ts_naive = df["timestamp_parsed"].apply(
+            lambda ts: ts.tz_localize(None) if (pd.notna(ts) and ts.tzinfo) else ts
+        )
+        _r25_mask = _ts_naive.notna() & (_ts_naive > _NOW + pd.Timedelta(hours=1))
+        df["score_rule25_future_ts"] = _r25_mask.map({True: 8.0, False: 0.0})
+        df["rule25_rationale"] = ""
+        if _r25_mask.any():
+            df.loc[_r25_mask, "rule25_rationale"] = (
+                "Future timestamp: event is recorded after current time ("
+                + _NOW.strftime("%Y-%m-%d %H:%M") + " UTC). Indicates clock "
+                "manipulation, timezone misconfiguration, or manual backdating "
                 "(21 CFR Part 11 §11.10(e), ALCOA+ Contemporaneous)."
             )
-        return 0.0, ""
-    r25s, r25r = zip(*[_rule25(r) for _, r in df.iterrows()]) if len(df) else ([],[])
-    df["score_rule25_future_ts"] = list(r25s)
-    df["rule25_rationale"]       = list(r25r)
+    else:
+        df["score_rule25_future_ts"] = 0.0
+        df["rule25_rationale"]       = ""
 
     # ── Apply rule config: zero out disabled rule scores before tier assignment ─
     # Scores remain in DataFrame for Full Audit Log visibility but do NOT
@@ -8776,9 +8819,43 @@ def at_score_events(df: pd.DataFrame, rule_config: dict = None) -> pd.DataFrame:
                     best_score = max(best_score, val)
         return best_tier, round(best_score, 2)
 
-    _tier_score_pairs = [_priority_tier_and_score(row) for _, row in df.iterrows()]
-    df["Risk_Tier"]  = [p[0] for p in _tier_score_pairs]
-    df["Risk_Score"] = [p[1] for p in _tier_score_pairs]
+    # ── v96 — Vectorized tier + score assignment (replaces iterrows) ──────────
+    # Build a boolean mask matrix: shape (n_rows, n_priority_rules)
+    # Each column is True where that score column meets its threshold.
+    # Then for each row, find the highest-priority tier among firing rules.
+    import numpy as _np
+    _ptp_cols      = [t[0] for t in _RULE_TIER_PRIORITY]
+    _ptp_thresholds= [t[1] for t in _RULE_TIER_PRIORITY]
+    _ptp_tiers     = [t[2] for t in _RULE_TIER_PRIORITY]
+    _ptp_tier_ranks= [_TIER_RANK.get(t, 3) for t in _ptp_tiers]
+
+    # Build score matrix for columns that exist
+    _score_mat = _np.zeros((len(df), len(_ptp_cols)), dtype=float)
+    for ci, col in enumerate(_ptp_cols):
+        if col in df.columns:
+            _score_mat[:, ci] = df[col].fillna(0.0).astype(float).values
+
+    # Firing mask: score >= threshold per column
+    _thresh_arr  = _np.array(_ptp_thresholds, dtype=float)
+    _fire_mat    = _score_mat >= _thresh_arr[_np.newaxis, :]   # (n, m) bool
+
+    # Tier rank per column (lower = higher priority)
+    _tier_rank_arr = _np.array(_ptp_tier_ranks, dtype=int)
+
+    # For each row: best tier rank = min tier_rank among firing columns
+    # Use masked fill — where not firing, tier rank = 99 (sentinel for "Low")
+    _masked_ranks = _np.where(_fire_mat, _tier_rank_arr[_np.newaxis, :], 99)
+    _best_rank    = _masked_ranks.min(axis=1)   # (n,) — 99 = no rule fired
+
+    # Tier labels
+    _RANK_TO_TIER = {0: "Critical", 1: "High", 2: "Medium", 3: "Low", 99: "Low"}
+    df["Risk_Tier"] = [_RANK_TO_TIER.get(int(r), "Low") for r in _best_rank]
+
+    # Best score = max score among columns that match the best tier rank
+    _best_tier_rank_per_row = _best_rank[:, _np.newaxis]   # (n, 1)
+    _same_best_tier = (_masked_ranks == _best_tier_rank_per_row) & _fire_mat
+    _best_score_arr = _np.where(_same_best_tier, _score_mat, 0.0).max(axis=1)
+    df["Risk_Score"] = _np.round(_best_score_arr, 2)
 
     # ── BQ-008: Rule 10 correlation escalation ────────────────────────────────
     # Gap rows default to 4.0 MEDIUM. Escalate to HIGH or CRITICAL when the gap
@@ -9450,7 +9527,13 @@ def at_score_events(df: pd.DataFrame, rule_config: dict = None) -> pd.DataFrame:
             _dim_rationale(row),
         ] if r]
         return " | ".join(parts)
-    df["Rule_Rationale"] = df.apply(_combined_rat, axis=1)
+    # ── v96 PERF: Rule_Rationale deferred to Top-20 only ─────────────────────
+    # _combined_rat() runs as a Python function per row — on 100k rows this takes
+    # 30-90 seconds. Since Rule_Rationale is only displayed for Top-20 rows in the
+    # Events for Review sheet, we skip it here and mark the column as sentinel "".
+    # The caller (show_audit_trail) computes it for Top-20 rows after selection.
+    # The _combined_rat function is still defined above for that deferred call.
+    df["Rule_Rationale"] = ""   # deferred — computed post-Top-N-selection
 
     # ── Suggested Disposition — fully deterministic 7-tier engine ────────────
     # Single source of truth: _MASTER table determines Primary_Rule, and the
@@ -9746,31 +9829,20 @@ def at_score_events(df: pd.DataFrame, rule_config: dict = None) -> pd.DataFrame:
                 "No significant risk indicator was detected — a brief review "
                 "and documented disposition is sufficient.")
 
-    sugg_disp = []
-    sugg_rat  = []
-    for _, row in df.iterrows():
-        d, r = _suggested_disposition(row)
-        sugg_disp.append(d)
-        sugg_rat.append(r)
-    df["Suggested_Disposition"]          = sugg_disp
-    df["Suggested_Disposition_Rationale"] = sugg_rat
+    # ── v96 PERF: Suggested_Disposition deferred to Top-20 only ─────────────
+    # _suggested_disposition() is a Python function per row — skipped here.
+    # The caller applies it to Top-20 rows only after Top-N selection.
+    # Sentinel empty strings prevent downstream column-existence checks from failing.
+    df["Suggested_Disposition"]          = ""
+    df["Suggested_Disposition_Rationale"] = ""
 
-    # ── FIX 8: Apply v96 UI-sequence rule numbering to all output columns ─────
-    # _triggered() writes internal v94 rule numbers (e.g. "Rule 17 — Missing
-    # Before/After Value"). _relabel_rule() maps them to v96 UI numbers (e.g.
-    # "Rule 3 — Missing Before/After Values") via _RULE_NUM_REMAP.
-    # Triggered_Rules is now included — the old comment warning about double-remap
-    # was pre-v96 and no longer applies (the map is injective and idempotent for
-    # numbers not in the map, so running twice is safe).
-    _RELABEL_COLS = [
-        "Primary_Rule", "Supporting_Signals", "Triggered_Rules",
-        "rule1_rationale", "Rationale", "System_Narrative",
-        "Suggested_Disposition", "Suggested_Disposition_Rationale",
-        "Action_Required", "Regulatory_Basis", "Sequence_Context",
-    ]
-    for _col in _RELABEL_COLS:
-        if _col in df.columns:
-            df[_col] = df[_col].astype(str).apply(_relabel_rule)
+    # ── v96 PERF: Rule relabeling deferred to Top-20 only ────────────────────
+    # _relabel_rule() runs str.apply() on all rows for multiple columns.
+    # Only Top-20 rows appear in the output workbook — defer to caller.
+    # Primary_Rule and Triggered_Rules ARE needed full-file for Top-N sorting
+    # (Primary_Rule drives sort order); relabeling those after sort is correct.
+    # Mark with sentinel so caller knows relabeling is pending.
+    df["_relabel_pending"] = True   # sentinel consumed and dropped by caller
 
     # FIX 2: Sort by Risk_Score descending then timestamp ascending as tiebreaker.
     # FIX TIER-SORT: Sort tier first so Critical always appears above High regardless
@@ -10205,7 +10277,7 @@ def at_build_excel(top_df, scored_df, system_name, r_start, r_end, fname) -> byt
     ws = wb.active
     ws.title = "Summary"
     ws.sheet_properties.tabColor = "1E3A5F"
-    ws.column_dimensions["A"].width = 36
+    ws.column_dimensions["A"].width = 72   # v96: doubled for label readability
     ws.column_dimensions["B"].width = 80   # v96: wider for AI narrative text
     ws.column_dimensions["C"].width = 26
     ws.column_dimensions["D"].width = 22
@@ -11428,204 +11500,170 @@ def at_build_excel(top_df, scored_df, system_name, r_start, r_end, fname) -> byt
         f"and must be signed by the reviewing QA officer before filing as regulatory evidence."
     )
 
-    # Regulatory basis: 21 CFR Part 11, EU Annex 11, ALCOA+, FDA Data
-    # Integrity Guidance (2018).
     # =========================================================================
-    ws6 = wb.create_sheet("Compliance Checklist")
-    ws6.column_dimensions["A"].width = 50
-    ws6.column_dimensions["B"].width = 20
-    ws6.column_dimensions["C"].width = 40
-    ws6.column_dimensions["D"].width = 58
+    # SHEET 5 — Rule Summary (replaces Compliance Checklist)
+    # 17-rule firing count table + embedded colour-coded bar chart.
+    # Reviewer opens workbook → immediately sees which rules fired most →
+    # prioritises reading the Events for Review sheet accordingly.
+    # =========================================================================
+    from openpyxl.chart import BarChart, Reference
+    from openpyxl.chart.series import SeriesLabel
 
-    # ── Derive answers from full scored_df (not just top_df) ─────────────────
-    # Items 2 and 4 must reflect the full dataset — if Rule 5/6 fired anywhere
-    # in the log, the checklist must flag it regardless of whether it made top 20.
-    def _rule_fired_anywhere(rule_prefix: str) -> bool:
-        """True if the rule fired in ANY scored event (not just escalated top 20)."""
-        if "Primary_Rule" in scored_df.columns:
-            return scored_df["Primary_Rule"].str.contains(
-                rule_prefix, case=False, na=False, regex=False).any()
-        if "Triggered_Rules" in scored_df.columns:
-            return scored_df["Triggered_Rules"].str.contains(
-                rule_prefix, case=False, na=False, regex=False).any()
-        return False
+    ws_rs = wb.create_sheet("Rule Summary")
+    ws_rs.sheet_properties.tabColor = "1E3A5F"
+    ws_rs.sheet_view.showGridLines   = False
+    ws_rs.column_dimensions["A"].width = 6    # Rule #
+    ws_rs.column_dimensions["B"].width = 48   # Rule name
+    ws_rs.column_dimensions["C"].width = 12   # Tier
+    ws_rs.column_dimensions["D"].width = 10   # Count
+    ws_rs.column_dimensions["E"].width = 10   # % share
+    ws_rs.column_dimensions["F"].width = 2    # spacer
+    ws_rs.column_dimensions["G"].width = 60   # chart area (openpyxl anchors chart here)
 
-    _trig_top = " | ".join(
-        str(r) for r in top_df.get("Triggered_Rules",
-        pd.Series(dtype=str)).tolist()) if "Triggered_Rules" in top_df.columns else ""
-    _trig_all = " | ".join(
-        str(r) for r in scored_df.get("Triggered_Rules",
-        pd.Series(dtype=str)).tolist()) if "Triggered_Rules" in scored_df.columns else ""
+    # ── Title ────────────────────────────────────────────────────────────────
+    _rs_title = ws_rs.cell(row=1, column=1,
+        value="Rule Firing Summary — Events Escalated per Detection Rule")
+    _rs_title.font      = Font(bold=True, color="FFFFFF", name="Calibri", size=13)
+    _rs_title.fill      = PatternFill("solid", fgColor=C_HEADER_BG)
+    _rs_title.alignment = Alignment(horizontal="left", vertical="center", indent=1)
+    ws_rs.merge_cells("A1:E1")
+    ws_rs.row_dimensions[1].height = 28
 
-    # Items 2 & 4: check full dataset — Rule 6/7 deletion and Rule 5 failed login
-    _r5  = _rule_fired_anywhere("Rule 5")
-    _r6  = _rule_fired_anywhere("Rule 6")
-    _r7  = "Rule 7"  in _trig_top   # audit trail integrity stays top-only (requires escalation)
-    _r11 = "Rule 11" in _trig_top or "Rule 11" in _trig_all
-    _r12 = "Rule 12" in _trig_top or "Rule 12" in _trig_all
-    _r13 = "Rule 13" in _trig_top or "Rule 13" in _trig_all
+    _rs_sub = ws_rs.cell(row=2, column=1,
+        value=f"Based on {_total_rows:,} total events · "
+              f"{len(top_df):,} escalated · "
+              f"System: {st.session_state.get('at_system_name', '') or 'GxP System'}")
+    _rs_sub.font      = Font(italic=True, color=C_LABEL_FG, name="Calibri", size=9)
+    _rs_sub.fill      = PatternFill("solid", fgColor=C_HEADER_BG)
+    _rs_sub.alignment = Alignment(horizontal="left", vertical="center", indent=1)
+    ws_rs.merge_cells("A2:E2")
+    ws_rs.row_dimensions[2].height = 16
 
-    _checklist = [
-        {
-            "item":     "1. Is the audit trail configuration enabled and actively logging?",
-            "result":   "MANUAL — Verify",
-            "basis":    "21 CFR Part 11 §11.10(e)\nEU Annex 11 Clause 9",
-            "evidence": ("Cannot be determined from log analysis. Verify in system "
-                         "administration that audit trail logging is enabled. Attach "
-                         "configuration screenshot or export as supporting evidence."),
-        },
-        {
-            "item":     "2. Are there indications of data deletion or data loss?",
-            "result":   "YES — Findings Present" if (_r6 or _r7) else "NO — No Findings",
-            "basis":    "ALCOA+ Original\n21 CFR Part 11 §11.10(e)",
-            "evidence": ("Rule 6 (Record Reconstruction) and/or Rule 7 (Sensitive Deletion) "
-                         "findings detected. See Events for Review sheet for specific records "
-                         "and recommended actions."
-                        ) if (_r6 or _r7) else
-                        ("No deletion or data loss patterns detected in the reviewed period."),
-        },
-        {
-            "item":     "3. Is the audit trail protected from unauthorised modification?",
-            "result":   "CONCERN — Investigate" if _r7 else "NO FINDINGS",
-            "basis":    "21 CFR Part 11 §11.10(e)\nEU Annex 11 Clause 9",
-            "evidence": ("Rule 7 finding detected: elevated-access user modified audit trail "
-                         "configuration or records. Verify no audit trail data was suppressed. "
-                         "See Events for Review sheet."
-                        ) if _r7 else
-                        ("No audit trail modification detected. Manual verification of "
-                         "access control settings on the audit trail is recommended."),
-        },
-        {
-            "item":     "4. Does the audit trail show unauthorised access attempts?",
-            "result":   "YES — Investigate" if _r5 else "NO — No Findings",
-            "basis":    "21 CFR Part 11 §11.300\nALCOA+ Attributable",
-            "evidence": ("Rule 5 (Failed Login → Data Manipulation) detected: repeated failed "
-                         "logins followed by GxP data action within 30 minutes. Initiate data "
-                         "integrity investigation per your NCR procedure."
-                        ) if _r5 else
-                        ("No unauthorised access patterns detected in the reviewed period."),
-        },
-        {
-            "item":     "5. Have unauthorised system configuration changes occurred (incl. date/time)?",
-            "result":   "CONCERN — Verify" if _r11 else "NO FINDINGS",
-            "basis":    "ALCOA+ Contemporaneous\nFDA Data Integrity Guidance (2018)",
-            "evidence": ("Rule 11 (Timestamp Reversal) detected: timestamps appear out of "
-                         "sequence, which may indicate date/time manipulation. Cross-reference "
-                         "with system administration and change control logs."
-                        ) if _r11 else
-                        ("No timestamp anomalies detected. Manually verify date/time zone "
-                         "configuration has not changed since last review."),
-        },
-        {
-            "item":     "6. Are electronic signature configuration settings unchanged?",
-            "result":   "MANUAL — Verify",
-            "basis":    "21 CFR Part 11 §11.200\n21 CFR Part 11 §11.300",
-            "evidence": ("Cannot be determined from log analysis. Verify in system "
-                         "administration that e-signature settings are unchanged. Confirm "
-                         "no changes were made without documented Change Control."),
-        },
-        {
-            "item":     "7. Are generic, shared, and service accounts appropriately controlled?",
-            "result":   "CONCERN — Rule 12/13 Findings" if (_r12 or _r13) else
-                        "RUN UAR — Full Assessment Required",
-            "basis":    "21 CFR Part 11 §11.100(a)\n21 CFR Part 11 §11.300",
-            "evidence": ("Rule 12 (Service/Shared Account) or Rule 13 (Dormant Account) "
-                         "findings present. Run the User Access Review (UAR) module for "
-                         "full account posture assessment including SoD and ghost accounts."
-                        ) if (_r12 or _r13) else
-                        ("No shared/generic account patterns flagged in this AT review. "
-                         "Run the User Access Review (UAR) module for complete access "
-                         "governance evidence covering dormancy, SoD, and ghost accounts."),
-        },
+    # ── Column headers ───────────────────────────────────────────────────────
+    _rs_hdrs = ["#", "Rule Name", "Tier", "Count", "% Share"]
+    for ci, hdr in enumerate(_rs_hdrs, 1):
+        c = ws_rs.cell(row=3, column=ci, value=hdr)
+        c.font      = Font(bold=True, color=C_HEADER_FG, name="Calibri", size=10)
+        c.fill      = PatternFill("solid", fgColor="334155")
+        c.alignment = Alignment(horizontal="center", vertical="center")
+    ws_rs.row_dimensions[3].height = 20
+
+    # ── v96 17-rule list with UI sequence numbering ───────────────────────────
+    _RS_RULES = [
+        ("1",  "Record Reconstruction",                   "Critical"),
+        ("2",  "Audit Trail Integrity Event",             "Critical"),
+        ("3",  "Missing Before/After Values",             "High"),
+        ("4",  "Self-Approval SoD Violation",             "Critical"),
+        ("5",  "Modification After Approval",             "Critical"),
+        ("6",  "Vague Rationale",                         "High"),
+        ("7",  "Change Control Drift",                    "High"),
+        ("8",  "Service / Shared Account",                "Critical"),
+        ("9",  "Failed Login → Data Manipulation",        "High"),
+        ("10", "Privileged User Modification of GxP Data","High"),
+        ("11", "Missing User Attribution",                "High"),
+        ("12", "Timestamp Reversal",                      "Critical"),
+        ("13", "Missing Timestamp",                       "High"),
+        ("14", "Future Timestamp",                        "High"),
+        ("15", "Contemporaneous Burst",                   "Medium"),
+        ("16", "Off-Hours / Holiday Activity",            "Medium"),
+        ("17", "Workflow Status Reversal",                "Critical"),
     ]
-
-    # ── Title block ───────────────────────────────────────────────────────────
-    _cl_title = ws6.cell(row=1, column=1,
-                         value="Compliance Checklist — Audit Trail Review")
-    _cl_title.font      = Font(name="Calibri", bold=True, size=13,
-                               color=C_HEADER_BG)
-    _cl_title.alignment = Alignment(horizontal="left", vertical="center")
-    ws6.row_dimensions[1].height = 22
-
-    _meta = ws6.cell(row=2, column=1,
-                     value=f"System: {system_name or '(not entered)'}   |   "
-                           f"Review Period: {r_start} → {r_end}   |   "
-                           f"Generated: {datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}")
-    _meta.font      = Font(name="Calibri", size=9, color="5A6A7A")
-    _meta.alignment = Alignment(horizontal="left")
-    ws6.row_dimensions[2].height = 14
-
-    _note = ws6.cell(row=3, column=1,
-                     value=("Items marked MANUAL require independent verification by the "
-                            "reviewer against system administration records. Results marked "
-                            "YES or CONCERN reference specific findings in the Events for "
-                            "Review sheet."))
-    _note.font      = Font(name="Calibri", size=9, italic=True, color="5A6A7A")
-    _note.alignment = Alignment(horizontal="left", wrap_text=True)
-    ws6.row_dimensions[3].height = 22
-
-    # ── Column headers ────────────────────────────────────────────────────────
-    for _ci, _hdr in enumerate(
-            ["Review Item", "Result", "Regulatory Basis", "Evidence / Notes"], 1):
-        _c = ws6.cell(row=4, column=_ci, value=_hdr)
-        _c.font      = Font(name="Calibri", bold=True, size=9, color="FFFFFF")
-        _c.fill      = PatternFill("solid", fgColor=C_HEADER_BG)
-        _c.alignment = Alignment(horizontal="left", vertical="center")
-        _c.border    = bdr
-    ws6.row_dimensions[4].height = 18
-
-    # ── Result colour map ─────────────────────────────────────────────────────
-    _CL_COLORS = {
-        "YES":      ("C0392B", "FFFFFF"),
-        "CONCERN":  ("E67E22", "FFFFFF"),
-        "NO":       ("27AE60", "FFFFFF"),
-        "MANUAL":   ("2E86AB", "FFFFFF"),
-        "RUN UAR":  ("8E44AD", "FFFFFF"),
+    _TIER_FILL_RS = {
+        "Critical": ("FEE2E2", "991B1B"),
+        "High":     ("FEF3C7", "92400E"),
+        "Medium":   ("FFFBEB", "78350F"),
     }
 
-    # ── Checklist rows ────────────────────────────────────────────────────────
-    for _ri, _item in enumerate(_checklist, 5):
-        _result = _item["result"]
-        _color  = next((v for k, v in _CL_COLORS.items()
-                        if _result.startswith(k)), ("94A3B8", "FFFFFF"))
-        _vals   = [_item["item"], _result, _item["basis"], _item["evidence"]]
-        for _ci, _val in enumerate(_vals, 1):
-            _c = ws6.cell(row=_ri, column=_ci, value=_val)
-            _c.border    = bdr
-            _c.alignment = Alignment(horizontal="left", vertical="top",
-                                     wrap_text=True)
-            if _ci == 1:
-                _c.font = Font(name="Calibri", size=9, bold=True,
-                               color=C_HEADER_BG)
-            elif _ci == 2:
-                _c.font = Font(name="Calibri", bold=True, size=9,
-                               color=_color[1])
-                _c.fill = PatternFill("solid", fgColor=_color[0])
+    # Count how many times each rule appears as Primary_Rule in the full scored_df
+    _pr_series = scored_df.get("Primary_Rule", pd.Series(dtype=str)).astype(str)
+    total_findings = max(len(scored_df[scored_df["Risk_Tier"].isin(["Critical","High","Medium"])]), 1)
+
+    _rule_counts = []
+    for rule_num, rule_name, tier in _RS_RULES:
+        # Match "Rule N — " prefix in Primary_Rule column
+        pattern = f"Rule {rule_num} "
+        count = int(_pr_series.str.contains(pattern, na=False, regex=False).sum())
+        _rule_counts.append(count)
+
+    _chart_names  = []   # for chart series
+    _chart_counts = []
+
+    for row_i, ((rule_num, rule_name, tier), count) in enumerate(zip(_RS_RULES, _rule_counts)):
+        ri = row_i + 4
+        pct = round(count / total_findings * 100, 1) if count > 0 else 0.0
+        _is_alt = row_i % 2 == 0
+        _tier_bg, _tier_fg = _TIER_FILL_RS.get(tier, ("F8FAFC", "374151"))
+        _row_bg = "F8FAFC" if _is_alt else "FFFFFF"
+
+        vals = [rule_num, f"{rule_name}", tier, count, f"{pct}%"]
+        for ci, val in enumerate(vals, 1):
+            cell = ws_rs.cell(row=ri, column=ci, value=val)
+            cell.alignment = Alignment(horizontal="center" if ci != 2 else "left",
+                                        vertical="center",
+                                        indent=1 if ci == 2 else 0)
+            cell.font = Font(name="Calibri", size=9,
+                              bold=(ci == 1),
+                              color=_tier_fg if ci == 3 else "1E293B")
+            if ci == 3:   # Tier column — colour coded
+                cell.fill = PatternFill("solid", fgColor=_tier_bg)
+            elif ci == 4 and count > 0:  # Count — slightly tinted when non-zero
+                cell.fill = PatternFill("solid", fgColor="EFF6FF")
             else:
-                _c.font = Font(name="Calibri", size=9, color="2C3E50")
-        ws6.row_dimensions[_ri].height = 55
+                cell.fill = PatternFill("solid", fgColor=_row_bg)
+        ws_rs.row_dimensions[ri].height = 18
 
-    # ── Reviewer sign-off ─────────────────────────────────────────────────────
-    _sr = len(_checklist) + 6
-    _stmt = ws6.cell(row=_sr, column=1,
-                     value=("Reviewer Statement: I confirm I have independently reviewed "
-                            "all checklist items and that MANUAL items have been verified "
-                            "against system administration records."))
-    _stmt.font      = Font(name="Calibri", size=9, italic=True, color="5A6A7A")
-    _stmt.alignment = Alignment(horizontal="left", wrap_text=True)
-    ws6.row_dimensions[_sr].height = 24
-    ws6.merge_cells(start_row=_sr, start_column=1, end_row=_sr, end_column=4)
+        _chart_names.append(f"{rule_num}. {rule_name[:30]}")
+        _chart_counts.append(count)
 
-    for _label, _col in [("Reviewer Name:", 1), ("Signature:", 2),
-                          ("Date:", 3), ("Title / Role:", 4)]:
-        _lc = ws6.cell(row=_sr + 1, column=_col, value=_label)
-        _lc.font   = Font(name="Calibri", bold=True, size=9, color=C_HEADER_BG)
-        _lc.border = bdr
-    ws6.row_dimensions[_sr + 1].height = 22
+    # ── Build openpyxl BarChart ───────────────────────────────────────────────
+    chart = BarChart()
+    chart.type         = "bar"          # horizontal
+    chart.grouping     = "clustered"
+    chart.title        = "Findings per Detection Rule"
+    chart.y_axis.title = "Rule"
+    chart.x_axis.title = "Event Count"
+    chart.style        = 10
+    chart.width        = 22   # cm
+    chart.height       = 14   # cm
+
+    # Data reference — Count column (D), rows 4..20
+    data_ref = Reference(ws_rs, min_col=4, min_row=3, max_row=3 + len(_RS_RULES))
+    chart.add_data(data_ref, titles_from_data=True)
+
+    # Categories — rule name labels from column B
+    cats = Reference(ws_rs, min_col=2, min_row=4, max_row=3 + len(_RS_RULES))
+    chart.set_categories(cats)
+
+    # Colour bars by tier — iterate series data points
+    from openpyxl.chart.data_source import NumDataSource, NumRef
+    from openpyxl.drawing.fill import PatternFillProperties
+    _TIER_HEX = {"Critical": "DC2626", "High": "EA580C", "Medium": "CA8A04"}
+    ser = chart.series[0]
+    ser.title = SeriesLabel(v="Count")
+    # Apply a single colour per the dominant tier (openpyxl point-level colouring
+    # requires individual data points — use solid fill on the series instead for simplicity)
+    from openpyxl.drawing.spreadsheet_drawing import SpreadsheetDrawing
+    ser.graphicalProperties.solidFill = "2563EB"   # default blue; tier colours shown in table
+
+    # Remove chart legend (redundant — tier is shown in the table above)
+    chart.legend = None
+
+    # Anchor chart to column G row 1
+    ws_rs.add_chart(chart, "G1")
+
+    # ── Footer note ───────────────────────────────────────────────────────────
+    _footer_row = 4 + len(_RS_RULES) + 1
+    _ft = ws_rs.cell(row=_footer_row, column=1,
+        value="Count = number of events in this run where this rule is the Primary Rule. "
+              "One event may have multiple rules in 'All Rules Fired' — only the highest-"
+              "priority rule is counted here. Low-risk (auto-cleared) events are excluded.")
+    _ft.font      = Font(italic=True, color="64748B", name="Calibri", size=8)
+    _ft.alignment = Alignment(horizontal="left", vertical="top", wrap_text=True)
+    ws_rs.merge_cells(f"A{_footer_row}:E{_footer_row}")
+    ws_rs.row_dimensions[_footer_row].height = 32
 
     wb.save(output)
     return output.getvalue()
-
 
 
 # =============================================================================
@@ -14383,7 +14421,7 @@ them in Step 2.
             "border-radius:10px;padding:10px 18px;margin-top:14px;'>"
             "<span style='color:#15803d;font-size:0.92rem;'>"
             "✓ <b>This run is now part of your DIM evidence package.</b> "
-            "UAR findings have been banked for cross-module convergence."
+            "Results banked to DIM. Open DIM to run cross-module convergence."
             "</span></div>",
             unsafe_allow_html=True,
         )
@@ -16560,24 +16598,41 @@ def show_dim(user: str, role: str, model_id: str):
         )
     with _dim_col2:
         if _banked > 0:
-            if st.button("🗑 Clear All", key="dim_clear_all", help="Remove all banked periods and previous AT run — start fresh"):
-                # Clear DIM banking
-                st.session_state["dim_accumulated_rows"] = []
-                st.session_state["dim_periods_banked"]   = 0
-                st.session_state["dim_analysis_done"]    = False
-                st.session_state["dim_autorun_pending"]  = False
-                # Clear AT previous run so navigating back shows a clean state
-                for _k in ["at_raw_df","at_mapped_df","at_scored_df","at_top20_df",
-                           "at_file_name","at_mapping_done","at_analysis_done",
-                           "at_total_events","at_review_start","at_review_end",
-                           "at_config_confirmed","at_force_config"]:
-                    st.session_state[_k] = None if "df" in _k else ("" if "name" in _k or "start" in _k or "end" in _k else False)
-                st.rerun()
+            _dim_btn_col1, _dim_btn_col2 = st.columns(2)
+            with _dim_btn_col1:
+                if st.button("🗑 Clear DIM Results", key="dim_clear_all",
+                             help="Remove all banked periods — clears DIM results only, does not affect your AT/UAR/DCI uploads",
+                             use_container_width=True):
+                    st.session_state["dim_accumulated_rows"] = []
+                    st.session_state["dim_periods_banked"]   = 0
+                    st.session_state["dim_analysis_done"]    = False
+                    st.session_state["dim_autorun_pending"]  = False
+                    st.rerun()
+            with _dim_btn_col2:
+                if st.button("🔄 Start New Analysis", key="dim_start_new",
+                             help="Clear DIM results and reset all module analyses — returns to a clean state",
+                             use_container_width=True):
+                    # Clear DIM banking
+                    st.session_state["dim_accumulated_rows"] = []
+                    st.session_state["dim_periods_banked"]   = 0
+                    st.session_state["dim_analysis_done"]    = False
+                    st.session_state["dim_autorun_pending"]  = False
+                    # Clear AT/UAR module state
+                    for _k in ["at_raw_df","at_mapped_df","at_scored_df","at_top20_df",
+                               "at_file_name","at_mapping_done","at_analysis_done",
+                               "at_total_events","at_review_start","at_review_end",
+                               "at_config_confirmed","at_force_config",
+                               "at_last_run_hash","at_last_run_filename","at_invalidation_msg",
+                               "uar_raw_df","uar_scored_result","uar_analysis_done",
+                               "uar_file_name","uar_last_run_hash","uar_last_run_filename"]:
+                        if _k in st.session_state:
+                            del st.session_state[_k]
+                    st.rerun()
 
     if _banked >= _DIM_MAX_PERIODS:
         st.warning(
             f"⚠️ {_banked} periods banked — at the recommended maximum ({_DIM_MAX_PERIODS}). "
-            f"Use **🗑 Clear All** to start a new analysis window, or download the current "
+            f"Use **🗑 Clear DIM Results** to start a new analysis window, or download the current "
             f"Evidence Package first to preserve your findings."
         )
 
@@ -17725,70 +17780,101 @@ match your system's export column names to the fields above — rename nothing i
             # ── Sheet 1: Usage Instructions ───────────────────────────────────
             ws_usage = wb.active
             ws_usage.title = "Usage Instructions"
-
-            # All white background, black text — clean and readable
-            white_fill = PatternFill("solid", fgColor="FFFFFF")
-            hdr_font   = Font(bold=True, color="000000", size=12)
-            sec_font   = Font(bold=True, color="000000", size=10)
-            body_font  = Font(color="000000", size=9)
-            key_font   = Font(bold=True, color="000000", size=9)
-            thin       = Side(style="thin", color="CCCCCC")
-            border     = Border(bottom=thin)
-
-            def _uw(row_num, col_num, value, font=None, fill=None, wrap=False):
-                cell = ws_usage.cell(row=row_num, column=col_num, value=value)
-                cell.fill = white_fill
-                if font:  cell.font  = font
-                cell.alignment = Alignment(wrap_text=wrap, vertical="top")
-                return cell
-
-            ws_usage.column_dimensions["A"].width = 52   # v96: wider for rule names
-            ws_usage.column_dimensions["B"].width = 110  # v96: wider for descriptions
             ws_usage.sheet_view.showGridLines = False
 
+            # ── Blue/navy theme matching the Audit Log data sheet ─────────────
+            NAVY      = "1E3A5F"
+            MID_BLUE  = "1D4ED8"
+            LIGHT_BG  = "F0F4F8"
+            WHITE     = "FFFFFF"
+            DARK_TEXT = "1E293B"
+            GREY_TEXT = "475569"
+
+            def _fill_c(hex_color):
+                return PatternFill("solid", fgColor=hex_color)
+
+            def _uw(row_num, col_num, value, font=None, fill=None, wrap=False, height=None):
+                cell = ws_usage.cell(row=row_num, column=col_num, value=value)
+                cell.fill = fill or _fill_c(WHITE)
+                if font:  cell.font = font
+                cell.alignment = Alignment(wrap_text=wrap, vertical="top", indent=1)
+                if height:
+                    ws_usage.row_dimensions[row_num].height = height
+                return cell
+
+            def _section_row(row_num, text, sub=""):
+                """Dark navy section header spanning both columns."""
+                c = ws_usage.cell(row=row_num, column=1, value=text)
+                c.font = Font(bold=True, color=WHITE, size=10, name="Calibri")
+                c.fill = _fill_c(NAVY)
+                c.alignment = Alignment(horizontal="left", vertical="center", indent=1)
+                ws_usage.merge_cells(f"A{row_num}:B{row_num}")
+                ws_usage.row_dimensions[row_num].height = 22
+                return row_num + 1
+
+            def _data_row(row_num, key_val, desc_val, alt=False):
+                """Key (medium-blue left) + description (light right)."""
+                bg_key  = "DBEAFE"   # light blue for key column
+                bg_desc = LIGHT_BG if alt else WHITE
+                c1 = ws_usage.cell(row=row_num, column=1, value=key_val)
+                c1.font = Font(bold=True, color=DARK_TEXT, size=9, name="Calibri")
+                c1.fill = _fill_c(bg_key)
+                c1.alignment = Alignment(vertical="top", wrap_text=True, indent=1)
+                c2 = ws_usage.cell(row=row_num, column=2, value=desc_val)
+                c2.font = Font(color=GREY_TEXT, size=9, name="Calibri")
+                c2.fill = _fill_c(bg_desc)
+                c2.alignment = Alignment(vertical="top", wrap_text=True, indent=1)
+                ws_usage.row_dimensions[row_num].height = 42
+                return row_num + 1
+
+            ws_usage.column_dimensions["A"].width = 52
+            ws_usage.column_dimensions["B"].width = 110
+
             r = 1
-            _uw(r, 1, "VALINTEL.AI — Audit Trail Review Intelligence",
-                Font(bold=True, color="000000", size=13))
+            # ── Brand header ─────────────────────────────────────────────────
+            c_hdr = ws_usage.cell(row=r, column=1,
+                                   value="VALINTEL.AI — Audit Trail Review Intelligence")
+            c_hdr.font = Font(bold=True, color=WHITE, size=14, name="Calibri")
+            c_hdr.fill = _fill_c("0F172A")
+            c_hdr.alignment = Alignment(horizontal="left", vertical="center", indent=2)
             ws_usage.merge_cells(f"A{r}:B{r}")
-            ws_usage.row_dimensions[r].height = 26
+            ws_usage.row_dimensions[r].height = 32
             r += 1
 
-            _uw(r, 1, "Sample Audit Log Template — Usage Instructions",
-                Font(italic=True, color="444444", size=9))
+            c_sub = ws_usage.cell(row=r, column=1,
+                                   value="Sample Audit Log Template — Usage Instructions")
+            c_sub.font = Font(italic=True, color="94A3B8", size=9)
+            c_sub.fill = _fill_c("0F172A")
+            c_sub.alignment = Alignment(horizontal="left", vertical="center", indent=2)
             ws_usage.merge_cells(f"A{r}:B{r}")
-            r += 2
-
-            # Column guide
-            _uw(r, 1, "COLUMN REFERENCE", sec_font)
-            _uw(r, 2, "Description & accepted values", sec_font)
-            ws_usage.cell(r, 1).border = Border(bottom=Side(style="medium", color="000000"))
-            ws_usage.cell(r, 2).border = Border(bottom=Side(style="medium", color="000000"))
+            ws_usage.row_dimensions[r].height = 18
             r += 1
+
+            ws_usage.row_dimensions[r].height = 8   # spacer
+            r += 1
+
+            # ── Column guide ─────────────────────────────────────────────────
+            r = _section_row(r, "COLUMN REFERENCE  |  Description & accepted values")
 
             col_guide = [
-                ("timestamp",    "Date/time of the event. Format: YYYY-MM-DD HH:MM:SS  (required)"),
-                ("user_id",      "Username or account ID that performed the action  (required)"),
-                ("action_type",  "Type of operation, e.g. UPDATE, INSERT, DELETE, LOGIN, LOGIN_FAILED  (required)"),
-                ("record_type",  "GxP table or entity affected, e.g. RESULTS, BATCH_RELEASE, AUDIT_TRAIL"),
-                ("role",         "System role of the user at time of event, e.g. Analyst, Admin, DBA"),
-                ("record_id",    "Unique identifier of the record changed, e.g. RES-001, BAT-2024-001"),
-                ("comments",     "Change rationale or reason field as logged by the system"),
-                ("new_value",    "Updated value after the change (numeric or text)"),
-                ("old_value",    "Original value before the change — required for Rule 17 before/after integrity check"),
-                ("status",       "Workflow state of the record (e.g. Draft, Approved, Released) — required for Rule 20 Status Reversal"),
+                ("timestamp ★",  "Date/time of the event. YYYY-MM-DD HH:MM:SS preferred. ISO, US, EU, and Excel serial formats also accepted. Required."),
+                ("user_id ★",    "Username or account ID that performed the action. Required."),
+                ("action_type ★","Type of operation: UPDATE, INSERT, DELETE, CREATE, LOGIN, LOGIN_FAILED, APPROVE, RELEASE. Required."),
+                ("record_type",  "GxP table or entity affected, e.g. RESULTS, BATCH_RELEASE, AUDIT_TRAIL, SAMPLE_DATA."),
+                ("role",         "System role of the user at time of event, e.g. Analyst, Admin, DBA. Drives Rule 10 (Privileged User Modification)."),
+                ("record_id",    "Unique identifier of the record changed, e.g. RES-001, BAT-2024-001. Required for Rules 1, 4, 5, 12 (record-tracing rules)."),
+                ("comments",     "Change rationale or reason field as logged by the system. Drives Rule 6 (Vague Rationale)."),
+                ("new_value",    "Updated value after the change (numeric or text). Required for Rule 3 (Before/After integrity)."),
+                ("old_value",    "Original value before the change. Required for Rule 3 (Before/After integrity). For CREATE events, N/A is valid."),
+                ("status",       "Workflow state of the record (e.g. Draft, Approved, Released). Required for Rule 17 (Workflow Status Reversal)."),
             ]
-            for col, desc in col_guide:
-                _uw(r, 1, col,  key_font, wrap=True)
-                _uw(r, 2, desc, body_font, wrap=True)
-                ws_usage.row_dimensions[r].height = 18
-                r += 1
+            for i, (col, desc) in enumerate(col_guide):
+                r = _data_row(r, col, desc, alt=(i % 2 == 1))
 
+            ws_usage.row_dimensions[r].height = 8
             r += 1
-            _uw(r, 1, "DETECTION SCENARIOS IN THIS TEMPLATE", sec_font)
-            _uw(r, 2, "Rule triggered — what to look for", sec_font)
-            ws_usage.cell(r, 1).border = Border(bottom=Side(style="medium", color="000000"))
-            ws_usage.cell(r, 2).border = Border(bottom=Side(style="medium", color="000000"))
-            r += 1
+
+            r = _section_row(r, "DETECTION SCENARIOS IN THIS TEMPLATE  |  Rule triggered — what to look for")
 
             scenarios = [
                 # ── Data Integrity (1–3) ──────────────────────────────────────
@@ -17867,29 +17953,26 @@ match your system's export column names to the fields above — rename nothing i
                  "Silent-skip if the file has no status/state/workflow column. "
                  "Requires: status column + record_id + timestamp."),
             ]
-            for name, detail in scenarios:
-                _uw(r, 1, name,   key_font, wrap=True)
-                _uw(r, 2, detail, body_font, wrap=True)
-                ws_usage.row_dimensions[r].height = 30
-                r += 1
+            for i, (name, detail) in enumerate(scenarios):
+                r = _data_row(r, name, detail, alt=(i % 2 == 1))
 
+            ws_usage.row_dimensions[r].height = 8
             r += 1
-            _uw(r, 1, "HOW TO USE YOUR OWN DATA", sec_font)
-            ws_usage.merge_cells(f"A{r}:B{r}")
-            ws_usage.cell(r, 1).border = Border(bottom=Side(style="medium", color="000000"))
-            r += 1
+            r = _section_row(r, "HOW TO USE YOUR OWN DATA")
             instructions = [
-                "1. Export your GxP system's audit trail as CSV or Excel.",
-                "2. Delete or replace the data in the 'Audit Log' sheet (keep the header row).",
-                "3. Upload the file in the VALINTEL.AI Audit Trail Review module.",
-                "4. Use the column mapper to match your system's column names to the required fields.",
-                "5. Run the analysis — the engine scores every event and escalates the top 20.",
+                ("1. Export from your GxP system",
+                 "Pull the audit trail as CSV or Excel. No integration required."),
+                ("2. Keep the header row",
+                 "Delete only the data rows in the 'Audit Log' sheet — keep the header."),
+                ("3. Upload in VALINTEL",
+                 "Upload the file in the Audit Trail Review module."),
+                ("4. Map columns",
+                 "Use the auto-mapper or dropdown to match your column names to required fields."),
+                ("5. Run analysis",
+                 "Click Analyse — the engine scores every event and escalates the top 20 by risk."),
             ]
-            for inst in instructions:
-                _uw(r, 1, inst, body_font, wrap=True)
-                ws_usage.merge_cells(f"A{r}:B{r}")
-                ws_usage.row_dimensions[r].height = 16
-                r += 1
+            for i, (step, desc) in enumerate(instructions):
+                r = _data_row(r, step, desc, alt=(i % 2 == 1))
 
             # ── Sheet 2: Audit Log data ───────────────────────────────────────
             ws_data = wb.create_sheet("Audit Log")
@@ -20329,18 +20412,36 @@ match your system's export column names to the fields above — rename nothing i
                          use_container_width=True):
                 for k in ["at_raw_df","at_mapped_df","at_scored_df","at_top20_df",
                           "at_file_name","at_mapping_done","at_analysis_done","at_total_events",
-                          "at_review_start","at_review_end"]:
-                    st.session_state[k] = _defaults.get(k)
+                          "at_review_start","at_review_end",
+                          "at_last_run_hash","at_last_run_filename","at_invalidation_msg",
+                          "at_pending_hash","at_ts_parse_warn"]:
+                    if k in st.session_state:
+                        del st.session_state[k]
                 st.session_state["at_key_n"] = st.session_state.get("at_key_n",0) + 1
                 st.rerun()
 
         if run:
             prog   = st.progress(0)
             status = st.empty()
-            with st.status("🔍 Audit Trail Analysis", expanded=True) as atstat:
-                st.write("📊 Step 1: Parsing timestamps...")
-                _ = prog.progress(0.15)
+            _n_events = len(df)
+            _est_min  = max(1, round(_n_events / 25_000))  # rough: ~25k rows/min
+            with st.status(
+                f"🔍 Analysing {_n_events:,} events"
+                + (f" — est. {_est_min}–{_est_min+1} min" if _n_events > 20_000 else ""),
+                expanded=True,
+            ) as atstat:
+                if _n_events > 20_000:
+                    st.info(
+                        f"⏳ **{_n_events:,} rows** — this will take {_est_min}–{_est_min+1} minutes. "
+                        f"The page is working — please keep this tab open. "
+                        f"Results will appear automatically when scoring is complete.",
+                        icon="🔄",
+                    )
+                st.write("📊 Step 1: Parsing timestamps and running 17-rule scoring engine...")
+                _ = prog.progress(0.05)
                 scored = at_score_events(df, rule_config=_AT_RULE_CONFIG)
+                st.write(f"✅ Step 1 complete — {len(scored):,} events scored across 17 rules")
+                _ = prog.progress(0.50)
 
                 # ── FIX 7: Tag out-of-period events ───────────────────────────
                 # Events whose timestamp falls outside the declared review window
@@ -20382,8 +20483,8 @@ match your system's export column names to the fields above — rename nothing i
                     except Exception:
                         pass   # date parse failure — treat all rows as in-period
 
-                st.write(f"⚡ Step 2: Scoring {len(scored):,} events across {_at_rules_active} rules...")
-                _ = prog.progress(0.45)
+                st.write(f"📋 Step 2: Selecting Top {_AT_TOP_N} highest-risk events...")
+                _ = prog.progress(0.65)
                 # ── Select Top N — simplified architecture (v93) ──────────────
                 # Rule: Critical → always in. High → always in. Medium → dedup ok.
                 # No named-rule gate. Tier is assigned by rule-priority engine
@@ -20434,6 +20535,38 @@ match your system's export column names to the fields above — rename nothing i
 
                 # No fill padding — shorter honest report beats padded low-signal one
                 top20 = qualified.copy()
+
+                # ── v96 PERF: Apply deferred per-row operations to Top-20 only ──
+                # at_score_events() skips these on the full 100k-row DataFrame to
+                # avoid running expensive Python-function applies at scale. Now that
+                # we have the final Top-20 (≤20 rows), compute them here.
+                if top20.get("_relabel_pending", pd.Series([False])).any():
+                    # 1. Rule_Rationale — combined rationale string (all rule notes)
+                    if "_combined_rat" in dir():
+                        top20["Rule_Rationale"] = top20.apply(_combined_rat, axis=1)
+                    # 2. Suggested_Disposition + Rationale
+                    if "_suggested_disposition" in dir():
+                        _sd = [_suggested_disposition(r) for _, r in top20.iterrows()]
+                        top20["Suggested_Disposition"]          = [x[0] for x in _sd]
+                        top20["Suggested_Disposition_Rationale"]= [x[1] for x in _sd]
+                    # 3. RELABEL_COLS — v96 UI-sequence rule number remap
+                    _RELABEL_COLS_TOP = [
+                        "Primary_Rule", "Supporting_Signals", "Triggered_Rules",
+                        "rule1_rationale", "Rationale", "System_Narrative",
+                        "Suggested_Disposition", "Suggested_Disposition_Rationale",
+                        "Action_Required", "Regulatory_Basis", "Sequence_Context",
+                    ]
+                    for _rc in _RELABEL_COLS_TOP:
+                        if _rc in top20.columns:
+                            top20[_rc] = top20[_rc].astype(str).apply(_relabel_rule)
+                    top20.drop(columns=["_relabel_pending"], errors="ignore", inplace=True)
+
+                # Also apply relabeling to scored df's Triggered_Rules for Full Audit Log
+                if "_relabel_pending" in scored.columns:
+                    for _rc in ("Primary_Rule", "Triggered_Rules"):
+                        if _rc in scored.columns:
+                            scored[_rc] = scored[_rc].astype(str).apply(_relabel_rule)
+                    scored.drop(columns=["_relabel_pending"], errors="ignore", inplace=True)
 
                 # ── v96 — Same-rule-same-user aggregation (≥3 threshold) ───────
                 # Reviewer-fatigue intervention: when the same user trips the
@@ -20507,8 +20640,8 @@ match your system's export column names to the fields above — rename nothing i
                     st.session_state.pop("at_aggregated_detail_df", None)
 
                 # ── Step 3: Build narratives — instant, rule-contextual ────────
-                st.write(f"📋 Step 3: Building evidence package...")
-                _ = prog.progress(0.80)
+                st.write(f"📝 Step 3: Generating review narratives and building evidence package...")
+                _ = prog.progress(0.85)
                 _det_narratives = [
                     _at_deterministic_justification(row.to_dict())
                     for _, row in top20.iterrows()
@@ -20754,7 +20887,7 @@ match your system's export column names to the fields above — rename nothing i
                     "<b style='color:#94a3b8;'>Full Audit Log</b> · "
                     "<b style='color:#94a3b8;'>Detection Logic</b> · "
                     "<b style='color:#94a3b8;'>Integrity Audit</b> · "
-                    "<b style='color:#94a3b8;'>Compliance Checklist</b></p>",
+                    "<b style='color:#94a3b8;'>Rule Summary</b></p>",
                     unsafe_allow_html=True
                 )
             with na_col:
@@ -20768,9 +20901,11 @@ match your system's export column names to the fields above — rename nothing i
                 if _reset_clicked:
                     for k in ["at_raw_df","at_mapped_df","at_scored_df","at_top20_df",
                               "at_file_name","at_mapping_done","at_analysis_done","at_total_events",
-                              "at_review_start","at_review_end"]:
-                        st.session_state[k] = _defaults.get(k)
-                    # doesn't re-write the old dates back on next render
+                              "at_review_start","at_review_end",
+                              "at_last_run_hash","at_last_run_filename","at_invalidation_msg",
+                              "at_pending_hash","at_ts_parse_warn"]:
+                        if k in st.session_state:
+                            del st.session_state[k]
                     st.session_state["at_key_n"] = st.session_state.get("at_key_n",0) + 1
                     st.rerun()
 
@@ -20783,7 +20918,7 @@ match your system's export column names to the fields above — rename nothing i
                 "border-radius:10px;padding:10px 18px;margin-top:14px;'>"
                 "<span style='color:#15803d;font-size:0.92rem;'>"
                 "✓ <b>This run is now part of your DIM evidence package.</b> "
-                "AT findings have been banked for cross-module convergence."
+                "Results banked to DIM. Open DIM to run cross-module convergence."
                 "</span></div>",
                 unsafe_allow_html=True,
             )
