@@ -5262,9 +5262,16 @@ def _has_col(df, name_set):
 
 
 def _find_col(df, name_set):
-    """Return the first original column name matching any in name_set."""
+    """Return the first original column name matching any in name_set.
+    Tries two normalisations: with-underscores (user_id) and no-separators (userid).
+    This mirrors the two-layer lookup in _uar_normalise_columns so the validator
+    correctly recognises columns like UserID, AccountStatus, LastLoginDate that
+    the alias map handles but a single-pass replace(' ','_') misses.
+    """
     for c in df.columns:
-        if str(c).strip().lower().replace(" ", "_") in name_set:
+        k_sep   = str(c).strip().lower().replace(" ", "_").replace("-", "_")
+        k_nosep = str(c).strip().lower().replace(" ", "").replace("-", "").replace("_", "")
+        if k_sep in name_set or k_nosep in name_set:
             return c
     return None
 
@@ -13141,6 +13148,9 @@ Write only the one sentence. No labels, no preamble."""
         narratives.append(text)
 
     top_df = top_df.copy()
+    # Drop existing System_Narrative if present — prevents duplicate column crash
+    # when top_df was previously returned with this column and is re-processed.
+    top_df = top_df.drop(columns=["System_Narrative"], errors="ignore")
     top_df["System_Narrative"] = narratives
     return top_df
 
@@ -14223,6 +14233,47 @@ them in Step 2.
     if _UAR_REQUIRED_COLS - set(normed.columns):
         return
 
+    # ── Column mapping table — always visible (expanded by default) ───────────
+    # Shows original column name → internal VALINTEL name for every recognised
+    # column, plus which are required vs optional. User can verify the mapping
+    # is correct before running analysis — matches AT Step 2 behaviour.
+    _alias_inv = {}  # internal_name → [original_col, ...]
+    for orig_col in raw_df.columns:
+        k1 = orig_col.strip().lower().replace(" ", "_").replace("-", "_")
+        k2 = orig_col.strip().lower().replace(" ", "").replace("-", "").replace("_", "")
+        internal = _UAR_COL_ALIASES.get(k1) or _UAR_COL_ALIASES.get(k2)
+        if internal:
+            _alias_inv.setdefault(internal, []).append(orig_col)
+
+    _REQUIRED_INTERNAL = {"username", "account_status", "role"}
+    _mapping_rows = []
+    for orig_col in raw_df.columns:
+        k1 = orig_col.strip().lower().replace(" ", "_").replace("-", "_")
+        k2 = orig_col.strip().lower().replace(" ", "").replace("-", "").replace("_", "")
+        internal = _UAR_COL_ALIASES.get(k1) or _UAR_COL_ALIASES.get(k2)
+        if internal:
+            req_tag = "Required" if internal in _REQUIRED_INTERNAL else "Optional"
+            _mapping_rows.append({
+                "Your Column": orig_col,
+                "Mapped To": internal,
+                "Type": req_tag,
+            })
+
+    with st.expander("📋 Column Mapping — verify before running analysis", expanded=True):
+        if _mapping_rows:
+            _map_df = pd.DataFrame(_mapping_rows)
+            st.dataframe(_map_df, use_container_width=True, hide_index=True)
+        if undetected:
+            st.caption(
+                f"ℹ️ {len(undetected)} column(s) not in the UAR schema and will be "
+                f"ignored: {', '.join(undetected[:10])}{'…' if len(undetected) > 10 else ''}. "
+                f"These columns are passed through to the output unchanged."
+            )
+
+    # ── 10-row data preview ───────────────────────────────────────────────────
+    with st.expander("🔍 Data Preview — first 10 rows", expanded=True):
+        st.dataframe(raw_df.head(10), use_container_width=True, hide_index=True)
+
     st.markdown(f"**{len(raw_df):,} users** loaded from `{st.session_state.get('uar_file_name','')}`")
 
     st.markdown("---")
@@ -14511,13 +14562,18 @@ them in Step 2.
     if not sys_name:
         st.warning("⚠️ Enter a **System Name** above before downloading.")
     else:
-        xlsx = uar_build_excel(
-            result,
-            sys_name,
-            r_start or "(not specified)",
-            r_end   or "(not specified)",
-            st.session_state.get("uar_file_name", ""),
-        )
+        # ── Cache Excel bytes — build once, reuse on every subsequent rerun ──
+        _uar_xlsx_cache_key = f"uar_xlsx_cache_{sys_name}_{r_start}_{r_end}"
+        xlsx = st.session_state.get(_uar_xlsx_cache_key)
+        if xlsx is None:
+            xlsx = uar_build_excel(
+                result,
+                sys_name,
+                r_start or "(not specified)",
+                r_end   or "(not specified)",
+                st.session_state.get("uar_file_name", ""),
+            )
+            st.session_state[_uar_xlsx_cache_key] = xlsx
         # v96 — Parity layout: Download | Start New Analysis ──────────────────
         dl_c, na_c = st.columns(2)
         with dl_c:
@@ -14555,11 +14611,12 @@ them in Step 2.
             )
             if st.button("🔄 Start New Analysis", key="uar_reset_btn",
                          use_container_width=True):
+                _uar_cache_keys = [k for k in st.session_state if k.startswith("uar_xlsx_cache_")]
                 for k in ["uar_raw_df", "uar_scored_result", "uar_analysis_done",
                           "uar_file_name", "uar_pending_hash",
                           "uar_last_run_hash", "uar_last_run_filename",
                           "uar_invalidation_msg",
-                          "uar_review_start", "uar_review_end"]:
+                          "uar_review_start", "uar_review_end"] + _uar_cache_keys:
                     if k in st.session_state:
                         del st.session_state[k]
                 st.session_state["uar_key_n"] = st.session_state.get("uar_key_n", 0) + 1
@@ -20999,13 +21056,22 @@ match your system's export column names to the fields above — rename nothing i
                     "*'(review period dates not specified)'* instead of actual dates. "
                     "Enter Start and End dates above to include them in the report."
                 )
-            xlsx = at_build_excel(
-                top20, scored,
-                sys_name,
-                r_start  or "(review period dates not specified)",
-                r_end    or "(review period dates not specified)",
-                st.session_state.get("at_file_name",""),
-            )
+            # ── Cache Excel bytes — build once, reuse on every subsequent rerun ──
+            # at_build_excel on 50k rows takes 3-5 minutes. Without caching, every
+            # Streamlit rerun (including the one triggered by clicking the download
+            # button itself) rebuilds the workbook from scratch. Cache key includes
+            # sys_name + r_start + r_end so a metadata change correctly invalidates.
+            _xlsx_cache_key = f"at_xlsx_cache_{sys_name}_{r_start}_{r_end}"
+            xlsx = st.session_state.get(_xlsx_cache_key)
+            if xlsx is None:
+                xlsx = at_build_excel(
+                    top20, scored,
+                    sys_name,
+                    r_start  or "(review period dates not specified)",
+                    r_end    or "(review period dates not specified)",
+                    st.session_state.get("at_file_name",""),
+                )
+                st.session_state[_xlsx_cache_key] = xlsx
             # ── Download left, Start New Analysis right ────────────────────────
             _at_fname = st.session_state.get("at_file_name", "")
             dl_col, na_col = st.columns(2)
@@ -21044,11 +21110,13 @@ match your system's export column names to the fields above — rename nothing i
                 _reset_clicked = st.button("🔄 Start New Analysis", key="at_reset_btn",
                                            use_container_width=True)
                 if _reset_clicked:
+                    # Clear xlsx cache entries (keyed by sys_name+dates, wildcard clear)
+                    _cache_keys = [k for k in st.session_state if k.startswith("at_xlsx_cache_")]
                     for k in ["at_raw_df","at_mapped_df","at_scored_df","at_top20_df",
                               "at_file_name","at_mapping_done","at_analysis_done","at_total_events",
                               "at_review_start","at_review_end",
                               "at_last_run_hash","at_last_run_filename","at_invalidation_msg",
-                              "at_pending_hash","at_ts_parse_warn"]:
+                              "at_pending_hash","at_ts_parse_warn"] + _cache_keys:
                         if k in st.session_state:
                             del st.session_state[k]
                     st.session_state["at_key_n"] = st.session_state.get("at_key_n",0) + 1
