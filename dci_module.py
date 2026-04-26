@@ -2382,7 +2382,7 @@ def show_dci_review(user, role, model_id):
             "border-radius:10px;padding:10px 18px;margin-top:14px;'>"
             "<span style='color:#15803d;font-size:0.92rem;'>"
             "✓ <b>This run is now part of your DIM evidence package.</b> "
-            "DCI findings have been banked for cross-module convergence."
+            "Results banked to DIM. Open DIM to run cross-module convergence."
             "</span></div>",
             unsafe_allow_html=True,
         )
