@@ -5483,9 +5483,10 @@ def _validate_at_input_file(raw_bytes: bytes, file_name: str, df: pd.DataFrame,
                       "datetime", "date_time", "event_datetime", "time",
                       "date", "change_date", "audit_time"}
     _ts_col = _find_col(df, _ts_candidates)
+    _ts_fmt_sniffed = _sniff_ts_format(df[_ts_col]) if _ts_col is not None else None
     if _ts_col is not None and len(df) >= 30:
         try:
-            _ts = pd.to_datetime(df[_ts_col], errors="coerce")
+            _ts = pd.to_datetime(df[_ts_col], format=_ts_fmt_sniffed, errors="coerce")
             _rate = _ts.notna().sum() / len(df)
             if _rate < 0.80:
                 _n2_passed = False
@@ -5513,7 +5514,7 @@ def _validate_at_input_file(raw_bytes: bytes, file_name: str, df: pd.DataFrame,
     _n3_passed, _n3_detail = True, "Timestamp range plausible"
     if _ts_col is not None and len(df) >= 10:
         try:
-            _ts = pd.to_datetime(df[_ts_col], errors="coerce").dropna()
+            _ts = pd.to_datetime(df[_ts_col], format=_ts_fmt_sniffed, errors="coerce").dropna()
             if len(_ts) >= 10:
                 _range_sec = (_ts.max() - _ts.min()).total_seconds()
                 if _range_sec < 60:
@@ -7299,6 +7300,48 @@ def _dim_rationale(row) -> str:
     return " | ".join(parts)
 
 
+def _sniff_ts_format(series: "pd.Series", sample_n: int = 200) -> "str | None":
+    """
+    Sniff the strftime format of a timestamp column by trying common GxP formats
+    on a small sample. Returns a format string for pd.to_datetime(..., format=)
+    if one is found consistently, or None to fall back to dateutil inference.
+    Called once per column; the result is passed to every pd.to_datetime call on
+    that column so pandas never falls back to slow element-by-element dateutil parsing.
+    """
+    import pandas as _pd
+    _CANDIDATE_FORMATS = [
+        "%Y-%m-%d %H:%M:%S",
+        "%Y-%m-%dT%H:%M:%S",
+        "%Y-%m-%dT%H:%M:%SZ",
+        "%Y-%m-%dT%H:%M:%S.%f",
+        "%Y-%m-%dT%H:%M:%S.%fZ",
+        "%d-%b-%Y %H:%M:%S",
+        "%d-%b-%Y %H:%M",
+        "%d-%b-%Y",
+        "%m/%d/%Y %H:%M:%S",
+        "%m/%d/%Y %H:%M",
+        "%m/%d/%Y",
+        "%d/%m/%Y %H:%M:%S",
+        "%d/%m/%Y %H:%M",
+        "%d/%m/%Y",
+        "%Y/%m/%d %H:%M:%S",
+        "%Y/%m/%d",
+        "%Y-%m-%d %H:%M",
+        "%Y-%m-%d",
+    ]
+    sample = series.dropna().astype(str).head(sample_n)
+    if sample.empty:
+        return None
+    for fmt in _CANDIDATE_FORMATS:
+        try:
+            parsed = _pd.to_datetime(sample, format=fmt, errors="coerce")
+            if parsed.notna().mean() >= 0.85:
+                return fmt
+        except Exception:
+            continue
+    return None
+
+
 def _combined_rat(row):
     """Aggregate all per-rule rationale strings into one evidence narrative."""
     parts = [r for r in [
@@ -7675,8 +7718,9 @@ def at_score_events(df: pd.DataFrame, rule_config: dict = None) -> pd.DataFrame:
 
     # ── Timestamp parsing ─────────────────────────────────────────────────────
     if "timestamp" in df.columns:
+        _ts_fmt = _sniff_ts_format(df["timestamp"])
         df["timestamp_parsed"] = pd.to_datetime(
-            df["timestamp"], errors="coerce")
+            df["timestamp"], format=_ts_fmt, errors="coerce")
     else:
         df["timestamp_parsed"] = pd.NaT
 
@@ -11193,35 +11237,63 @@ def at_build_excel(top_df, scored_df, system_name, r_start, r_end, fname) -> byt
         ws3.column_dimensions[get_column_letter(ci)].width = col_w
     ws3.row_dimensions[1].height = 24
 
-    for ri, (_, drow) in enumerate(log_df.iterrows(), 2):
-        tier   = str(drow.get("Risk_Tier", "Low"))
-        alt_bg = C_ALT_ROW if ri % 2 == 0 else C_WHITE
-        for ci, (_, data_col, _) in enumerate(log_cols, 1):
-            val = drow.get(data_col, "")
-            if pd.isnull(val):
-                val = ""
-            if data_col == "Triggered_Rules":
-                val = str(val).replace(" [HIGH]","").replace(
-                    " [MEDIUM]","").replace(" [CRITICAL]","")
-                if not val or val.strip() == "":
-                    val = "No anomaly detected"
-            if data_col == "Event_Chain_ID":
-                if not val or str(val).strip() in ("", "nan"):
-                    val = "None"
-            if isinstance(val, float) and not pd.isnull(val):
-                val = round(val, 2)
-            c = ws3.cell(row=ri, column=ci, value=val)
-            c.border    = bdr
-            c.alignment = Alignment(vertical="center", wrap_text=False)
-            c.font      = _body_font(color=C_VALUE_FG, size=9)
-            if data_col == "Risk_Tier" and tier in ("Critical","High"):
-                c.fill = _fill(TIER_BG.get(tier, C_WHITE))
-                c.font = Font(bold=True, color=TIER_FG.get(tier, C_VALUE_FG),
-                              name="Calibri", size=9)
-                c.alignment = Alignment(horizontal="center", vertical="center")
-            else:
-                c.fill = _fill(alt_bg)
-        ws3.row_dimensions[ri].height = 15
+    # ── Fast bulk write for Full Audit Log (v96 perf fix) ────────────────────
+    # Replaces per-cell iterrows with ws3.append() for the data rows.
+    # At 54k rows × 13 cols, the old loop wrote ~700k individual openpyxl cell
+    # objects with per-cell formatting — the dominant cost of the 7-min run.
+    # Strategy:
+    #   1. Vectorise all value transformations on log_df before touching openpyxl.
+    #   2. Append rows as plain Python lists — no cell objects, no formatting.
+    #   3. Post-pass ONLY over Critical/High Risk_Tier rows to apply tier colour
+    #      on the Risk Level column (col index = tier_col_idx). These are a small
+    #      fraction of total rows so the post-pass is fast.
+    #   4. Row heights set via sheet default (15pt) — no per-row call needed.
+
+    # Pre-compute field index for Risk_Tier (for post-pass column lookup)
+    _log_fields     = [f for _, f, _ in log_cols]
+    _tier_col_idx   = _log_fields.index("Risk_Tier") + 1  # 1-based
+
+    # Vectorised value clean-up on log_df (operates on whole columns at once)
+    if "Triggered_Rules" in log_df.columns:
+        tr = log_df["Triggered_Rules"].astype(str)
+        tr = tr.str.replace(" [HIGH]", "", regex=False)
+        tr = tr.str.replace(" [MEDIUM]", "", regex=False)
+        tr = tr.str.replace(" [CRITICAL]", "", regex=False)
+        tr = tr.where(tr.str.strip() != "", other="No anomaly detected")
+        tr = tr.where(log_df["Triggered_Rules"].notna(), other="No anomaly detected")
+        log_df = log_df.copy()
+        log_df["Triggered_Rules"] = tr
+
+    # Fill NaN → "" and round floats (vectorised)
+    log_df = log_df.fillna("")
+    for _fc in log_df.select_dtypes(include="float").columns:
+        log_df[_fc] = log_df[_fc].apply(
+            lambda v: round(v, 2) if isinstance(v, float) else v)
+
+    # Build list-of-lists for append (pure Python, no openpyxl objects)
+    _log_rows = log_df[_log_fields].values.tolist()
+
+    # Append all rows — openpyxl append() is ~50× faster than cell() calls
+    for _row_vals in _log_rows:
+        ws3.append(_row_vals)
+
+    # Post-pass: colour only Critical/High Risk_Tier cells (small subset)
+    # ws3.append() sets row index starting at 2 (row 1 = header already written)
+    _tier_col_letter = get_column_letter(_tier_col_idx)
+    _tier_rows_done  = 0
+    for ri, _row_vals in enumerate(_log_rows, 2):
+        tier = str(_row_vals[_tier_col_idx - 1]).strip()
+        if tier in ("Critical", "High"):
+            c = ws3.cell(row=ri, column=_tier_col_idx)
+            c.fill      = _fill(TIER_BG.get(tier, C_WHITE))
+            c.font      = Font(bold=True, color=TIER_FG.get(tier, C_VALUE_FG),
+                               name="Calibri", size=9)
+            c.alignment = Alignment(horizontal="center", vertical="center")
+            _tier_rows_done += 1
+
+    # Sheet-level row default height (avoids 54k individual row_dimensions calls)
+    ws3.sheet_format.defaultRowHeight = 15
+    ws3.sheet_format.customHeight     = True
 
     ws3.auto_filter.ref = f"A1:{get_column_letter(len(log_cols))}1"
     ws3.freeze_panes    = "A2"
@@ -20373,7 +20445,7 @@ match your system's export column names to the fields above — rename nothing i
                 _uid_mapped = mapping.get("user_id","(not in file)")
                 _act_mapped = mapping.get("action_type","(not in file)")
                 if _ts_mapped != "(not in file)":
-                    _ts_sample = pd.to_datetime(df[_ts_mapped], errors="coerce")
+                    _ts_sample = pd.to_datetime(df[_ts_mapped], format=_sniff_ts_format(df[_ts_mapped]), errors="coerce")
                     if _ts_sample.isna().mean() > 0.5:
                         _warn_msgs.append(f"⚠️ **Timestamp**: more than 50% of values in '{_ts_mapped}' could not be parsed as dates. Check you've mapped the right column.")
                 if _uid_mapped != "(not in file)":
@@ -20408,7 +20480,7 @@ match your system's export column names to the fields above — rename nothing i
                         st.session_state["at_mapping_done"] = True
                         # ── Auto-detect review period from timestamp column ────
                         try:
-                            _ts_raw = pd.to_datetime(mdf["timestamp"], errors="coerce").dropna()
+                            _ts_raw = pd.to_datetime(mdf["timestamp"], format=_sniff_ts_format(mdf["timestamp"]), errors="coerce").dropna()
                             _ts_total = len(mdf)
                             _ts_failed = _ts_total - len(_ts_raw)
                             if not _ts_raw.empty:
