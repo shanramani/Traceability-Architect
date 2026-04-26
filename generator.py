@@ -13273,7 +13273,7 @@ def uar_build_excel(
         return PatternFill("solid", fgColor=hex_bg)
 
     def _cell_style(cell, bold=False, bg=None, fg="1A1A1A",
-                    align="left", wrap=True, size=9):
+                    align="left", wrap=True, size=11):
         cell.font      = Font(name="Calibri", size=size, bold=bold,
                               color=fg if bg else "1A1A1A")
         cell.alignment = Alignment(horizontal=align, vertical="center",
@@ -13299,10 +13299,10 @@ def uar_build_excel(
         if section:
             for c in (c1, c2):
                 _cell_style(c, bold=True, bg=C_SECTION_BG, fg=C_SECTION_FG,
-                            size=9)
+                            size=11)
         else:
-            _cell_style(c1, bold=True, size=9)
-            _cell_style(c2, bold=bold_val, size=9)
+            _cell_style(c1, bold=True, size=11)
+            _cell_style(c2, bold=bold_val, size=11)
         ws1.row_dimensions[row].height = 17
         row += 1
 
@@ -13316,7 +13316,7 @@ def uar_build_excel(
     row += 1
     sub_cell = ws1.cell(row=row, column=1,
                         value="GxP Access Evidence Package")
-    sub_cell.font      = Font(name="Calibri", size=9, color="5A6A7A")
+    sub_cell.font      = Font(name="Calibri", size=11, color="5A6A7A")
     sub_cell.alignment = Alignment(horizontal="left")
     ws1.row_dimensions[row].height = 14
     row += 2
@@ -13343,7 +13343,7 @@ def uar_build_excel(
         c1 = ws1.cell(row=row, column=1, value=tier)
         c2 = ws1.cell(row=row, column=2, value=count)
         for c in (c1, c2):
-            c.font      = Font(name="Calibri", size=9, bold=(tier in ("Critical", "High")),
+            c.font      = Font(name="Calibri", size=11, bold=(tier in ("Critical", "High")),
                                color=C_RISK_FG[tier])
             c.fill      = _hdr_fill(C_RISK[tier])
             c.alignment = Alignment(horizontal="left", vertical="center")
@@ -13400,8 +13400,8 @@ def uar_build_excel(
     )
     c1 = ws1.cell(row=row, column=1, value="Statement")
     c2 = ws1.cell(row=row, column=2, value=stmt)
-    _cell_style(c1, bold=True, size=9)
-    _cell_style(c2, size=9, wrap=True)
+    _cell_style(c1, bold=True, size=11)
+    _cell_style(c2, size=11, wrap=True)
     ws1.row_dimensions[row].height = 45
     row += 1
 
@@ -13458,7 +13458,7 @@ def uar_build_excel(
     # Header row
     for ci, (hdr, width) in enumerate(display_cols, 1):
         c = ws2.cell(row=1, column=ci, value=hdr)
-        _cell_style(c, bold=True, bg=C_HEADER_BG, fg=C_HEADER_FG, size=9)
+        _cell_style(c, bold=True, bg=C_HEADER_BG, fg=C_HEADER_FG, size=11)
         ws2.column_dimensions[get_column_letter(ci)].width = width
     ws2.row_dimensions[1].height = 20
 
@@ -13488,9 +13488,9 @@ def uar_build_excel(
                         val = "Never"
                 c = ws2.cell(row=ri, column=ci, value=val)
                 if ci in (8, 9):   # Review Priority Score, Risk Level — coloured
-                    _cell_style(c, bold=True, bg=bg, fg=fg, size=9)
+                    _cell_style(c, bold=True, bg=bg, fg=fg, size=11)
                 else:
-                    _cell_style(c, size=9, wrap=(ci in (6, 13, 14, 15, 16)))
+                    _cell_style(c, size=11, wrap=(ci in (6, 13, 14, 15, 16)))
             ws2.row_dimensions[ri].height = 60 if ri > 1 else 20
 
     ws2.freeze_panes = "A2"
@@ -13522,7 +13522,7 @@ def uar_build_excel(
 
     for ci, (hdr, width) in enumerate(sod_display_cols, 1):
         c = ws3.cell(row=1, column=ci, value=hdr)
-        _cell_style(c, bold=True, bg=C_HEADER_BG, fg=C_HEADER_FG, size=9)
+        _cell_style(c, bold=True, bg=C_HEADER_BG, fg=C_HEADER_FG, size=11)
         ws3.column_dimensions[get_column_letter(ci)].width = width
     ws3.row_dimensions[1].height = 20
 
@@ -13540,7 +13540,7 @@ def uar_build_excel(
         ws3.merge_cells(start_row=2, start_column=1,
                         end_row=2, end_column=len(sod_display_cols))
         summary_cell = ws3.cell(row=2, column=1, value=summary_text)
-        summary_cell.font      = Font(name="Calibri", size=9, bold=False,
+        summary_cell.font      = Font(name="Calibri", size=11, bold=False,
                                       color="7B341E")
         summary_cell.fill      = _hdr_fill("FEF3C7")   # amber tint
         summary_cell.alignment = Alignment(horizontal="left", vertical="center",
@@ -13558,9 +13558,9 @@ def uar_build_excel(
                     val = "☐ Justified     ☐ Investigate     ☐ Escalate to CAPA"
                 c   = ws3.cell(row=ri, column=ci, value=val)
                 if ci == 9:  # Risk Level coloured
-                    _cell_style(c, bold=True, bg=bg, fg=fg, size=9)
+                    _cell_style(c, bold=True, bg=bg, fg=fg, size=11)
                 else:
-                    _cell_style(c, size=9, wrap=(ci in (10, 11)))
+                    _cell_style(c, size=11, wrap=(ci in (10, 11)))
             ws3.row_dimensions[ri].height = 55
     else:
         ws3.cell(row=2, column=1,
@@ -13647,13 +13647,132 @@ def uar_build_excel(
     # SHEET 5 — DETECTION LOGIC
     # =========================================================================
     ws5 = wb.create_sheet("Detection Logic")
-    ws5.column_dimensions["A"].width = 105
 
-    title_c = ws5.cell(row=1, column=1, value="UAR Detection Logic — VALINTEL.AI")
-    title_c.font = Font(name="Calibri", bold=True, size=11, color=C_HEADER_BG)
-    ws5.row_dimensions[1].height = 20
+    # ── Clean structured Detection Logic sheet (v96 redesign) ────────────────
+    # Replaces the monospace text wall with a scannable table layout.
+    # Layer 1 (always visible): Rule#, Name, Tier, Score, Trigger summary (80 chars)
+    # Colour-coded tier column so risk landscape is readable at a glance.
+    # Full trigger text moved to "Rule Reference" tab below.
 
-    # Section header patterns — all-caps lines that open major blocks
+    _C_CRIT  = "DC2626"  # red
+    _C_HIGH  = "EA580C"  # orange
+    _C_MED   = "CA8A04"  # amber
+    _C_LOW   = "16A34A"  # green
+    _C_HDR   = C_HEADER_BG
+    _C_WHITE = "FFFFFF"
+    _C_BODY  = "1E293B"
+    _C_ALTBG = "F8FAFC"
+
+    # Column layout: A=Rule#, B=Name, C=Tier, D=Score, E=Trigger (summary)
+    ws5.column_dimensions["A"].width = 8
+    ws5.column_dimensions["B"].width = 38
+    ws5.column_dimensions["C"].width = 12
+    ws5.column_dimensions["D"].width = 10
+    ws5.column_dimensions["E"].width = 60
+
+    # Title row
+    _t = ws5.cell(row=1, column=1, value="UAR Detection Logic — VALINTEL.AI v96")
+    _t.font = Font(name="Calibri", bold=True, size=14, color=_C_HDR)
+    _t.alignment = Alignment(horizontal="left", vertical="center")
+    ws5.merge_cells("A1:E1")
+    ws5.row_dimensions[1].height = 24
+
+    # Sub-caption
+    _sub = ws5.cell(row=2, column=1,
+        value="Scoring is 100% deterministic Python. AI writes only the System Narrative column.")
+    _sub.font = Font(name="Calibri", size=10, italic=True, color="64748B")
+    _sub.alignment = Alignment(horizontal="left", vertical="center")
+    ws5.merge_cells("A2:E2")
+    ws5.row_dimensions[2].height = 16
+
+    # Header row
+    _hdr_row = 3
+    _hdr_labels = ["Rule", "Name", "Tier", "Score", "Trigger (summary — see Rule Reference tab for full text)"]
+    for ci, label in enumerate(_hdr_labels, 1):
+        hc = ws5.cell(row=_hdr_row, column=ci, value=label)
+        hc.font = Font(name="Calibri", bold=True, size=11, color=_C_WHITE)
+        hc.fill = PatternFill("solid", fgColor=_C_HDR)
+        hc.alignment = Alignment(horizontal="center" if ci <= 4 else "left",
+                                 vertical="center", wrap_text=False)
+        hc.border = Border(
+            bottom=Side(style="thin", color="CBD5E1"),
+            right=Side(style="thin", color="CBD5E1"),
+        )
+    ws5.row_dimensions[_hdr_row].height = 18
+
+    # Rule data: (Rule#, Name, Tier, Score, Trigger summary)
+    _UAR_RULE_ROWS = [
+        ("U1",  "Privileged Access",               "Critical", "+40",
+         "Is_Admin = Y on the account role"),
+        ("U2",  "Record Deletion Capability",       "High",     "+30",
+         "Can_Delete = Y — role includes delete/purge/void keywords"),
+        ("U3",  "Approval Authority",               "High",     "+30",
+         "Can_Approve = Y — role includes approv/authorize/sign-off keywords"),
+        ("U4",  "Batch/Product Release",            "High",     "+25",
+         "Can_Release = Y — role includes release/dispatch keywords"),
+        ("U5",  "Master Data Modification",         "High",     "+25",
+         "Can_Modify_Master_Data = Y — role includes master data/config/calibration"),
+        ("U6",  "High-GxP System Multiplier",       "High",     "+25",
+         "system_name matches LIMS/SAP/MES/Veeva/ERP/QMS (case-insensitive)"),
+        ("U7",  "Dormant / Never-Used Account",     "Medium",   "+10–30",
+         "last_login null or >90 days ago; weight varies by account age"),
+        ("U8",  "Ghost Account",                    "High",     "+20",
+         "employment_status ≠ Active AND account_status = Active"),
+        ("U9",  "Missing Access Justification",     "Medium",   "+15",
+         "access_justification column present but value blank/null for this user"),
+        ("U10", "Privilege Accumulation",           "Medium",   "+10",
+         "≥3 high-risk privilege flags simultaneously on one account"),
+        ("U11", "Dormant Privileged, No Justification","High",  "+25",
+         "Active account + last_login null/≥90d + ≥1 privilege flag + no justification"),
+        ("SoD", "Segregation of Duties Conflict",   "High",     "Flag",
+         "6 pairs: Create+Approve, ModMaster+Approve, Delete+Approve, Admin+Approve/Delete/Release"),
+        ("PA",  "Peer Anomaly",                     "Medium",   "Flag",
+         "privilege_count > (role-group mean + 1 SD); min group size 3"),
+        ("XM",  "Cross-Module Escalation",          "—",        "+1 tier",
+         "Username appears in AT top findings → escalated one tier (Low→Med→High→Critical)"),
+    ]
+
+    _TIER_COLORS = {
+        "Critical": (_C_CRIT, _C_WHITE),
+        "High":     (_C_HIGH, _C_WHITE),
+        "Medium":   (_C_MED,  _C_WHITE),
+        "Low":      (_C_LOW,  _C_WHITE),
+        "—":        ("94A3B8", _C_WHITE),
+    }
+
+    _bdr = Border(
+        bottom=Side(style="thin", color="E2E8F0"),
+        right=Side(style="thin", color="E2E8F0"),
+    )
+
+    for ri, (rule_id, name, tier, score, trigger) in enumerate(_UAR_RULE_ROWS, _hdr_row + 1):
+        alt = ri % 2 == 0
+        row_bg = _C_ALTBG if alt else _C_WHITE
+        tier_bg, tier_fg = _TIER_COLORS.get(tier, ("94A3B8", _C_WHITE))
+
+        vals = [rule_id, name, tier, score, trigger]
+        for ci, val in enumerate(vals, 1):
+            c = ws5.cell(row=ri, column=ci, value=val)
+            c.border = _bdr
+            c.alignment = Alignment(horizontal="center" if ci <= 4 else "left",
+                                    vertical="center", wrap_text=False)
+            if ci == 3:  # Tier column — colour-coded
+                c.fill = PatternFill("solid", fgColor=tier_bg)
+                c.font = Font(name="Calibri", bold=True, size=11, color=tier_fg)
+            else:
+                c.fill = PatternFill("solid", fgColor=row_bg)
+                c.font = Font(name="Calibri", size=11, color=_C_BODY,
+                              bold=(ci == 1))
+        ws5.row_dimensions[ri].height = 16
+
+    # ── Rule Reference tab (full trigger text) ───────────────────────────────
+    ws5b = wb.create_sheet("Rule Reference")
+    ws5b.column_dimensions["A"].width = 105
+
+    _rt = ws5b.cell(row=1, column=1, value="UAR Rule Reference — Full Trigger Conditions")
+    _rt.font = Font(name="Calibri", bold=True, size=13, color=_C_HDR)
+    ws5b.row_dimensions[1].height = 22
+
     _DL_SECTION_KEYWORDS = {
         "PRIVILEGE FLAG DERIVATION", "GXP CRITICALITY DERIVATION",
         "RISK SCORING", "RISK TIERS", "SEGREGATION OF DUTIES",
@@ -13663,40 +13782,31 @@ def uar_build_excel(
     _IN_GAMP_AI = False
 
     for li, line in enumerate(UAR_DETECTION_LOGIC.split("\n"), 2):
-        c = ws5.cell(row=li, column=1, value=line)
+        c = ws5b.cell(row=li, column=1, value=line)
         stripped = line.strip()
-
-        # Track entry/exit of GAMP AI block
         is_ai_header = "AI COMPONENT COMPLIANCE" in stripped.upper()
         if is_ai_header:
             _IN_GAMP_AI = True
         elif stripped.startswith("═") and _IN_GAMP_AI:
-            # closing separator — style it then exit AI block
-            c.font = Font(name="Courier New", size=11, color="0E6655")
+            c.font = Font(name="Courier New", size=10, color="0E6655")
             c.alignment = Alignment(horizontal="left", vertical="top", wrap_text=False)
-            ws5.row_dimensions[li].height = 13
+            ws5b.row_dimensions[li].height = 13
             _IN_GAMP_AI = False
             continue
-
-        # Determine style
         is_separator = stripped.startswith("═") or stripped.startswith("─")
         is_section   = any(kw in stripped.upper() for kw in _DL_SECTION_KEYWORDS)
-
         if _IN_GAMP_AI or is_ai_header:
-            # GAMP AI block — teal accent; only the header line itself is bold
-            c.font = Font(name="Courier New", size=11,
-                          color="0E6655", bold=is_ai_header)
+            c.font = Font(name="Courier New", size=10, color="0E6655", bold=is_ai_header)
         elif is_separator:
-            c.font = Font(name="Courier New", size=11, color="95A5A6")
+            c.font = Font(name="Courier New", size=10, color="95A5A6")
         elif is_section:
-            c.font = Font(name="Calibri", size=12, bold=True, color=C_HEADER_BG)
-            ws5.row_dimensions[li].height = 18
+            c.font = Font(name="Calibri", size=11, bold=True, color=_C_HDR)
+            ws5b.row_dimensions[li].height = 18
         else:
-            c.font = Font(name="Courier New", size=11, color="2C3E50")
-
+            c.font = Font(name="Courier New", size=10, color="2C3E50")
         c.alignment = Alignment(horizontal="left", vertical="top", wrap_text=False)
-        if ws5.row_dimensions[li].height == 0 or ws5.row_dimensions[li].height == 15:
-            ws5.row_dimensions[li].height = 13 if not is_section else 16
+        if ws5b.row_dimensions[li].height == 0 or ws5b.row_dimensions[li].height == 15:
+            ws5b.row_dimensions[li].height = 13 if not is_section else 16
 
     wb.save(output)
     return output.getvalue()
@@ -15373,7 +15483,7 @@ def dim_build_excel(result: dict, system_name: str, file_name: str,
     def _fill(hex_color): return PatternFill("solid", fgColor=hex_color)
 
     def _hdr(ws, row, col, val, width=None, bold=True, bg=C_NAVY, fg=C_WHITE,
-             size=9, wrap=False, align="left"):
+             size=11, wrap=False, align="left"):
         c = ws.cell(row=row, column=col, value=val)
         c.font      = Font(name="Calibri", bold=bold, size=size, color=fg)
         c.fill      = _fill(bg)
@@ -15384,7 +15494,7 @@ def dim_build_excel(result: dict, system_name: str, file_name: str,
         return c
 
     def _cell(ws, row, col, val, bold=False, bg=None, fg="1A1A1A",
-              size=9, wrap=False, align="left", border=True):
+              size=11, wrap=False, align="left", border=True):
         c = ws.cell(row=row, column=col, value=val)
         c.font      = Font(name="Calibri", bold=bold, size=size, color=fg)
         c.fill      = _fill(bg) if bg else PatternFill()
@@ -15468,7 +15578,7 @@ def dim_build_excel(result: dict, system_name: str, file_name: str,
     ws1.merge_cells("A5:F5")
     div = ws1.cell(row=5, column=1,
                    value=f"KEY METRICS — {last_period_label}")
-    div.font      = Font(name="Calibri", bold=True, size=9,
+    div.font      = Font(name="Calibri", bold=True, size=11,
                          color=C_NAVY)
     div.fill      = _fill(C_LIGHT)
     div.alignment = Alignment(horizontal="left", vertical="center")
@@ -15533,7 +15643,7 @@ def dim_build_excel(result: dict, system_name: str, file_name: str,
     # ── Row 10: TOP 3 ACTIONS ─────────────────────────────────────────────────
     ws1.merge_cells("A10:F10")
     t3h = ws1.cell(row=10, column=1, value="▼  TOP 3 ACTIONS — REVIEW TODAY")
-    t3h.font      = Font(name="Calibri", bold=True, size=9, color=C_RED)
+    t3h.font      = Font(name="Calibri", bold=True, size=11, color=C_RED)
     t3h.fill      = _fill("FEF2F2")
     t3h.alignment = Alignment(horizontal="left", vertical="center")
     ws1.row_dimensions[10].height = 16
@@ -15572,14 +15682,14 @@ def dim_build_excel(result: dict, system_name: str, file_name: str,
         ws1.merge_cells("A12:E12")
         ok = ws1.cell(row=12, column=1,
                       value="✓ No significant worsening metrics in latest period.")
-        ok.font = Font(name="Calibri", size=9, color=C_GREEN, bold=True)
+        ok.font = Font(name="Calibri", size=11, color=C_GREEN, bold=True)
         ws1.row_dimensions[12].height = 16
 
     # ── Row 16: Repeat users summary ─────────────────────────────────────────
     _ru_row = 16
     ws1.merge_cells(f"A{_ru_row}:E{_ru_row}")
     ruh = ws1.cell(row=_ru_row, column=1, value="REPEAT HIGH-RISK USERS — USER RISK PROFILES")
-    ruh.font      = Font(name="Calibri", bold=True, size=9, color=C_NAVY)
+    ruh.font      = Font(name="Calibri", bold=True, size=11, color=C_NAVY)
     ruh.fill      = _fill(C_LIGHT)
     ruh.alignment = Alignment(horizontal="left", vertical="center")
     ws1.row_dimensions[_ru_row].height = 16
@@ -15614,7 +15724,7 @@ def dim_build_excel(result: dict, system_name: str, file_name: str,
     else:
         ws1.cell(row=_ru_row+1, column=1,
                  value="✓ No repeat high-risk users across review periods."
-        ).font = Font(name="Calibri", size=9, color=C_GREEN, bold=True)
+        ).font = Font(name="Calibri", size=11, color=C_GREEN, bold=True)
 
     # ── Bottom: Regulatory basis ───────────────────────────────────────────────
     _reg_row = _ru_row + 12
@@ -15657,7 +15767,7 @@ def dim_build_excel(result: dict, system_name: str, file_name: str,
                         fontsize=7, color="#374151", fontweight="bold")
 
         ax.set_xticks(list(_x))
-        ax.set_xticklabels(_period_labels, fontsize=9)
+        ax.set_xticklabels(_period_labels, fontsize=11)
         ax.set_ylabel("Finding Count", fontsize=8, color="#374151")
         ax.set_title("Period-over-Period Risk Trend", fontsize=10,
                      fontweight="bold", color="#1E3A5F", pad=8)
@@ -15689,6 +15799,9 @@ def dim_build_excel(result: dict, system_name: str, file_name: str,
     # =========================================================================
     # SHEET 2 — PERIOD TRENDS  (H/C columns removed — always equals Total)
     # =========================================================================
+    # Period Trends and downstream analytical sheets are most useful with
+    # multiple periods banked. Always created but show a banner when < 2 periods.
+    _n_periods = len(periods)
     ws2 = wb.create_sheet("Period Trends")
     ws2.sheet_view.showGridLines = False
 
@@ -15740,12 +15853,12 @@ def dim_build_excel(result: dict, system_name: str, file_name: str,
             c = ws2.cell(row=ri, column=ci, value=val)
             if col_key in ("DI_Posture", "AT_Posture", "UAR_Posture"):
                 _pbg, _pfg = _POSTURE_COLORS.get(str(val), (C_GREY, "1A1A1A"))
-                c.font = Font(name="Calibri", bold=True, size=9, color=_pfg)
+                c.font = Font(name="Calibri", bold=True, size=11, color=_pfg)
                 c.fill = _fill(_pbg)
             elif col_key.endswith("_trend"):
                 tc  = _TREND_COLORS.get(str(val), "1A1A1A")
                 tbg = _TREND_BG.get(str(val), C_GREY)
-                c.font = Font(name="Calibri", size=9, color=tc,
+                c.font = Font(name="Calibri", size=11, color=tc,
                               bold=("Increase" in str(val) or "Decrease" in str(val)))
                 c.fill = _fill(tbg)
             elif col_key.endswith("_pct_chg") and val != "—":
@@ -15756,12 +15869,12 @@ def dim_build_excel(result: dict, system_name: str, file_name: str,
                           "15803D" if pf < -5 else "1A1A1A"
                     fbg = "FEF2F2" if pf > 15 else "FFF7ED" if pf > 5 else \
                           "F0FDF4" if pf < -5 else C_GREY
-                    c.font = Font(name="Calibri", size=9, bold=True, color=fc)
+                    c.font = Font(name="Calibri", size=11, bold=True, color=fc)
                     c.fill = _fill(fbg)
                 else:
-                    c.font = Font(name="Calibri", size=9)
+                    c.font = Font(name="Calibri", size=11)
             else:
-                c.font = Font(name="Calibri", size=9, color="2C3E50")
+                c.font = Font(name="Calibri", size=11, color="2C3E50")
                 if ri % 2 == 0: c.fill = _fill("F8FAFC")
             c.alignment = Alignment(horizontal="center" if ci > 1 else "left",
                                     vertical="center")
@@ -15794,7 +15907,7 @@ def dim_build_excel(result: dict, system_name: str, file_name: str,
     if rdf.empty:
         ws3.cell(row=3, column=1,
                  value="✓ No repeat high-risk users detected across review periods."
-        ).font = Font(name="Calibri", size=9, color=C_GREEN, bold=True)
+        ).font = Font(name="Calibri", size=11, color=C_GREEN, bold=True)
     else:
         for ci, (hdr, _, width) in enumerate(repeat_cols, 1):
             _hdr(ws3, 2, ci, hdr, width=width)
@@ -15811,10 +15924,10 @@ def dim_build_excel(result: dict, system_name: str, file_name: str,
                     val = row_data.get(col_key, "")
                 c = ws3.cell(row=ri, column=ci, value=val)
                 if col_key == "Compound_Risk" and _compound:
-                    c.font = Font(name="Calibri", size=9, bold=True, color="991B1B")
+                    c.font = Font(name="Calibri", size=11, bold=True, color="991B1B")
                     c.fill = _fill("FDE8E8")
                 else:
-                    c.font = Font(name="Calibri", size=9,
+                    c.font = Font(name="Calibri", size=11,
                                   bold=(ci == 1),
                                   color=C_RED if _pf >= 3 else C_NAVY)
                     c.fill = _fill(row_bg) if row_bg else PatternFill()
@@ -15836,7 +15949,7 @@ def dim_build_excel(result: dict, system_name: str, file_name: str,
     ws4.cell(row=2, column=1,
              value="Rules recurring across periods indicate systemic control gaps "
                    "rather than isolated incidents. Prioritise for CAPA."
-    ).font = Font(name="Calibri", size=9, italic=True, color="5A6A7A")
+    ).font = Font(name="Calibri", size=11, italic=True, color="5A6A7A")
     ws4.row_dimensions[1].height = 20
     ws4.row_dimensions[2].height = 14
 
@@ -15879,7 +15992,7 @@ def dim_build_excel(result: dict, system_name: str, file_name: str,
     if ruledf.empty:
         ws4.cell(row=4, column=1,
                  value="No rule recurrence data available."
-        ).font = Font(name="Calibri", size=9, color=C_MID)
+        ).font = Font(name="Calibri", size=11, color=C_MID)
     else:
         for ci, (hdr, _, width) in enumerate(rule_cols, 1):
             _hdr(ws4, 3, ci, hdr, width=width,
@@ -15897,14 +16010,14 @@ def dim_build_excel(result: dict, system_name: str, file_name: str,
                     val = f"{float(val):+.1f}%"
                 c = ws4.cell(row=ri, column=ci, value=val)
                 if col_key == "Trend_Label":
-                    c.font = Font(name="Calibri", size=9, bold=True, color=tc)
+                    c.font = Font(name="Calibri", size=11, bold=True, color=tc)
                 elif col_key == "Rule":
-                    c.font = Font(name="Calibri", size=9, bold=True, color=C_NAVY)
+                    c.font = Font(name="Calibri", size=11, bold=True, color=C_NAVY)
                 elif col_key == "_alcoa":
-                    c.font = Font(name="Calibri", size=9, color="5B21B6", bold=True)
+                    c.font = Font(name="Calibri", size=11, color="5B21B6", bold=True)
                     c.fill = _fill("F5F3FF")
                 else:
-                    c.font = Font(name="Calibri", size=9, color="2C3E50")
+                    c.font = Font(name="Calibri", size=11, color="2C3E50")
                 c.alignment = Alignment(
                     horizontal="left" if ci in (1, 2, 4) else "center",
                     vertical="top", wrap_text=(ci in (1, 4)))
@@ -15918,8 +16031,11 @@ def dim_build_excel(result: dict, system_name: str, file_name: str,
     # =========================================================================
     # SHEET 5 — ACTIVITY HEATMAP (User vs Hour-of-Day)
     # =========================================================================
-    ws5 = wb.create_sheet("Activity Heatmap")
-    ws5.sheet_view.showGridLines = False
+    if _n_periods >= 3:
+        ws5 = wb.create_sheet("Activity Heatmap")
+        ws5.sheet_view.showGridLines = False
+    else:
+        ws5 = None  # Not enough periods for meaningful heatmap — skip
     ws5.cell(row=1, column=1,
              value="User Activity Heatmap — GxP Events by Hour of Day"
     ).font = Font(name="Calibri", bold=True, size=12, color=C_NAVY)
@@ -15927,7 +16043,7 @@ def dim_build_excel(result: dict, system_name: str, file_name: str,
              value="Colour intensity = number of GxP events in that hour. "
                    "Deep red = high activity. White = no activity. "
                    "Off-hours (22:00–06:00) highlighted in column headers."
-    ).font = Font(name="Calibri", size=9, italic=True, color="5A6A7A")
+    ).font = Font(name="Calibri", size=11, italic=True, color="5A6A7A")
     ws5.row_dimensions[1].height = 20
     ws5.row_dimensions[2].height = 14
 
@@ -16003,7 +16119,7 @@ def dim_build_excel(result: dict, system_name: str, file_name: str,
     if not _heatmap_built:
         ws5.cell(row=4, column=1,
                  value="Heatmap not available — Event_Timestamp data required."
-        ).font = Font(name="Calibri", size=9, color=C_MID)
+        ).font = Font(name="Calibri", size=11, color=C_MID)
 
     ws5.freeze_panes = "B5"
 
@@ -16025,7 +16141,7 @@ def dim_build_excel(result: dict, system_name: str, file_name: str,
                     "Every statement cites a specific count or percentage derived "
                     "from the uploaded data. Human reviewer confirmation required "
                     "before use as regulatory evidence."))
-    _disc.font      = Font(name="Calibri", size=9, italic=True, color="5A6A7A")
+    _disc.font      = Font(name="Calibri", size=11, italic=True, color="5A6A7A")
     _disc.alignment = Alignment(horizontal="left", vertical="top", wrap_text=True)
     ws6.row_dimensions[2].height = 32
 
@@ -16040,7 +16156,7 @@ def dim_build_excel(result: dict, system_name: str, file_name: str,
             c.fill = _fill("EFF6FF")
             ws6.row_dimensions[li].height = 22
         elif line.startswith("**") or line.startswith("*"):
-            c.font = Font(name="Calibri", bold=True, size=9, color="2C3E50")
+            c.font = Font(name="Calibri", bold=True, size=11, color="2C3E50")
             ws6.row_dimensions[li].height = 15
         elif line.strip() == "":
             ws6.row_dimensions[li].height = 8
@@ -16054,10 +16170,10 @@ def dim_build_excel(result: dict, system_name: str, file_name: str,
         _skip_row = len(narrative_text.split("\n")) + 6
         ws6.cell(row=_skip_row, column=1,
                  value="ℹ  Columns not provided (analysis scope reduced):"
-        ).font = Font(name="Calibri", size=9, bold=True, color=C_AMBER)
+        ).font = Font(name="Calibri", size=11, bold=True, color=C_AMBER)
         for i, note in enumerate(skipped, _skip_row + 1):
             ws6.cell(row=i, column=1, value=f"  • {note}"
-            ).font = Font(name="Calibri", size=9, color="5A6A7A")
+            ).font = Font(name="Calibri", size=11, color="5A6A7A")
 
     wb.save(output)
     return output.getvalue()
@@ -16114,7 +16230,7 @@ def dim_build_excel(result: dict, system_name: str, file_name: str,
     def _fill(hex_color): return PatternFill("solid", fgColor=hex_color)
 
     def _hdr(ws, row, col, val, width=None, bold=True, bg=C_NAVY, fg=C_WHITE,
-             size=9, wrap=False):
+             size=11, wrap=False):
         c = ws.cell(row=row, column=col, value=val)
         c.font      = Font(name="Calibri", bold=bold, size=size, color=fg)
         c.fill      = _fill(bg)
@@ -16126,7 +16242,7 @@ def dim_build_excel(result: dict, system_name: str, file_name: str,
         return c
 
     def _cell(ws, row, col, val, bold=False, bg=None, fg="1A1A1A",
-              size=9, wrap=False, align="left"):
+              size=11, wrap=False, align="left"):
         c = ws.cell(row=row, column=col, value=val)
         c.font      = Font(name="Calibri", bold=bold, size=size, color=fg)
         c.fill      = _fill(bg) if bg else PatternFill()
@@ -16163,7 +16279,7 @@ def dim_build_excel(result: dict, system_name: str, file_name: str,
                        for i, p in enumerate(smry["periods"])
                    )
                    + f"   |   Generated: {datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}"
-    ).font = Font(name="Calibri", size=9, color="5A6A7A")
+    ).font = Font(name="Calibri", size=11, color="5A6A7A")
     ws1.row_dimensions[2].height = 14
 
     # DI Posture banner
@@ -16237,7 +16353,7 @@ def dim_build_excel(result: dict, system_name: str, file_name: str,
                   bold=True, fg=C_RED, align="center")
             _cell(ws1, ri, 4, item["Trend"], fg=trend_color, bold=True)
             _sc = ws1.cell(row=ri, column=5, value="Open")
-            _sc.font = Font(name="Calibri", size=9, color="64748B")
+            _sc.font = Font(name="Calibri", size=11, color="64748B")
             _sc.alignment = Alignment(horizontal="center")
             _sc.fill = PatternFill("solid", fgColor="F8FAFC")
             ws1.row_dimensions[ri].height = 16
@@ -16245,7 +16361,7 @@ def dim_build_excel(result: dict, system_name: str, file_name: str,
     else:
         ws1.cell(row=13, column=1,
                  value="✓ No significant worsening metrics detected in the latest period."
-                 ).font = Font(name="Calibri", size=9, color=C_GREEN, bold=True)
+                 ).font = Font(name="Calibri", size=11, color=C_GREEN, bold=True)
 
     # Repeat user summary
     row_off = 16
@@ -16259,7 +16375,7 @@ def dim_build_excel(result: dict, system_name: str, file_name: str,
     ws1.cell(row=row_off + 1, column=1,
              value=f"{n_repeat} user(s) flagged High/Critical in 2 or more periods."
                    + (f"  Most persistent: {top_repeat}." if top_repeat else "")
-    ).font = Font(name="Calibri", size=9, color="2C3E50")
+    ).font = Font(name="Calibri", size=11, color="2C3E50")
 
     # Regulatory basis
     ws1.cell(row=row_off + 3, column=1,
@@ -16360,12 +16476,12 @@ def dim_build_excel(result: dict, system_name: str, file_name: str,
                 val = f"{val:+.1f}%" if val != "—" else "—"
             c = ws2.cell(row=ri, column=ci, value=val)
             if col_key == "DI_Posture":
-                c.font = Font(name="Calibri", bold=True, size=9, color=p_fg)
+                c.font = Font(name="Calibri", bold=True, size=11, color=p_fg)
                 c.fill = _fill(p_bg)
             elif col_key.endswith("_trend"):
                 trend_color = _TREND_COLORS.get(str(val), "1A1A1A")
                 trend_bg    = _TREND_BG.get(str(val), C_GREY)
-                c.font = Font(name="Calibri", size=9, color=trend_color,
+                c.font = Font(name="Calibri", size=11, color=trend_color,
                               bold=("Increase" in str(val) or "Decrease" in str(val)))
                 c.fill = _fill(trend_bg)
             elif col_key.endswith("_pct_chg") and val != "—":
@@ -16374,12 +16490,12 @@ def dim_build_excel(result: dict, system_name: str, file_name: str,
                     pf  = float(raw_pct)
                     fc  = "B91C1C" if pf > 15 else                           "C2410C" if pf > 5  else                           "15803D" if pf < -5 else "1A1A1A"
                     fbg = "FEF2F2" if pf > 15 else                           "FFF7ED" if pf > 5  else                           "F0FDF4" if pf < -5 else C_GREY
-                    c.font = Font(name="Calibri", size=9, bold=True, color=fc)
+                    c.font = Font(name="Calibri", size=11, bold=True, color=fc)
                     c.fill = _fill(fbg)
                 else:
-                    c.font = Font(name="Calibri", size=9)
+                    c.font = Font(name="Calibri", size=11)
             else:
-                c.font = Font(name="Calibri", size=9, color="2C3E50")
+                c.font = Font(name="Calibri", size=11, color="2C3E50")
                 if ri % 2 == 0: c.fill = _fill("F8FAFC")
             c.alignment = Alignment(horizontal="center" if ci > 1 else "left",
                                     vertical="center")
@@ -16412,7 +16528,7 @@ def dim_build_excel(result: dict, system_name: str, file_name: str,
     if rdf.empty:
         ws3.cell(row=3, column=1,
                  value="✓ No repeat high-risk users detected across review periods."
-        ).font = Font(name="Calibri", size=9, color=C_GREEN, bold=True)
+        ).font = Font(name="Calibri", size=11, color=C_GREEN, bold=True)
     else:
         for ci, (hdr, _, width) in enumerate(repeat_cols, 1):
             _hdr(ws3, 2, ci, hdr, width=width)
@@ -16423,7 +16539,7 @@ def dim_build_excel(result: dict, system_name: str, file_name: str,
             for ci, (_, col_key, _) in enumerate(repeat_cols, 1):
                 val = row_data.get(col_key, "")
                 c = ws3.cell(row=ri, column=ci, value=val)
-                c.font      = Font(name="Calibri", size=9,
+                c.font      = Font(name="Calibri", size=11,
                                    bold=(ci == 1),
                                    color=C_RED if n_periods >= 3 else C_NAVY)
                 c.fill      = _fill(row_bg) if row_bg else PatternFill()
@@ -16446,7 +16562,7 @@ def dim_build_excel(result: dict, system_name: str, file_name: str,
     ws4.cell(row=2, column=1,
              value="Rules recurring across periods indicate systemic control gaps "
                    "rather than isolated incidents. Prioritise for CAPA."
-    ).font = Font(name="Calibri", size=9, italic=True, color="5A6A7A")
+    ).font = Font(name="Calibri", size=11, italic=True, color="5A6A7A")
     ws4.row_dimensions[1].height = 20
     ws4.row_dimensions[2].height = 14
 
@@ -16465,7 +16581,7 @@ def dim_build_excel(result: dict, system_name: str, file_name: str,
     if ruledf.empty:
         ws4.cell(row=4, column=1,
                  value="No rule recurrence data available."
-        ).font = Font(name="Calibri", size=9, color=C_MID)
+        ).font = Font(name="Calibri", size=11, color=C_MID)
     else:
         for ci, (hdr, _, width) in enumerate(rule_cols, 1):
             _hdr(ws4, 3, ci, hdr, width=width)
@@ -16479,13 +16595,13 @@ def dim_build_excel(result: dict, system_name: str, file_name: str,
                     val = f"{float(val):+.1f}%"
                 c = ws4.cell(row=ri, column=ci, value=val)
                 if col_key == "Trend_Label":
-                    c.font = Font(name="Calibri", size=9, bold=True,
+                    c.font = Font(name="Calibri", size=11, bold=True,
                                   color=trend_color)
                 elif col_key == "Rule":
-                    c.font = Font(name="Calibri", size=9, bold=True,
+                    c.font = Font(name="Calibri", size=11, bold=True,
                                   color=C_NAVY)
                 else:
-                    c.font = Font(name="Calibri", size=9, color="2C3E50")
+                    c.font = Font(name="Calibri", size=11, color="2C3E50")
                 c.alignment = Alignment(horizontal="left" if ci in (1, 3) else "center",
                                         vertical="top", wrap_text=(ci in (1, 3)))
                 c.border = bdr
@@ -17923,7 +18039,7 @@ def show_audit_trail(user: str, role: str, model_id: str):
         # DO NOT MODIFY THIS BLOCK
 
         _section_header("🔴  Data Integrity", "integrity")
-        _rule_row_b("at_r6_on",   1, "Record Reconstruction",            "Critical · T1", "21 CFR Part 11 §11.10(e) · ALCOA+ Original",        "integrity")
+        _rule_row_b("at_r6_on",   1, "Record Reconstruction",            "Critical · T1", "21 CFR Part 11 §11.10(e) · ALCOA+ Original")
         _rule_row_b("at_r7_on",   2, "Audit Trail Integrity Event",      "Critical · T1", "21 CFR Part 11 §11.10(e)",                          "integrity")
         _rule_row_b("at_r17_on",  3, "Missing Before/After Values",      "High · T1",     "21 CFR Part 11 §11.10(e) · ALCOA+ Original",        "integrity")
 
