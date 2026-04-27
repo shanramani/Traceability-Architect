@@ -1671,9 +1671,20 @@ def _render_dci_results_from_session(user, model_id):
     else:
         st.success("✅ No records flagged at Medium or higher.")
 
-    # Download + Bank
+    # ── Auto-bank confirmation banner (persistent results view) ───────────────
+    _bp = st.session_state.get("dci_dim_banked_period")
+    _bc = st.session_state.get("dci_dim_banked_count", 0)
+    if _bp:
+        _msg = (
+            f"✅ **Banked to DIM automatically** — clean period ({_bp})."
+            if (_bc <= 1 and n_crit == 0 and n_high == 0)
+            else f"✅ **Banked to DIM automatically** — {_bc} finding(s) in period *{_bp}*."
+        )
+        st.success(_msg)
+
+    # Download + Open DIM
     st.markdown("---")
-    st.markdown("### Download Evidence Package & Bank to DIM")
+    st.markdown("### Download Evidence Package")
 
     dc1, dc2 = st.columns(2)
     with dc1:
@@ -1706,37 +1717,11 @@ def _render_dci_results_from_session(user, model_id):
             st.error(f"Excel build failed: {e}")
 
     with dc2:
-        if st.button(
-            "🏦 Bank to Data Integrity Monitor (DIM)",
-            use_container_width=True,
-            key="dci_bank_btn_persistent",
-        ):
-            try:
-                _ec_fn = _gen().get("_dim_event_category")
-                period_label = f"{dci_r_start} → {dci_r_end}" \
-                    if (dci_r_start and dci_r_end) else \
-                    f"DCI Period {st.session_state.get('dim_periods_banked', 0) + 1}"
-                banked = _dci_bank_to_dim(
-                    scored_df, period_label, sys_name, file_name,
-                    event_category_fn=_ec_fn
-                )
-                if banked == 1 and n_crit == 0 and n_high == 0:
-                    st.success(
-                        f"✅ Banked sentinel row for clean period "
-                        f"({period_label})."
-                    )
-                else:
-                    st.success(
-                        f"✅ Banked {banked} High/Critical finding(s) to DIM."
-                    )
-                _gen()["log_audit"](
-                    user, "DCI_BANK_TO_DIM", "DATASET",
-                    new_value=f"DCI_{sys_name}",
-                    reason=f"Period: {period_label} · Banked: {banked} rows (re-bank from session)",
-                )
-                st.rerun()
-            except Exception as e:
-                st.error(f"Banking failed: {e}")
+        if st.button("📊 Open DIM", use_container_width=True,
+                     key="dci_open_dim_persistent"):
+            import streamlit as _st2
+            _st2.session_state["main_view"] = "dim"
+            _st2.rerun()
 
 
 def show_dci_review(user, role, model_id):
@@ -2216,6 +2201,32 @@ def show_dci_review(user, role, model_id):
                     _hash_fp.sha256(cfg_str.encode()).hexdigest()[:16]
             except Exception:
                 st.session_state["dci_config_hash"] = ""
+
+            # ── Auto-bank to DIM immediately after scoring ────────────────────
+            # No button required — DCI findings always bank on run completion,
+            # same as AT and UAR. Re-banking the same period is idempotent
+            # (existing rows for this period+module are replaced, not duplicated).
+            try:
+                _ec_fn = _gen().get("_dim_event_category")
+                _auto_period = (
+                    f"{dci_r_start} → {dci_r_end}"
+                    if (dci_r_start and dci_r_end)
+                    else f"DCI Period {st.session_state.get('dim_periods_banked', 0) + 1}"
+                )
+                _auto_banked = _dci_bank_to_dim(
+                    scored_df,
+                    period_label=_auto_period,
+                    system_name=st.session_state.get("dci_system_name", "System"),
+                    file_name=file_name,
+                    event_category_fn=_ec_fn,
+                )
+                st.session_state["dci_dim_banked_period"] = _auto_period
+                st.session_state["dci_dim_banked_count"]  = _auto_banked
+            except Exception as _be:
+                # Banking failure is non-fatal — results are still shown
+                st.session_state["dci_dim_banked_period"] = None
+                st.session_state["dci_dim_banked_count"]  = 0
+
             _gen()["log_audit"](
                 user, "DCI_ANALYSIS_RUN", "DATASET",
                 new_value=f"DCI_{st.session_state.get('dci_system_name','')}",
@@ -2285,9 +2296,25 @@ def show_dci_review(user, role, model_id):
     else:
         st.success("✅ No records flagged at Medium or higher.")
 
-    # Download + Bank
+    # ── Auto-bank confirmation banner ─────────────────────────────────────────
+    _banked_period = st.session_state.get("dci_dim_banked_period")
+    _banked_count  = st.session_state.get("dci_dim_banked_count", 0)
+    if _banked_period:
+        if _banked_count <= 1 and n_crit == 0 and n_high == 0:
+            st.success(
+                f"✅ **Banked to DIM automatically** — clean period "
+                f"({_banked_period}). DIM records that DCI ran with zero High/Critical findings."
+            )
+        else:
+            st.success(
+                f"✅ **Banked to DIM automatically** — {_banked_count} "
+                f"High/Critical finding(s) added to period *{_banked_period}*. "
+                f"Open DIM to run cross-module convergence analysis."
+            )
+
+    # Download + Open DIM
     st.markdown("---")
-    st.markdown("### 5. Download Evidence Package & Bank to DIM")
+    st.markdown("### 5. Download Evidence Package")
 
     dc1, dc2 = st.columns(2)
 
@@ -2323,41 +2350,10 @@ def show_dci_review(user, role, model_id):
             st.error(f"Excel build failed: {e}")
 
     with dc2:
-        if st.button(
-            "🏦 Bank to Data Integrity Monitor (DIM)",
-            use_container_width=True,
-            key="dci_bank_btn",
-        ):
-            try:
-                # Use _gen() lookup instead of `from generator import` to avoid
-                # re-executing generator.py (would re-run st.set_page_config).
-                _ec_fn = _gen().get("_dim_event_category")
-
-                period_label = f"{dci_r_start} → {dci_r_end}" \
-                    if (dci_r_start and dci_r_end) else \
-                    f"DCI Period {st.session_state.get('dim_periods_banked', 0) + 1}"
-                banked = _dci_bank_to_dim(
-                    scored_df, period_label, sys_name, file_name,
-                    event_category_fn=_ec_fn
-                )
-                if banked == 1 and n_crit == 0 and n_high == 0:
-                    st.success(
-                        f"✅ Banked sentinel row for clean period "
-                        f"({period_label}) — DIM will see DCI ran clean."
-                    )
-                else:
-                    st.success(
-                        f"✅ Banked {banked} High/Critical finding(s) to DIM "
-                        f"for period {period_label}."
-                    )
-                _gen()["log_audit"](
-                    user, "DCI_BANK_TO_DIM", "DATASET",
-                    new_value=f"DCI_{sys_name}",
-                    reason=f"Period: {period_label} · Banked: {banked} rows",
-                )
-                st.rerun()
-            except Exception as e:
-                st.error(f"Banking failed: {e}")
+        if st.button("📊 Open DIM", use_container_width=True, key="dci_open_dim_btn"):
+            import streamlit as _st2
+            _st2.session_state["main_view"] = "dim"
+            _st2.rerun()
 
     # ── v96 — Start New Analysis ──────────────────────────────────────────────
     st.markdown("<div style='margin-top:14px;'></div>", unsafe_allow_html=True)
