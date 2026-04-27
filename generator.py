@@ -16030,98 +16030,98 @@ def dim_build_excel(result: dict, system_name: str, file_name: str,
 
     # =========================================================================
     # SHEET 5 — ACTIVITY HEATMAP (User vs Hour-of-Day)
+    # Only created when ≥3 periods banked — not meaningful with fewer periods.
     # =========================================================================
     if _n_periods >= 3:
         ws5 = wb.create_sheet("Activity Heatmap")
         ws5.sheet_view.showGridLines = False
-    else:
-        ws5 = None  # Not enough periods for meaningful heatmap — skip
-    ws5.cell(row=1, column=1,
-             value="User Activity Heatmap — GxP Events by Hour of Day"
-    ).font = Font(name="Calibri", bold=True, size=12, color=C_NAVY)
-    ws5.cell(row=2, column=1,
-             value="Colour intensity = number of GxP events in that hour. "
-                   "Deep red = high activity. White = no activity. "
-                   "Off-hours (22:00–06:00) highlighted in column headers."
-    ).font = Font(name="Calibri", size=11, italic=True, color="5A6A7A")
-    ws5.row_dimensions[1].height = 20
-    ws5.row_dimensions[2].height = 14
 
-    # Build user × hour grid from raw_df
-    _heatmap_built = False
-    if not raw_df.empty and "Event_Timestamp" in raw_df.columns and "Username" in raw_df.columns:
-        try:
-            _hm = raw_df[~raw_df.get("_is_sentinel", pd.Series(False,
-                         index=raw_df.index))].copy()
-            _hm["_ts"] = pd.to_datetime(_hm["Event_Timestamp"], errors="coerce")
-            _hm        = _hm.dropna(subset=["_ts"])
-            _hm["_hr"] = _hm["_ts"].dt.hour
+        ws5.cell(row=1, column=1,
+                 value="User Activity Heatmap — GxP Events by Hour of Day"
+        ).font = Font(name="Calibri", bold=True, size=12, color=C_NAVY)
+        ws5.cell(row=2, column=1,
+                 value="Colour intensity = number of GxP events in that hour. "
+                       "Deep red = high activity. White = no activity. "
+                       "Off-hours (22:00–06:00) highlighted in column headers."
+        ).font = Font(name="Calibri", size=11, italic=True, color="5A6A7A")
+        ws5.row_dimensions[1].height = 20
+        ws5.row_dimensions[2].height = 14
 
-            # Top 20 users by event count
-            _top_users = (_hm.groupby("Username").size()
-                          .sort_values(ascending=False).head(20).index.tolist())
-            _hm_top    = _hm[_hm["Username"].isin(_top_users)]
+        # Build user × hour grid from raw_df
+        _heatmap_built = False
+        if not raw_df.empty and "Event_Timestamp" in raw_df.columns and "Username" in raw_df.columns:
+            try:
+                _hm = raw_df[~raw_df.get("_is_sentinel", pd.Series(False,
+                             index=raw_df.index))].copy()
+                _hm["_ts"] = pd.to_datetime(_hm["Event_Timestamp"], errors="coerce")
+                _hm        = _hm.dropna(subset=["_ts"])
+                _hm["_hr"] = _hm["_ts"].dt.hour
 
-            # Build pivot: rows=users, cols=hours 0–23
-            _pivot = (_hm_top.groupby(["Username", "_hr"]).size()
-                      .unstack(fill_value=0)
-                      .reindex(columns=range(24), fill_value=0))
-            _pivot = _pivot.loc[_top_users]   # preserve top-user order
+                # Top 20 users by event count
+                _top_users = (_hm.groupby("Username").size()
+                              .sort_values(ascending=False).head(20).index.tolist())
+                _hm_top    = _hm[_hm["Username"].isin(_top_users)]
 
-            # Write hour headers (row 4)
-            ws5.cell(row=4, column=1, value="User / Hour").font = Font(
-                name="Calibri", bold=True, size=8, color=C_WHITE)
-            ws5.cell(row=4, column=1).fill = _fill(C_NAVY)
-            ws5.column_dimensions["A"].width = 20
+                # Build pivot: rows=users, cols=hours 0–23
+                _pivot = (_hm_top.groupby(["Username", "_hr"]).size()
+                          .unstack(fill_value=0)
+                          .reindex(columns=range(24), fill_value=0))
+                _pivot = _pivot.loc[_top_users]   # preserve top-user order
 
-            _OFF_HOURS = set(range(0, 7)) | set(range(22, 24))
-            for _hr in range(24):
-                _hc = ws5.cell(row=4, column=_hr + 2, value=f"{_hr:02d}:00")
-                _hc.font = Font(name="Calibri", bold=True, size=7.5,
-                                color=C_WHITE)
-                _hc.fill = _fill("C0392B" if _hr in _OFF_HOURS else C_NAVY)
-                _hc.alignment = Alignment(horizontal="center", vertical="center")
-                ws5.column_dimensions[get_column_letter(_hr + 2)].width = 5.5
-            ws5.row_dimensions[4].height = 18
+                # Write hour headers (row 4)
+                ws5.cell(row=4, column=1, value="User / Hour").font = Font(
+                    name="Calibri", bold=True, size=8, color=C_WHITE)
+                ws5.cell(row=4, column=1).fill = _fill(C_NAVY)
+                ws5.column_dimensions["A"].width = 20
 
-            # Write data rows
-            for _ui, _uname in enumerate(_top_users, 5):
-                uc = ws5.cell(row=_ui, column=1, value=_uname)
-                uc.font      = Font(name="Calibri", bold=True, size=8, color=C_NAVY)
-                uc.alignment = Alignment(horizontal="left", vertical="center")
+                _OFF_HOURS = set(range(0, 7)) | set(range(22, 24))
                 for _hr in range(24):
-                    _cnt = int(_pivot.loc[_uname, _hr]) if _hr in _pivot.columns else 0
-                    dc   = ws5.cell(row=_ui, column=_hr + 2,
-                                    value=_cnt if _cnt > 0 else None)
-                    dc.font      = Font(name="Calibri", size=7.5, color="374151")
-                    dc.alignment = Alignment(horizontal="center", vertical="center")
-                    if _hr in _OFF_HOURS:
-                        dc.fill = _fill("FFF5F5") if _cnt == 0 else PatternFill()
-                ws5.row_dimensions[_ui].height = 14
+                    _hc = ws5.cell(row=4, column=_hr + 2, value=f"{_hr:02d}:00")
+                    _hc.font = Font(name="Calibri", bold=True, size=7.5,
+                                    color=C_WHITE)
+                    _hc.fill = _fill("C0392B" if _hr in _OFF_HOURS else C_NAVY)
+                    _hc.alignment = Alignment(horizontal="center", vertical="center")
+                    ws5.column_dimensions[get_column_letter(_hr + 2)].width = 5.5
+                ws5.row_dimensions[4].height = 18
 
-            # Apply color scale rule over the data range
-            _data_rows = len(_top_users)
-            _cr        = get_column_letter(2)
-            _cc        = get_column_letter(25)
-            _range_ref = f"{_cr}5:{_cc}{4 + _data_rows}"
-            ws5.conditional_formatting.add(
-                _range_ref,
-                ColorScaleRule(
-                    start_type="num",  start_value=0,   start_color="FFFFFF",
-                    mid_type="num",    mid_value=5,     mid_color="FBBF24",
-                    end_type="num",    end_value=30,    end_color="B91C1C",
+                # Write data rows
+                for _ui, _uname in enumerate(_top_users, 5):
+                    uc = ws5.cell(row=_ui, column=1, value=_uname)
+                    uc.font      = Font(name="Calibri", bold=True, size=8, color=C_NAVY)
+                    uc.alignment = Alignment(horizontal="left", vertical="center")
+                    for _hr in range(24):
+                        _cnt = int(_pivot.loc[_uname, _hr]) if _hr in _pivot.columns else 0
+                        dc   = ws5.cell(row=_ui, column=_hr + 2,
+                                        value=_cnt if _cnt > 0 else None)
+                        dc.font      = Font(name="Calibri", size=7.5, color="374151")
+                        dc.alignment = Alignment(horizontal="center", vertical="center")
+                        if _hr in _OFF_HOURS:
+                            dc.fill = _fill("FFF5F5") if _cnt == 0 else PatternFill()
+                    ws5.row_dimensions[_ui].height = 14
+
+                # Apply color scale rule over the data range
+                _data_rows = len(_top_users)
+                _cr        = get_column_letter(2)
+                _cc        = get_column_letter(25)
+                _range_ref = f"{_cr}5:{_cc}{4 + _data_rows}"
+                ws5.conditional_formatting.add(
+                    _range_ref,
+                    ColorScaleRule(
+                        start_type="num",  start_value=0,   start_color="FFFFFF",
+                        mid_type="num",    mid_value=5,     mid_color="FBBF24",
+                        end_type="num",    end_value=30,    end_color="B91C1C",
+                    )
                 )
-            )
-            _heatmap_built = True
-        except Exception:
-            pass
+                _heatmap_built = True
+            except Exception:
+                pass
 
-    if not _heatmap_built:
-        ws5.cell(row=4, column=1,
-                 value="Heatmap not available — Event_Timestamp data required."
-        ).font = Font(name="Calibri", size=11, color=C_MID)
+        if not _heatmap_built:
+            ws5.cell(row=4, column=1,
+                     value="Heatmap not available — Event_Timestamp data required."
+            ).font = Font(name="Calibri", size=11, color=C_MID)
 
-    ws5.freeze_panes = "B5"
+        ws5.freeze_panes = "B5"
 
     # =========================================================================
     # SHEET 6 — NARRATIVE SUMMARY
@@ -16986,34 +16986,8 @@ def show_dim(user: str, role: str, model_id: str):
         f"📊 No periods banked · Maximum recommended: {_DIM_MAX_PERIODS} periods."
     )
     if _banked > 0:
-        _dim_btn_col1, _dim_btn_col2, _dim_btn_spacer = st.columns([3, 3, 6])
-        with _dim_btn_col1:
-            if st.button("🗑 Clear DIM Results", key="dim_clear_all",
-                         help="Remove all banked periods — does not affect AT/UAR/DCI uploads",
-                         use_container_width=True):
-                st.session_state["dim_accumulated_rows"] = []
-                st.session_state["dim_periods_banked"]   = 0
-                st.session_state["dim_analysis_done"]    = False
-                st.session_state["dim_autorun_pending"]  = False
-                st.rerun()
-        with _dim_btn_col2:
-            if st.button("🔄 Start New Analysis", key="dim_start_new",
-                         help="Clear DIM results and reset all module analyses",
-                         use_container_width=True):
-                st.session_state["dim_accumulated_rows"] = []
-                st.session_state["dim_periods_banked"]   = 0
-                st.session_state["dim_analysis_done"]    = False
-                st.session_state["dim_autorun_pending"]  = False
-                for _k in ["at_raw_df","at_mapped_df","at_scored_df","at_top20_df",
-                           "at_file_name","at_mapping_done","at_analysis_done",
-                           "at_total_events","at_review_start","at_review_end",
-                           "at_config_confirmed","at_force_config",
-                           "at_last_run_hash","at_last_run_filename","at_invalidation_msg",
-                           "uar_raw_df","uar_scored_result","uar_analysis_done",
-                           "uar_file_name","uar_last_run_hash","uar_last_run_filename"]:
-                    if _k in st.session_state:
-                        del st.session_state[_k]
-                st.rerun()
+        # Buttons now rendered below the posture box — see dim_clear_all_post / dim_start_new_post
+        pass
 
     if _banked >= _DIM_MAX_PERIODS:
         st.warning(
@@ -17184,6 +17158,37 @@ def show_dim(user: str, role: str, model_id: str):
         f"{smry['repeat_users']} repeat user(s)</div>"
         f"{_period_lines}"
         f"</div></div></div>", unsafe_allow_html=True)
+
+    # ── Action buttons — left-aligned with posture box ────────────────────────
+    if _banked > 0:
+        _ab1, _ab2, _ = st.columns([2, 2, 8])
+        with _ab1:
+            if st.button("🗑 Clear DIM Results", key="dim_clear_all_post",
+                         help="Remove all banked periods — does not affect AT/UAR/DCI uploads",
+                         use_container_width=True):
+                st.session_state["dim_accumulated_rows"] = []
+                st.session_state["dim_periods_banked"]   = 0
+                st.session_state["dim_analysis_done"]    = False
+                st.session_state["dim_autorun_pending"]  = False
+                st.rerun()
+        with _ab2:
+            if st.button("🔄 Start New Analysis", key="dim_start_new_post",
+                         help="Clear DIM results and reset all module analyses",
+                         use_container_width=True):
+                st.session_state["dim_accumulated_rows"] = []
+                st.session_state["dim_periods_banked"]   = 0
+                st.session_state["dim_analysis_done"]    = False
+                st.session_state["dim_autorun_pending"]  = False
+                for _k in ["at_raw_df","at_mapped_df","at_scored_df","at_top20_df",
+                           "at_file_name","at_mapping_done","at_analysis_done",
+                           "at_total_events","at_review_start","at_review_end",
+                           "at_config_confirmed","at_force_config",
+                           "at_last_run_hash","at_last_run_filename","at_invalidation_msg",
+                           "uar_raw_df","uar_scored_result","uar_analysis_done",
+                           "uar_file_name","uar_last_run_hash","uar_last_run_filename"]:
+                    if _k in st.session_state:
+                        del st.session_state[_k]
+                st.rerun()
 
     # ── Period Comparison Table — with source file column ─────────────────────
     st.markdown("<div class='dim-section-hdr'>📊 Period Comparison</div>", unsafe_allow_html=True)
@@ -17996,12 +18001,12 @@ def show_audit_trail(user: str, role: str, model_id: str):
         def _rule_row_b(cfg_key, rule_num, label, tier_tag, reg_text, cat):
             _rc, _regc = st.columns([3, 2])
             with _rc:
-                _badge_html = _CAT_BADGE.get(cat, "")
                 st.session_state[cfg_key] = st.toggle(
                     f"**{rule_num}. {label}** `{tier_tag}`",
                     value=st.session_state[cfg_key], key=f"cfg_{cfg_key}"
                 )
-                st.markdown(_badge_html, unsafe_allow_html=True)
+                # Category badge removed — section headers above each group
+                # already provide the grouping context. Per-toggle badge was redundant.
             with _regc:
                 st.markdown(
                     f"<div style='padding:6px 0 0 4px;color:#94a3b8;font-size:0.78rem;"
