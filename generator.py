@@ -21961,14 +21961,9 @@ section[data-testid="stSidebar"] .stRadio [data-baseweb="radio"] div div {
                     else:
                         st.warning("Username and password are required.")
     # ── Top action bar — Back to Periodic Review (left) + End Session (right) ──
-    # The back button only appears when inside a Periodic Review sub-module.
-    # Both buttons sit in the same row so they align at the same visual level.
     _in_pr_submodule = (
-        st.session_state.get("app_mode") == "Review Intelligence"
-        and (
-            st.session_state.get("pr_active_module") is not None
-            or st.session_state.get("main_view") == "dim"
-        )
+        st.session_state.get("pr_active_module") is not None
+        or st.session_state.get("main_view") == "dim"
     )
     if _in_pr_submodule:
         _back_col, _spacer_col, _end_col = st.columns([5, 4, 3])
