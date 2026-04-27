@@ -17303,6 +17303,28 @@ def show_dim(user: str, role: str, model_id: str):
         "DI Posture = worst of AT or UAR posture in that period. "
         "N/A = module not exercised in that period."
     )
+    st.caption(
+        "**Avg Risk Weight** — weighted mean of all findings: "
+        "Critical = 4 · High = 3 · Medium = 2 · Low = 1. "
+        "A value above 3.0 means the majority of findings are High or Critical tier."
+    )
+
+    # ── UAR zero-findings contextual note ────────────────────────────────────
+    _pdf_local = result.get("period_df", pd.DataFrame())
+    _uar_total_all_periods = int(_pdf_local["UAR_Findings"].sum()) if "UAR_Findings" in _pdf_local.columns else 0
+    _uar_ran_any = bool(_pdf_local["UAR_Ran"].any()) if "UAR_Ran" in _pdf_local.columns else False
+    if _uar_ran_any and _uar_total_all_periods == 0:
+        st.info(
+            "ℹ️ **UAR Findings = 0 across all periods.** "
+            "The User Access Review module ran but found no High or Critical access risk findings. "
+            "This is a legitimate outcome for a well-governed user list. "
+            "To verify: re-run UAR with the `UAR_11rule_coverage.csv` test file — all rules should fire."
+        )
+    elif not _uar_ran_any and _banked > 0:
+        st.info(
+            "ℹ️ **UAR not yet run for any banked period.** "
+            "DIM is showing AT findings only. Run a User Access Review to enable cross-module analysis."
+        )
 
     # ── Download Evidence Package — placed directly below period table ─────────
     _dl_sys   = st.session_state.get("dim_system_name","System")
