@@ -17673,7 +17673,7 @@ div.vl-btn-soon > div.stButton > button {
 </style>
 """, unsafe_allow_html=True)
 
-    st.title("Periodic Review Intelligence")
+    st.title("🔬 Periodic Review Intelligence")
     st.caption("Deterministic scoring engines · GxP-grade evidence output · 21 CFR Part 11 · EU Annex 11 · GAMP 5")
 
     # ── Sub-module routing ────────────────────────────────────────────────────
@@ -17689,22 +17689,6 @@ div.vl-btn-soon > div.stButton > button {
         show_dci_review(user, role, model_id)
         return
 
-    # ── Last-run status badges ────────────────────────────────────────────────
-    _at_done  = st.session_state.get("at_analysis_done")
-    _uar_done = st.session_state.get("uar_analysis_done")
-    _dci_done = st.session_state.get("dci_analysis_done")
-    if _at_done or _uar_done or _dci_done:
-        _sb1, _sb2, _sb3, _ = st.columns([2, 2, 2, 6])
-        with _sb1:
-            if _at_done:
-                st.success("✓ AT complete")
-        with _sb2:
-            if _uar_done:
-                st.success("✓ UAR complete")
-        with _sb3:
-            if _dci_done:
-                st.success("✓ DCI complete")
-
     # ── 3 module cards ────────────────────────────────────────────────────────
     st.markdown("""
 <div class="vl-grid">
@@ -17712,7 +17696,6 @@ div.vl-btn-soon > div.stButton > button {
     <div class="vl-card-glow" style="background:linear-gradient(90deg,#ea580c,#fb923c);"></div>
     <div class="vl-card-icon-wrap">
       <svg viewBox="0 0 44 44" fill="none" xmlns="http://www.w3.org/2000/svg" width="40" height="40">
-        <!-- Audit trail: document with scan line + magnifier -->
         <rect x="6" y="4" width="24" height="30" rx="3" fill="#1e3a5f" stroke="#ea580c" stroke-width="1.5"/>
         <rect x="10" y="10" width="16" height="2" rx="1" fill="#ea580c" opacity="0.7"/>
         <rect x="10" y="15" width="12" height="2" rx="1" fill="#ea580c" opacity="0.5"/>
@@ -17732,7 +17715,6 @@ div.vl-btn-soon > div.stButton > button {
     <div class="vl-card-glow" style="background:linear-gradient(90deg,#7c3aed,#a78bfa);"></div>
     <div class="vl-card-icon-wrap">
       <svg viewBox="0 0 44 44" fill="none" xmlns="http://www.w3.org/2000/svg" width="40" height="40">
-        <!-- User access: person silhouette + shield lock -->
         <circle cx="18" cy="13" r="6" fill="#1e3a5f" stroke="#7c3aed" stroke-width="1.8"/>
         <path d="M6 36c0-7 6-11 12-11s12 4 12 11" stroke="#7c3aed" stroke-width="1.8" stroke-linecap="round" fill="none"/>
         <path d="M30 20 l6-2 6 2v6c0 4-6 7-6 7s-6-3-6-7v-6z" fill="#0f172a" stroke="#7c3aed" stroke-width="1.5"/>
@@ -17749,14 +17731,11 @@ div.vl-btn-soon > div.stButton > button {
     <div class="vl-card-glow" style="background:linear-gradient(90deg,#059669,#34d399);"></div>
     <div class="vl-card-icon-wrap">
       <svg viewBox="0 0 44 44" fill="none" xmlns="http://www.w3.org/2000/svg" width="40" height="40">
-        <!-- Deviation/CAPA: clipboard + warning triangle + checkmark -->
         <rect x="10" y="6" width="22" height="28" rx="3" fill="#0f172a" stroke="#059669" stroke-width="1.5"/>
         <rect x="14" y="2" width="14" height="6" rx="2" fill="#1e3a5f" stroke="#059669" stroke-width="1.2"/>
-        <!-- warning triangle inside -->
         <path d="M21 14 l6 11 H15 z" fill="none" stroke="#f59e0b" stroke-width="1.5" stroke-linejoin="round"/>
         <line x1="21" y1="18" x2="21" y2="22" stroke="#f59e0b" stroke-width="1.5" stroke-linecap="round"/>
         <circle cx="21" cy="24.5" r="0.8" fill="#f59e0b"/>
-        <!-- checkmark bottom = resolved -->
         <polyline points="15,30 19,34 27,26" stroke="#34d399" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
       </svg>
     </div>
@@ -17786,7 +17765,7 @@ div.vl-btn-soon > div.stButton > button {
 </style>
 """, unsafe_allow_html=True)
 
-    # ── JS: make card divs click corresponding hidden Streamlit buttons ────────
+    # ── JS: make card divs click the corresponding Streamlit buttons ──────────
     import streamlit.components.v1 as _cv1_cards
     _cv1_cards.html("""<script>
 (function() {
@@ -17804,12 +17783,13 @@ div.vl-btn-soon > div.stButton > button {
         var at  = doc.getElementById('vl-card-at');
         var uar = doc.getElementById('vl-card-uar');
         var dci = doc.getElementById('vl-card-dci');
-        if (at)  { at.onclick  = function() { clickBtn('_nav_at');  }; }
-        if (uar) { uar.onclick = function() { clickBtn('_nav_uar'); }; }
-        if (dci) { dci.onclick = function() { clickBtn('_nav_dci'); }; }
+        if (at)  { at.onclick  = function() { clickBtn('Launch Audit Trail'); }; }
+        if (uar) { uar.onclick = function() { clickBtn('Launch User Access');  }; }
+        if (dci) { dci.onclick = function() { clickBtn('Launch Deviation');     }; }
         if (at || uar) return true;
         return false;
     }
+    // Retry until cards are in DOM
     var tries = 0;
     var iv = setInterval(function() {
         if (wireCards() || ++tries > 20) clearInterval(iv);
@@ -17817,26 +17797,50 @@ div.vl-btn-soon > div.stButton > button {
 })();
 </script>""", height=0)
 
-    # Hidden navigation buttons — clicked by JS above, invisible to user
+    # Inject CSS to hide the nav trigger buttons — they exist only for JS to click.
+    # Cards handle all visible interaction; buttons must be in DOM but not visible.
+    st.markdown("""
+<style>
+button[kind="secondary"]:where([data-testid*="pr_open_audit_trail"],
+    [data-testid*="pr_open_access_review"],
+    [data-testid*="pr_open_dci"]) { display:none!important; }
+</style>
+<script>
+(function() {
+    var p = window.parent.document;
+    function hideNavBtns() {
+        p.querySelectorAll('button').forEach(function(b) {
+            var t = b.innerText.trim();
+            if (t === 'Launch Audit Trail Review' ||
+                t === 'Launch User Access Review' ||
+                t === 'Launch Deviation & CAPA Review') {
+                b.style.cssText = [
+                    'position:fixed', 'top:-999px', 'left:-999px',
+                    'width:1px', 'height:1px', 'overflow:hidden',
+                    'opacity:0', 'pointer-events:none'
+                ].join('!important;') + '!important';
+            }
+        });
+    }
+    hideNavBtns();
+    [200, 500, 1200].forEach(function(t){ setTimeout(hideNavBtns, t); });
+})();
+</script>
+""", unsafe_allow_html=True)
+
     _oc1, _oc2, _oc3 = st.columns(3, gap="large")
     with _oc1:
-        st.markdown('<div style="visibility:hidden;height:0;overflow:hidden">', unsafe_allow_html=True)
-        if st.button("_nav_at", key="pr_open_audit_trail"):
+        if st.button("Launch Audit Trail Review", key="pr_open_audit_trail"):
             st.session_state["pr_active_module"] = "audit_trail"
             st.rerun()
-        st.markdown('</div>', unsafe_allow_html=True)
     with _oc2:
-        st.markdown('<div style="visibility:hidden;height:0;overflow:hidden">', unsafe_allow_html=True)
-        if st.button("_nav_uar", key="pr_open_access_review"):
+        if st.button("Launch User Access Review", key="pr_open_access_review"):
             st.session_state["pr_active_module"] = "access_review"
             st.rerun()
-        st.markdown('</div>', unsafe_allow_html=True)
     with _oc3:
-        st.markdown('<div style="visibility:hidden;height:0;overflow:hidden">', unsafe_allow_html=True)
-        if st.button("_nav_dci", key="pr_open_dci"):
+        if st.button("Launch Deviation & CAPA Review", key="pr_open_dci"):
             st.session_state["pr_active_module"] = "dci_review"
             st.rerun()
-        st.markdown('</div>', unsafe_allow_html=True)
 
 
 def show_audit_trail(user: str, role: str, model_id: str):
@@ -18051,12 +18055,10 @@ def show_audit_trail(user: str, role: str, model_id: str):
         def _rule_row_b(cfg_key, rule_num, label, tier_tag, reg_text, cat):
             _rc, _regc = st.columns([3, 2])
             with _rc:
-                _badge_html = _CAT_BADGE.get(cat, "")
                 st.session_state[cfg_key] = st.toggle(
                     f"**{rule_num}. {label}** `{tier_tag}`",
                     value=st.session_state[cfg_key], key=f"cfg_{cfg_key}"
                 )
-                st.markdown(_badge_html, unsafe_allow_html=True)
             with _regc:
                 st.markdown(
                     f"<div style='padding:6px 0 0 4px;color:#94a3b8;font-size:0.78rem;"
@@ -21914,22 +21916,12 @@ section[data-testid="stSidebar"] .stRadio [data-baseweb="radio"] div div {
             "📁 Evidence Pack":                "evidence_pack",
         }
         _nav_inv   = {v: k for k, v in _nav_map.items()}
-
-        # Sidebar radio always matches the displayed page.
-        # When inside a PR sub-module (AT/UAR/DCI), the top-level selection
-        # stays on "Periodic Review Intelligence" — the sub-page is not a
-        # separate radio item, so the radio correctly shows the parent.
         _nav_current = _nav_inv.get(_main_view, "🔬 Periodic Review Intelligence")
 
         _banked_sb = st.session_state.get("dim_periods_banked", 0)
         _at_done   = bool(st.session_state.get("at_analysis_done"))
         _uar_done  = bool(st.session_state.get("uar_analysis_done"))
         _dci_done  = bool(st.session_state.get("dci_analysis_done"))
-        _dim_hint  = f"  \n\u00a0\u00a0{_banked_sb} period{'s' if _banked_sb != 1 else ''} banked" if _banked_sb else ""
-        _ep_hint   = (f"  \n\u00a0\u00a0"
-                      f"{'\u2713' if _at_done else '\u25cb'} AT \u00b7 "
-                      f"{'\u2713' if _uar_done else '\u25cb'} UAR \u00b7 "
-                      f"{'\u2713' if _dci_done else '\u25cb'} DCI")
 
         _nav_sel = st.radio(
             "Periodic Review Intelligence",
@@ -21940,9 +21932,7 @@ section[data-testid="stSidebar"] .stRadio [data-baseweb="radio"] div div {
 
         _selected_view = _nav_map[_nav_sel]
         if _selected_view != _main_view:
-            # User clicked a different top-level nav item — navigate there
-            # and clear the sub-module so we land on the landing page.
-            st.session_state["main_view"]       = _selected_view
+            st.session_state["main_view"]        = _selected_view
             st.session_state["pr_active_module"] = None
             st.rerun()
 
@@ -21984,7 +21974,10 @@ section[data-testid="stSidebar"] .stRadio [data-baseweb="radio"] div div {
     # Both buttons sit in the same row so they align at the same visual level.
     _in_pr_submodule = (
         st.session_state.get("app_mode") == "Review Intelligence"
-        and st.session_state.get("pr_active_module") is not None
+        and (
+            st.session_state.get("pr_active_module") is not None
+            or st.session_state.get("main_view") == "dim"
+        )
     )
     if _in_pr_submodule:
         _back_col, _spacer_col, _end_col = st.columns([5, 4, 3])
@@ -21993,7 +21986,7 @@ section[data-testid="stSidebar"] .stRadio [data-baseweb="radio"] div div {
                          use_container_width=True):
                 st.session_state["pr_active_module"]   = None
                 st.session_state["main_view"]          = "periodic_review"
-                st.session_state["pr_user_at_landing"] = True  # suppress auto-restore
+                st.session_state["pr_user_at_landing"] = True
                 st.rerun()
         with _end_col:
             if st.button("⏹ End Session", key="terminate_hidden_trigger",
@@ -22079,10 +22072,9 @@ section[data-testid="stSidebar"] .stRadio [data-baseweb="radio"] div div {
     _main_view = st.session_state.get("main_view", "periodic_review")
 
     if _main_view == "periodic_review":
-        # Auto-restore: if user returns to the landing page but a module analysis
-        # is already complete, jump straight back to that module's results page.
-        # Priority: DCI > UAR > AT.
-        # Suppressed when pr_user_at_landing=True — user explicitly clicked Back.
+        # v96 — auto-restore: if AT/UAR/DCI analysis is already done and the user
+        # is returning from DIM (pr_active_module is None), restore the last active
+        # module so results are immediately visible without re-clicking the card.
         if st.session_state.get("pr_active_module") is None:
             if not st.session_state.pop("pr_user_at_landing", False):
                 if st.session_state.get("dci_analysis_done"):
