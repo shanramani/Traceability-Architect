@@ -17406,21 +17406,7 @@ def show_dim(user: str, role: str, model_id: str):
                     f"<div style='color:#94a3b8;font-size:0.79rem;line-height:1.5;'>{_rule_narrative}</div>"
                     f"</div>", unsafe_allow_html=True)
 
-    # ── New Analysis — bottom of page ─────────────────────────────────────────
-    st.markdown("<div style='margin-top:24px;'></div>", unsafe_allow_html=True)
-    _, _na_col_bot, _ = st.columns([4, 3, 4])
-    with _na_col_bot:
-        if st.button("🔄 Start New AT Analysis", use_container_width=True, key="dim_new_analysis_bot"):
-            st.session_state.update({"dim_result": None, "dim_analysis_done": False})
-            for _k in ["at_raw_df","at_mapped_df","at_scored_df","at_top20_df",
-                       "at_file_name","at_mapping_done","at_analysis_done",
-                       "at_total_events","at_review_start","at_review_end"]:
-                st.session_state[_k] = _defaults.get(_k)
-            st.session_state["at_key_n"] = st.session_state.get("at_key_n", 0) + 1
-            st.session_state["pr_active_module"] = "audit_trail"
-            st.session_state["main_view"] = "periodic_review"
-            _scroll_top()
-            st.rerun()
+    # Bottom of DIM — navigation handled by sticky Back button at top of page.
 
 
 def show_signalintel(user: str, role: str, model_id: str):
@@ -21960,19 +21946,54 @@ section[data-testid="stSidebar"] .stRadio [data-baseweb="radio"] div div {
                             st.success(f"User '{new_u_clean}' created with role: {new_r}.")
                     else:
                         st.warning("Username and password are required.")
-    # ── Top action bar — Back to Periodic Review (left) + End Session (right) ──
+    # ── Top action bar — Back (sticky fixed) + End Session ───────────────────
     _in_pr_submodule = (
         st.session_state.get("pr_active_module") is not None
         or st.session_state.get("main_view") == "dim"
     )
     if _in_pr_submodule:
+        # Inject sticky back button via fixed CSS — always visible regardless of scroll
+        st.markdown("""
+<style>
+.vl-sticky-back {
+    position: fixed;
+    top: 52px;
+    left: 290px;
+    z-index: 999;
+    background: #0f172a;
+    border: 1px solid #334155;
+    border-radius: 6px;
+    padding: 0;
+}
+.vl-sticky-back button {
+    background: transparent !important;
+    border: none !important;
+    color: #94a3b8 !important;
+    font-size: 0.82rem !important;
+    padding: 6px 14px !important;
+    cursor: pointer;
+    white-space: nowrap;
+}
+.vl-sticky-back button:hover {
+    color: #fb923c !important;
+    background: rgba(251,146,60,0.08) !important;
+}
+</style>
+<div class="vl-sticky-back">
+  <button onclick="(function(){
+    var btns = window.parent.document.querySelectorAll('button');
+    for(var i=0;i<btns.length;i++){
+      if(btns[i].innerText.trim()==='← Back to Review Intelligence'){btns[i].click();return;}
+    }
+  })()">← Back to Review Intelligence</button>
+</div>
+""", unsafe_allow_html=True)
         _back_col, _spacer_col, _end_col = st.columns([5, 4, 3])
         with _back_col:
             if st.button("← Back to Review Intelligence", key="pr_back_btn",
                          use_container_width=True):
-                st.session_state["pr_active_module"]   = None
-                st.session_state["main_view"]          = "periodic_review"
-                st.session_state["pr_user_at_landing"] = True
+                st.session_state["pr_active_module"] = None
+                st.session_state["main_view"]        = "periodic_review"
                 st.rerun()
         with _end_col:
             if st.button("⏹ End Session", key="terminate_hidden_trigger",
@@ -22058,17 +22079,9 @@ section[data-testid="stSidebar"] .stRadio [data-baseweb="radio"] div div {
     _main_view = st.session_state.get("main_view", "periodic_review")
 
     if _main_view == "periodic_review":
-        # v96 — auto-restore: if AT/UAR/DCI analysis is already done and the user
-        # is returning from DIM (pr_active_module is None), restore the last active
-        # module so results are immediately visible without re-clicking the card.
-        if st.session_state.get("pr_active_module") is None:
-            if not st.session_state.pop("pr_user_at_landing", False):
-                if st.session_state.get("dci_analysis_done"):
-                    st.session_state["pr_active_module"] = "dci_review"
-                elif st.session_state.get("uar_analysis_done"):
-                    st.session_state["pr_active_module"] = "access_review"
-                elif st.session_state.get("at_analysis_done"):
-                    st.session_state["pr_active_module"] = "audit_trail"
+        # No auto-restore — let pr_active_module drive navigation entirely.
+        # Auto-restore was causing card clicks to be overwritten on rerun.
+        # The last-run state is shown via status badges on the landing page instead.
         show_periodic_review(user, role, _model_id)
         return
 
