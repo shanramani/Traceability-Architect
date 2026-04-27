@@ -16030,93 +16030,98 @@ def dim_build_excel(result: dict, system_name: str, file_name: str,
 
     # =========================================================================
     # SHEET 5 — ACTIVITY HEATMAP (User vs Hour-of-Day)
-    # Only created when ≥3 periods banked — not meaningful with fewer.
     # =========================================================================
     if _n_periods >= 3:
         ws5 = wb.create_sheet("Activity Heatmap")
         ws5.sheet_view.showGridLines = False
+    else:
+        ws5 = None  # Not enough periods for meaningful heatmap — skip
+    ws5.cell(row=1, column=1,
+             value="User Activity Heatmap — GxP Events by Hour of Day"
+    ).font = Font(name="Calibri", bold=True, size=12, color=C_NAVY)
+    ws5.cell(row=2, column=1,
+             value="Colour intensity = number of GxP events in that hour. "
+                   "Deep red = high activity. White = no activity. "
+                   "Off-hours (22:00–06:00) highlighted in column headers."
+    ).font = Font(name="Calibri", size=11, italic=True, color="5A6A7A")
+    ws5.row_dimensions[1].height = 20
+    ws5.row_dimensions[2].height = 14
 
-        ws5.cell(row=1, column=1,
-                 value="User Activity Heatmap — GxP Events by Hour of Day"
-        ).font = Font(name="Calibri", bold=True, size=12, color=C_NAVY)
-        ws5.cell(row=2, column=1,
-                 value="Colour intensity = number of GxP events in that hour. "
-                       "Deep red = high activity. White = no activity. "
-                       "Off-hours (22:00–06:00) highlighted in column headers."
-        ).font = Font(name="Calibri", size=11, italic=True, color="5A6A7A")
-        ws5.row_dimensions[1].height = 20
-        ws5.row_dimensions[2].height = 14
+    # Build user × hour grid from raw_df
+    _heatmap_built = False
+    if not raw_df.empty and "Event_Timestamp" in raw_df.columns and "Username" in raw_df.columns:
+        try:
+            _hm = raw_df[~raw_df.get("_is_sentinel", pd.Series(False,
+                         index=raw_df.index))].copy()
+            _hm["_ts"] = pd.to_datetime(_hm["Event_Timestamp"], errors="coerce")
+            _hm        = _hm.dropna(subset=["_ts"])
+            _hm["_hr"] = _hm["_ts"].dt.hour
 
-        # Build user × hour grid from raw_df
-        _heatmap_built = False
-        if not raw_df.empty and "Event_Timestamp" in raw_df.columns and "Username" in raw_df.columns:
-            try:
-                _hm = raw_df[~raw_df.get("_is_sentinel", pd.Series(False,
-                             index=raw_df.index))].copy()
-                _hm["_ts"] = pd.to_datetime(_hm["Event_Timestamp"], errors="coerce")
-                _hm        = _hm.dropna(subset=["_ts"])
-                _hm["_hr"] = _hm["_ts"].dt.hour
+            # Top 20 users by event count
+            _top_users = (_hm.groupby("Username").size()
+                          .sort_values(ascending=False).head(20).index.tolist())
+            _hm_top    = _hm[_hm["Username"].isin(_top_users)]
 
-                # Top 20 users by event count
-                _top_users = (_hm.groupby("Username").size()
-                              .sort_values(ascending=False).head(20).index.tolist())
-                _hm_top    = _hm[_hm["Username"].isin(_top_users)]
+            # Build pivot: rows=users, cols=hours 0–23
+            _pivot = (_hm_top.groupby(["Username", "_hr"]).size()
+                      .unstack(fill_value=0)
+                      .reindex(columns=range(24), fill_value=0))
+            _pivot = _pivot.loc[_top_users]   # preserve top-user order
 
-                # Build pivot: rows=users, cols=hours 0–23
-                _pivot = (_hm_top.groupby(["Username", "_hr"]).size()
-                          .unstack(fill_value=0)
-                          .reindex(columns=range(24), fill_value=0))
-                _pivot = _pivot.loc[_top_users]
+            # Write hour headers (row 4)
+            ws5.cell(row=4, column=1, value="User / Hour").font = Font(
+                name="Calibri", bold=True, size=8, color=C_WHITE)
+            ws5.cell(row=4, column=1).fill = _fill(C_NAVY)
+            ws5.column_dimensions["A"].width = 20
 
-                # Write hour headers (row 4)
-                ws5.cell(row=4, column=1, value="User / Hour").font = Font(
-                    name="Calibri", bold=True, size=8, color=C_WHITE)
-                ws5.cell(row=4, column=1).fill = _fill(C_NAVY)
-                ws5.column_dimensions["A"].width = 20
+            _OFF_HOURS = set(range(0, 7)) | set(range(22, 24))
+            for _hr in range(24):
+                _hc = ws5.cell(row=4, column=_hr + 2, value=f"{_hr:02d}:00")
+                _hc.font = Font(name="Calibri", bold=True, size=7.5,
+                                color=C_WHITE)
+                _hc.fill = _fill("C0392B" if _hr in _OFF_HOURS else C_NAVY)
+                _hc.alignment = Alignment(horizontal="center", vertical="center")
+                ws5.column_dimensions[get_column_letter(_hr + 2)].width = 5.5
+            ws5.row_dimensions[4].height = 18
 
-                _OFF_HOURS = set(range(0, 7)) | set(range(22, 24))
+            # Write data rows
+            for _ui, _uname in enumerate(_top_users, 5):
+                uc = ws5.cell(row=_ui, column=1, value=_uname)
+                uc.font      = Font(name="Calibri", bold=True, size=8, color=C_NAVY)
+                uc.alignment = Alignment(horizontal="left", vertical="center")
                 for _hr in range(24):
-                    _hc = ws5.cell(row=4, column=_hr + 2, value=f"{_hr:02d}:00")
-                    _hc.font = Font(name="Calibri", bold=True, size=7.5, color=C_WHITE)
-                    _hc.fill = _fill("C0392B" if _hr in _OFF_HOURS else C_NAVY)
-                    _hc.alignment = Alignment(horizontal="center", vertical="center")
-                    ws5.column_dimensions[get_column_letter(_hr + 2)].width = 5.5
-                ws5.row_dimensions[4].height = 18
+                    _cnt = int(_pivot.loc[_uname, _hr]) if _hr in _pivot.columns else 0
+                    dc   = ws5.cell(row=_ui, column=_hr + 2,
+                                    value=_cnt if _cnt > 0 else None)
+                    dc.font      = Font(name="Calibri", size=7.5, color="374151")
+                    dc.alignment = Alignment(horizontal="center", vertical="center")
+                    if _hr in _OFF_HOURS:
+                        dc.fill = _fill("FFF5F5") if _cnt == 0 else PatternFill()
+                ws5.row_dimensions[_ui].height = 14
 
-                for _ui, _uname in enumerate(_top_users, 5):
-                    uc = ws5.cell(row=_ui, column=1, value=_uname)
-                    uc.font      = Font(name="Calibri", bold=True, size=8, color=C_NAVY)
-                    uc.alignment = Alignment(horizontal="left", vertical="center")
-                    for _hr in range(24):
-                        _cnt = int(_pivot.loc[_uname, _hr]) if _hr in _pivot.columns else 0
-                        dc   = ws5.cell(row=_ui, column=_hr + 2,
-                                        value=_cnt if _cnt > 0 else None)
-                        dc.font      = Font(name="Calibri", size=7.5, color="374151")
-                        dc.alignment = Alignment(horizontal="center", vertical="center")
-                        if _hr in _OFF_HOURS:
-                            dc.fill = _fill("FFF5F5") if _cnt == 0 else PatternFill()
-                    ws5.row_dimensions[_ui].height = 14
-
-                _data_rows = len(_top_users)
-                _range_ref = f"{get_column_letter(2)}5:{get_column_letter(25)}{4 + _data_rows}"
-                ws5.conditional_formatting.add(
-                    _range_ref,
-                    ColorScaleRule(
-                        start_type="num",  start_value=0,   start_color="FFFFFF",
-                        mid_type="num",    mid_value=5,     mid_color="FBBF24",
-                        end_type="num",    end_value=30,    end_color="B91C1C",
-                    )
+            # Apply color scale rule over the data range
+            _data_rows = len(_top_users)
+            _cr        = get_column_letter(2)
+            _cc        = get_column_letter(25)
+            _range_ref = f"{_cr}5:{_cc}{4 + _data_rows}"
+            ws5.conditional_formatting.add(
+                _range_ref,
+                ColorScaleRule(
+                    start_type="num",  start_value=0,   start_color="FFFFFF",
+                    mid_type="num",    mid_value=5,     mid_color="FBBF24",
+                    end_type="num",    end_value=30,    end_color="B91C1C",
                 )
-                _heatmap_built = True
-            except Exception:
-                pass
+            )
+            _heatmap_built = True
+        except Exception:
+            pass
 
-        if not _heatmap_built:
-            ws5.cell(row=4, column=1,
-                     value="Heatmap not available — Event_Timestamp data required."
-            ).font = Font(name="Calibri", size=11, color=C_MID)
+    if not _heatmap_built:
+        ws5.cell(row=4, column=1,
+                 value="Heatmap not available — Event_Timestamp data required."
+        ).font = Font(name="Calibri", size=11, color=C_MID)
 
-        ws5.freeze_panes = "B5"
+    ws5.freeze_panes = "B5"
 
     # =========================================================================
     # SHEET 6 — NARRATIVE SUMMARY
@@ -16981,17 +16986,33 @@ def show_dim(user: str, role: str, model_id: str):
         f"📊 No periods banked · Maximum recommended: {_DIM_MAX_PERIODS} periods."
     )
     if _banked > 0:
-        # Clear DIM Results — left-aligned, no paired button needed.
-        # Navigation back is handled by "← Back to Review Intelligence" at the top.
-        _dim_clear_col, _dim_spacer = st.columns([2, 10])
-        with _dim_clear_col:
+        _dim_btn_col1, _dim_btn_col2, _dim_btn_spacer = st.columns([3, 3, 6])
+        with _dim_btn_col1:
             if st.button("🗑 Clear DIM Results", key="dim_clear_all",
-                         help="Remove all banked periods — does not affect AT/UAR analysis state",
+                         help="Remove all banked periods — does not affect AT/UAR/DCI uploads",
                          use_container_width=True):
                 st.session_state["dim_accumulated_rows"] = []
                 st.session_state["dim_periods_banked"]   = 0
                 st.session_state["dim_analysis_done"]    = False
                 st.session_state["dim_autorun_pending"]  = False
+                st.rerun()
+        with _dim_btn_col2:
+            if st.button("🔄 Start New Analysis", key="dim_start_new",
+                         help="Clear DIM results and reset all module analyses",
+                         use_container_width=True):
+                st.session_state["dim_accumulated_rows"] = []
+                st.session_state["dim_periods_banked"]   = 0
+                st.session_state["dim_analysis_done"]    = False
+                st.session_state["dim_autorun_pending"]  = False
+                for _k in ["at_raw_df","at_mapped_df","at_scored_df","at_top20_df",
+                           "at_file_name","at_mapping_done","at_analysis_done",
+                           "at_total_events","at_review_start","at_review_end",
+                           "at_config_confirmed","at_force_config",
+                           "at_last_run_hash","at_last_run_filename","at_invalidation_msg",
+                           "uar_raw_df","uar_scored_result","uar_analysis_done",
+                           "uar_file_name","uar_last_run_hash","uar_last_run_filename"]:
+                    if _k in st.session_state:
+                        del st.session_state[_k]
                 st.rerun()
 
     if _banked >= _DIM_MAX_PERIODS:
@@ -17291,11 +17312,6 @@ def show_dim(user: str, role: str, model_id: str):
         "DI Posture = worst of AT or UAR posture in that period. "
         "N/A = module not exercised in that period."
     )
-    st.caption(
-        "**Avg Risk Weight** — weighted mean of all findings in the period: "
-        "Critical = 4 · High = 3 · Medium = 2 · Low = 1. "
-        "A value above 3.0 indicates the majority of findings are High or Critical tier."
-    )
 
     # ── Download Evidence Package — placed directly below period table ─────────
     _dl_sys   = st.session_state.get("dim_system_name","System")
@@ -17315,26 +17331,6 @@ def show_dim(user: str, role: str, model_id: str):
         )
     st.caption("6 sheets: **Dashboard** · **Period Trends** · **Repeat Users** · **Rule Recurrence** · **Activity Heatmap** · **Narrative Summary**")
     st.markdown("<div style='margin-bottom:8px;'></div>", unsafe_allow_html=True)
-
-    # ── Point 10: UAR = 0 context note ───────────────────────────────────────
-    # If UAR findings are 0 across all periods, surface a clear explanation so
-    # an auditor does not misread it as the module being non-functional.
-    _uar_total_all_periods = int(pdf["UAR_Findings"].sum()) if "UAR_Findings" in pdf.columns else 0
-    _uar_ran_any = bool(pdf["UAR_Ran"].any()) if "UAR_Ran" in pdf.columns else False
-    if _uar_ran_any and _uar_total_all_periods == 0:
-        st.info(
-            "ℹ️ **UAR Findings = 0 across all periods.** "
-            "The User Access Review module was run but no High or Critical access risk findings "
-            "were detected in the uploaded user population. This is a legitimate outcome for a "
-            "well-governed user access list. To verify: re-run UAR with the "
-            "`UAR_11rule_coverage.csv` test file — all 11 rules should fire and bank findings to DIM."
-        )
-    elif not _uar_ran_any and _banked > 0:
-        st.info(
-            "ℹ️ **UAR not yet run for any banked period.** "
-            "DIM is showing AT findings only. Run a User Access Review and the results will "
-            "automatically bank alongside your AT findings for cross-module analysis."
-        )
 
     # ── Repeat Users ────────────────────────────────────────────────────────────
     rdf = result["repeat_df"]
@@ -17419,8 +17415,21 @@ def show_dim(user: str, role: str, model_id: str):
                     f"<div style='color:#94a3b8;font-size:0.79rem;line-height:1.5;'>{_rule_narrative}</div>"
                     f"</div>", unsafe_allow_html=True)
 
-    # Bottom of DIM page — no duplicate button needed.
-    # Use "🔄 New AT/UAR Period" at the top of the page to start a new period.
+    # ── New Analysis — bottom of page ─────────────────────────────────────────
+    st.markdown("<div style='margin-top:24px;'></div>", unsafe_allow_html=True)
+    _, _na_col_bot, _ = st.columns([4, 3, 4])
+    with _na_col_bot:
+        if st.button("🔄 Start New AT Analysis", use_container_width=True, key="dim_new_analysis_bot"):
+            st.session_state.update({"dim_result": None, "dim_analysis_done": False})
+            for _k in ["at_raw_df","at_mapped_df","at_scored_df","at_top20_df",
+                       "at_file_name","at_mapping_done","at_analysis_done",
+                       "at_total_events","at_review_start","at_review_end"]:
+                st.session_state[_k] = _defaults.get(_k)
+            st.session_state["at_key_n"] = st.session_state.get("at_key_n", 0) + 1
+            st.session_state["pr_active_module"] = "audit_trail"
+            st.session_state["main_view"] = "periodic_review"
+            _scroll_top()
+            st.rerun()
 
 
 def show_signalintel(user: str, role: str, model_id: str):
@@ -17664,7 +17673,7 @@ div.vl-btn-soon > div.stButton > button {
 </style>
 """, unsafe_allow_html=True)
 
-    st.title("🔬 Periodic Review Intelligence")
+    st.title("Periodic Review Intelligence")
     st.caption("Deterministic scoring engines · GxP-grade evidence output · 21 CFR Part 11 · EU Annex 11 · GAMP 5")
 
     # ── Sub-module routing ────────────────────────────────────────────────────
@@ -17680,13 +17689,40 @@ div.vl-btn-soon > div.stButton > button {
         show_dci_review(user, role, model_id)
         return
 
+    # ── Last-run status badges ────────────────────────────────────────────────
+    _at_done  = st.session_state.get("at_analysis_done")
+    _uar_done = st.session_state.get("uar_analysis_done")
+    _dci_done = st.session_state.get("dci_analysis_done")
+    if _at_done or _uar_done or _dci_done:
+        _sb1, _sb2, _sb3, _ = st.columns([2, 2, 2, 6])
+        with _sb1:
+            if _at_done:
+                st.success("✓ AT complete")
+        with _sb2:
+            if _uar_done:
+                st.success("✓ UAR complete")
+        with _sb3:
+            if _dci_done:
+                st.success("✓ DCI complete")
+
     # ── 3 module cards ────────────────────────────────────────────────────────
-    # ── All 3 cards in one CSS grid block (guarantees equal height) ───────────
     st.markdown("""
 <div class="vl-grid">
   <div class="vl-card" id="vl-card-at">
     <div class="vl-card-glow" style="background:linear-gradient(90deg,#ea580c,#fb923c);"></div>
-    <span class="vl-card-icon">🔍</span>
+    <div class="vl-card-icon-wrap">
+      <svg viewBox="0 0 44 44" fill="none" xmlns="http://www.w3.org/2000/svg" width="40" height="40">
+        <!-- Audit trail: document with scan line + magnifier -->
+        <rect x="6" y="4" width="24" height="30" rx="3" fill="#1e3a5f" stroke="#ea580c" stroke-width="1.5"/>
+        <rect x="10" y="10" width="16" height="2" rx="1" fill="#ea580c" opacity="0.7"/>
+        <rect x="10" y="15" width="12" height="2" rx="1" fill="#ea580c" opacity="0.5"/>
+        <rect x="10" y="20" width="14" height="2" rx="1" fill="#ea580c" opacity="0.5"/>
+        <line x1="6" y1="23" x2="30" y2="23" stroke="#fb923c" stroke-width="1" stroke-dasharray="3 2" opacity="0.6"/>
+        <circle cx="32" cy="33" r="7" fill="#0f172a" stroke="#ea580c" stroke-width="1.8"/>
+        <circle cx="32" cy="33" r="4" fill="none" stroke="#fb923c" stroke-width="1.5"/>
+        <line x1="37" y1="38" x2="40" y2="41" stroke="#ea580c" stroke-width="2" stroke-linecap="round"/>
+      </svg>
+    </div>
     <span class="vl-badge vl-badge-live">Live</span>
     <p class="vl-card-title">Audit Trail Review</p>
     <p class="vl-card-ref">21 CFR Part 11 §11.10(e) · EU Annex 11 Cl. 9</p>
@@ -17694,7 +17730,16 @@ div.vl-btn-soon > div.stButton > button {
   </div>
   <div class="vl-card" id="vl-card-uar">
     <div class="vl-card-glow" style="background:linear-gradient(90deg,#7c3aed,#a78bfa);"></div>
-    <span class="vl-card-icon">👥</span>
+    <div class="vl-card-icon-wrap">
+      <svg viewBox="0 0 44 44" fill="none" xmlns="http://www.w3.org/2000/svg" width="40" height="40">
+        <!-- User access: person silhouette + shield lock -->
+        <circle cx="18" cy="13" r="6" fill="#1e3a5f" stroke="#7c3aed" stroke-width="1.8"/>
+        <path d="M6 36c0-7 6-11 12-11s12 4 12 11" stroke="#7c3aed" stroke-width="1.8" stroke-linecap="round" fill="none"/>
+        <path d="M30 20 l6-2 6 2v6c0 4-6 7-6 7s-6-3-6-7v-6z" fill="#0f172a" stroke="#7c3aed" stroke-width="1.5"/>
+        <line x1="36" y1="26" x2="36" y2="30" stroke="#a78bfa" stroke-width="1.5" stroke-linecap="round"/>
+        <circle cx="36" cy="24" r="1.5" fill="#a78bfa"/>
+      </svg>
+    </div>
     <span class="vl-badge vl-badge-live">Live</span>
     <p class="vl-card-title">User Access Review</p>
     <p class="vl-card-ref">21 CFR Part 11 §11.300 · EU Annex 11 Cl. 12</p>
@@ -17702,7 +17747,19 @@ div.vl-btn-soon > div.stButton > button {
   </div>
   <div class="vl-card" id="vl-card-dci">
     <div class="vl-card-glow" style="background:linear-gradient(90deg,#059669,#34d399);"></div>
-    <span class="vl-card-icon">📋</span>
+    <div class="vl-card-icon-wrap">
+      <svg viewBox="0 0 44 44" fill="none" xmlns="http://www.w3.org/2000/svg" width="40" height="40">
+        <!-- Deviation/CAPA: clipboard + warning triangle + checkmark -->
+        <rect x="10" y="6" width="22" height="28" rx="3" fill="#0f172a" stroke="#059669" stroke-width="1.5"/>
+        <rect x="14" y="2" width="14" height="6" rx="2" fill="#1e3a5f" stroke="#059669" stroke-width="1.2"/>
+        <!-- warning triangle inside -->
+        <path d="M21 14 l6 11 H15 z" fill="none" stroke="#f59e0b" stroke-width="1.5" stroke-linejoin="round"/>
+        <line x1="21" y1="18" x2="21" y2="22" stroke="#f59e0b" stroke-width="1.5" stroke-linecap="round"/>
+        <circle cx="21" cy="24.5" r="0.8" fill="#f59e0b"/>
+        <!-- checkmark bottom = resolved -->
+        <polyline points="15,30 19,34 27,26" stroke="#34d399" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    </div>
     <span class="vl-badge vl-badge-live">Live</span>
     <p class="vl-card-title">Deviation &amp; CAPA Review</p>
     <p class="vl-card-ref">21 CFR Part 820.100 · ICH Q10 §3.2</p>
@@ -17719,10 +17776,17 @@ div.vl-btn-soon > div.stButton > button {
 }
 .vl-card { cursor: pointer; }
 .vl-card-soon { cursor: default; }
+.vl-card-icon-wrap {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    margin-bottom: 8px;
+    margin-top: 4px;
+}
 </style>
 """, unsafe_allow_html=True)
 
-    # ── JS: make card divs click the corresponding Streamlit buttons ──────────
+    # ── JS: make card divs click corresponding hidden Streamlit buttons ────────
     import streamlit.components.v1 as _cv1_cards
     _cv1_cards.html("""<script>
 (function() {
@@ -17740,13 +17804,12 @@ div.vl-btn-soon > div.stButton > button {
         var at  = doc.getElementById('vl-card-at');
         var uar = doc.getElementById('vl-card-uar');
         var dci = doc.getElementById('vl-card-dci');
-        if (at)  { at.onclick  = function() { clickBtn('Launch Audit Trail'); }; }
-        if (uar) { uar.onclick = function() { clickBtn('Launch User Access');  }; }
-        if (dci) { dci.onclick = function() { clickBtn('Launch Deviation');     }; }
+        if (at)  { at.onclick  = function() { clickBtn('_nav_at');  }; }
+        if (uar) { uar.onclick = function() { clickBtn('_nav_uar'); }; }
+        if (dci) { dci.onclick = function() { clickBtn('_nav_dci'); }; }
         if (at || uar) return true;
         return false;
     }
-    // Retry until cards are in DOM
     var tries = 0;
     var iv = setInterval(function() {
         if (wireCards() || ++tries > 20) clearInterval(iv);
@@ -17754,22 +17817,23 @@ div.vl-btn-soon > div.stButton > button {
 })();
 </script>""", height=0)
 
+    # Hidden navigation buttons — clicked by JS above, invisible to user
     _oc1, _oc2, _oc3 = st.columns(3, gap="large")
     with _oc1:
-        st.markdown('<div class="vl-card-click-wrap">', unsafe_allow_html=True)
-        if st.button("Launch Audit Trail Review", key="pr_open_audit_trail", use_container_width=True):
+        st.markdown('<div style="visibility:hidden;height:0;overflow:hidden">', unsafe_allow_html=True)
+        if st.button("_nav_at", key="pr_open_audit_trail"):
             st.session_state["pr_active_module"] = "audit_trail"
             st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
     with _oc2:
-        st.markdown('<div class="vl-card-click-wrap">', unsafe_allow_html=True)
-        if st.button("Launch User Access Review", key="pr_open_access_review", use_container_width=True):
+        st.markdown('<div style="visibility:hidden;height:0;overflow:hidden">', unsafe_allow_html=True)
+        if st.button("_nav_uar", key="pr_open_access_review"):
             st.session_state["pr_active_module"] = "access_review"
             st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
     with _oc3:
-        st.markdown('<div class="vl-card-click-wrap">', unsafe_allow_html=True)
-        if st.button("Launch Deviation & CAPA Review", key="pr_open_dci", use_container_width=True):
+        st.markdown('<div style="visibility:hidden;height:0;overflow:hidden">', unsafe_allow_html=True)
+        if st.button("_nav_dci", key="pr_open_dci"):
             st.session_state["pr_active_module"] = "dci_review"
             st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
@@ -17987,11 +18051,12 @@ def show_audit_trail(user: str, role: str, model_id: str):
         def _rule_row_b(cfg_key, rule_num, label, tier_tag, reg_text, cat):
             _rc, _regc = st.columns([3, 2])
             with _rc:
+                _badge_html = _CAT_BADGE.get(cat, "")
                 st.session_state[cfg_key] = st.toggle(
                     f"**{rule_num}. {label}** `{tier_tag}`",
                     value=st.session_state[cfg_key], key=f"cfg_{cfg_key}"
                 )
-                # Badge removed — section headers above each group provide grouping.
+                st.markdown(_badge_html, unsafe_allow_html=True)
             with _regc:
                 st.markdown(
                     f"<div style='padding:6px 0 0 4px;color:#94a3b8;font-size:0.78rem;"
@@ -21849,13 +21914,22 @@ section[data-testid="stSidebar"] .stRadio [data-baseweb="radio"] div div {
             "📁 Evidence Pack":                "evidence_pack",
         }
         _nav_inv   = {v: k for k, v in _nav_map.items()}
+
+        # Sidebar radio always matches the displayed page.
+        # When inside a PR sub-module (AT/UAR/DCI), the top-level selection
+        # stays on "Periodic Review Intelligence" — the sub-page is not a
+        # separate radio item, so the radio correctly shows the parent.
         _nav_current = _nav_inv.get(_main_view, "🔬 Periodic Review Intelligence")
 
         _banked_sb = st.session_state.get("dim_periods_banked", 0)
         _at_done   = bool(st.session_state.get("at_analysis_done"))
         _uar_done  = bool(st.session_state.get("uar_analysis_done"))
+        _dci_done  = bool(st.session_state.get("dci_analysis_done"))
         _dim_hint  = f"  \n\u00a0\u00a0{_banked_sb} period{'s' if _banked_sb != 1 else ''} banked" if _banked_sb else ""
-        _ep_hint   = f"  \n\u00a0\u00a0{'\u2713' if _at_done else '\u25cb'} AT \u00b7 {'\u2713' if _uar_done else '\u25cb'} UAR \u00b7 \u25cb DCI"
+        _ep_hint   = (f"  \n\u00a0\u00a0"
+                      f"{'\u2713' if _at_done else '\u25cb'} AT \u00b7 "
+                      f"{'\u2713' if _uar_done else '\u25cb'} UAR \u00b7 "
+                      f"{'\u2713' if _dci_done else '\u25cb'} DCI")
 
         _nav_sel = st.radio(
             "Periodic Review Intelligence",
@@ -21866,7 +21940,10 @@ section[data-testid="stSidebar"] .stRadio [data-baseweb="radio"] div div {
 
         _selected_view = _nav_map[_nav_sel]
         if _selected_view != _main_view:
-            st.session_state["main_view"] = _selected_view
+            # User clicked a different top-level nav item — navigate there
+            # and clear the sub-module so we land on the landing page.
+            st.session_state["main_view"]       = _selected_view
+            st.session_state["pr_active_module"] = None
             st.rerun()
 
         st.divider()
@@ -21903,21 +21980,20 @@ section[data-testid="stSidebar"] .stRadio [data-baseweb="radio"] div div {
                     else:
                         st.warning("Username and password are required.")
     # ── Top action bar — Back to Periodic Review (left) + End Session (right) ──
-    # The back button appears when inside a Periodic Review sub-module OR in DIM.
+    # The back button only appears when inside a Periodic Review sub-module.
+    # Both buttons sit in the same row so they align at the same visual level.
     _in_pr_submodule = (
         st.session_state.get("app_mode") == "Review Intelligence"
-        and (
-            st.session_state.get("pr_active_module") is not None
-            or st.session_state.get("main_view") == "dim"
-        )
+        and st.session_state.get("pr_active_module") is not None
     )
     if _in_pr_submodule:
         _back_col, _spacer_col, _end_col = st.columns([5, 4, 3])
         with _back_col:
             if st.button("← Back to Review Intelligence", key="pr_back_btn",
                          use_container_width=True):
-                st.session_state["pr_active_module"] = None
-                st.session_state["main_view"] = "periodic_review"
+                st.session_state["pr_active_module"]   = None
+                st.session_state["main_view"]          = "periodic_review"
+                st.session_state["pr_user_at_landing"] = True  # suppress auto-restore
                 st.rerun()
         with _end_col:
             if st.button("⏹ End Session", key="terminate_hidden_trigger",
@@ -22003,14 +22079,18 @@ section[data-testid="stSidebar"] .stRadio [data-baseweb="radio"] div div {
     _main_view = st.session_state.get("main_view", "periodic_review")
 
     if _main_view == "periodic_review":
-        # v96 — auto-restore: if AT/UAR/DCI analysis is already done and the user
-        # is returning from DIM (pr_active_module is None), restore the last active
-        # module so results are immediately visible without re-clicking the card.
+        # Auto-restore: if user returns to the landing page but a module analysis
+        # is already complete, jump straight back to that module's results page.
+        # Priority: DCI > UAR > AT.
+        # Suppressed when pr_user_at_landing=True — user explicitly clicked Back.
         if st.session_state.get("pr_active_module") is None:
-            if st.session_state.get("at_analysis_done"):
-                st.session_state["pr_active_module"] = "audit_trail"
-            elif st.session_state.get("uar_analysis_done"):
-                st.session_state["pr_active_module"] = "access_review"
+            if not st.session_state.pop("pr_user_at_landing", False):
+                if st.session_state.get("dci_analysis_done"):
+                    st.session_state["pr_active_module"] = "dci_review"
+                elif st.session_state.get("uar_analysis_done"):
+                    st.session_state["pr_active_module"] = "access_review"
+                elif st.session_state.get("at_analysis_done"):
+                    st.session_state["pr_active_module"] = "audit_trail"
         show_periodic_review(user, role, _model_id)
         return
 
