@@ -16986,8 +16986,10 @@ def show_dim(user: str, role: str, model_id: str):
         f"📊 No periods banked · Maximum recommended: {_DIM_MAX_PERIODS} periods."
     )
     if _banked > 0:
-        _dim_btn_col1, _dim_btn_col2, _dim_btn_spacer = st.columns([3, 3, 6])
-        with _dim_btn_col1:
+        # Clear DIM Results — left-aligned, no paired button needed.
+        # Navigation back is handled by "← Back to Review Intelligence" at the top.
+        _dim_clear_col, _dim_spacer = st.columns([2, 10])
+        with _dim_clear_col:
             if st.button("🗑 Clear DIM Results", key="dim_clear_all",
                          help="Remove all banked periods — does not affect AT/UAR analysis state",
                          use_container_width=True):
@@ -16995,25 +16997,6 @@ def show_dim(user: str, role: str, model_id: str):
                 st.session_state["dim_periods_banked"]   = 0
                 st.session_state["dim_analysis_done"]    = False
                 st.session_state["dim_autorun_pending"]  = False
-                st.rerun()
-        with _dim_btn_col2:
-            if st.button("🔄 New AT/UAR Period", key="dim_start_new",
-                         help="Reset AT and UAR modules so you can run a new period and bank it to DIM. DIM results are preserved.",
-                         use_container_width=True):
-                # Clear AT and UAR module state only — DIM banking is NOT touched.
-                # The user wants to run a new review period and add it to DIM,
-                # not wipe the periods already banked.
-                for _k in ["at_raw_df","at_mapped_df","at_scored_df","at_top20_df",
-                           "at_file_name","at_mapping_done","at_analysis_done",
-                           "at_total_events","at_review_start","at_review_end",
-                           "at_config_confirmed","at_force_config",
-                           "at_last_run_hash","at_last_run_filename","at_invalidation_msg",
-                           "uar_raw_df","uar_scored_result","uar_analysis_done",
-                           "uar_file_name","uar_last_run_hash","uar_last_run_filename"]:
-                    if _k in st.session_state:
-                        del st.session_state[_k]
-                st.session_state["pr_active_module"] = "audit_trail"
-                st.session_state["main_view"] = "periodic_review"
                 st.rerun()
 
     if _banked >= _DIM_MAX_PERIODS:
@@ -18009,12 +17992,11 @@ def show_audit_trail(user: str, role: str, model_id: str):
         def _rule_row_b(cfg_key, rule_num, label, tier_tag, reg_text, cat):
             _rc, _regc = st.columns([3, 2])
             with _rc:
-                _badge_html = _CAT_BADGE.get(cat, "")
                 st.session_state[cfg_key] = st.toggle(
                     f"**{rule_num}. {label}** `{tier_tag}`",
                     value=st.session_state[cfg_key], key=f"cfg_{cfg_key}"
                 )
-                st.markdown(_badge_html, unsafe_allow_html=True)
+                # Badge removed — section headers above each group provide grouping.
             with _regc:
                 st.markdown(
                     f"<div style='padding:6px 0 0 4px;color:#94a3b8;font-size:0.78rem;"
@@ -21926,11 +21908,13 @@ section[data-testid="stSidebar"] .stRadio [data-baseweb="radio"] div div {
                     else:
                         st.warning("Username and password are required.")
     # ── Top action bar — Back to Periodic Review (left) + End Session (right) ──
-    # The back button only appears when inside a Periodic Review sub-module.
-    # Both buttons sit in the same row so they align at the same visual level.
+    # The back button appears when inside a Periodic Review sub-module OR in DIM.
     _in_pr_submodule = (
         st.session_state.get("app_mode") == "Review Intelligence"
-        and st.session_state.get("pr_active_module") is not None
+        and (
+            st.session_state.get("pr_active_module") is not None
+            or st.session_state.get("main_view") == "dim"
+        )
     )
     if _in_pr_submodule:
         _back_col, _spacer_col, _end_col = st.columns([5, 4, 3])
@@ -21938,8 +21922,7 @@ section[data-testid="stSidebar"] .stRadio [data-baseweb="radio"] div div {
             if st.button("← Back to Review Intelligence", key="pr_back_btn",
                          use_container_width=True):
                 st.session_state["pr_active_module"] = None
-                st.rerun()
-                st.session_state["pr_active_module"] = None
+                st.session_state["main_view"] = "periodic_review"
                 st.rerun()
         with _end_col:
             if st.button("⏹ End Session", key="terminate_hidden_trigger",
