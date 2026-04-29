@@ -13791,9 +13791,9 @@ def show_user_access_review(user: str, role: str, model_id: str):
 
     # ── v96 Detection Rules visibility panel (UAR Spec v1.2 §7.1) ─────────────
     # Collapsible by default — mirrors the AT module landing page pattern.
-    # 11 rules across 4 categories: Privilege Escalation, Access Governance,
+    # 10 rules across 3 categories: Privilege Escalation, Access Governance,
     # User Attribution, Multi-factor risk.
-    with st.expander("Detection Rules (11 rules across 4 categories)", expanded=False):
+    with st.expander("Detection Rules (10 rules across 3 categories)", expanded=False):
         st.markdown(
             """
 <div style='font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:0.82rem;
@@ -13814,7 +13814,6 @@ def show_user_access_review(user: str, role: str, model_id: str):
 &nbsp;&nbsp;8. <b>Never_Logged_In</b> (+20)<br>
 &nbsp;&nbsp;9. <b>Ghost_Account</b> (+20) — Terminated but active<br>
 &nbsp;&nbsp;10. <b>Dormant_90</b> (+15) — &gt;90 days since last login<br>
-<br>
 <br>
 <span style='color:#94a3b8;font-style:italic;'>
 Regulatory basis: 21 CFR §11.10(d), EU Annex 11 §12,
