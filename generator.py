@@ -18048,8 +18048,15 @@ def show_audit_trail(user: str, role: str, model_id: str):
         else:
             _c1, _c2, _c3 = st.columns([2, 3, 2])
             with _c2:
+                # Label changes depending on whether a file is already loaded
+                _file_loaded = st.session_state.get("at_mapping_done", False)
+                _confirm_label = (
+                    f"✅ Confirm {_active_count} Rules & Re-run Analysis →"
+                    if _file_loaded else
+                    f"✅ Confirm {_active_count} Rules & Continue to Upload →"
+                )
                 if st.button(
-                    f"✅ Confirm {_active_count} Rules & Continue to Upload →",
+                    _confirm_label,
                     type="primary", use_container_width=True, key="at_confirm_config"
                 ):
                     st.session_state["at_config_confirmed"] = True
@@ -18057,6 +18064,17 @@ def show_audit_trail(user: str, role: str, model_id: str):
                     st.session_state["_AT_RULE_CONFIG"] = {
                         k: st.session_state.get(k, v) for k, v in _RULE_DEFAULTS.items()
                     }
+                    # Clear stale results so the new config runs fresh.
+                    # Keep at_mapping_done + at_mapped_df — user doesn't need to
+                    # re-upload the same file just because they changed a rule.
+                    for _stale_k in ["at_analysis_done", "at_scored_df",
+                                     "at_top20_df", "at_aggregated_detail_df",
+                                     "at_dim_banked_msg"]:
+                        if _stale_k in st.session_state:
+                            del st.session_state[_stale_k]
+                    if _file_loaded:
+                        # Signal to show a "config changed" notice at Step 3
+                        st.session_state["at_config_changed_notice"] = True
                     _scroll_top()
                     st.rerun()
         return   # Don't render upload step until config confirmed
@@ -20718,6 +20736,11 @@ match your system's export column names to the fields above — rename nothing i
     # ── STEP 2: Run analysis ──────────────────────────────────────────────────
     elif not _at_analysis_done:
         df = st.session_state["at_mapped_df"]
+        if st.session_state.pop("at_config_changed_notice", False):
+            st.info(
+                "ℹ️ Rule configuration updated — previous results cleared. "
+                "Run the analysis again with the new rule set below."
+            )
         st.success(f"✅ Mapping confirmed — **{len(df):,} events** ready")
 
         # v96 — timestamp parse warning (set during mapping)
