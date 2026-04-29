@@ -14241,11 +14241,14 @@ them in Step 2.
 
     if (not uploaded
             and st.session_state.get("uar_file_was_attached", False)
-            and st.session_state.get("uar_raw_df") is not None):
-        # File was actively removed by user — clear all UAR state.
-        # Guard: uar_file_was_attached ensures this only fires when the user
-        # genuinely attached then removed a file, not on fresh module entry
-        # after navigating back from DIM (which also has uploaded=None).
+            and st.session_state.get("uar_raw_df") is not None
+            and not st.session_state.get("uar_analysis_done", False)):
+        # File was actively removed mid-flow (attached + mapped but not yet run).
+        # Guards:
+        #   uar_file_was_attached — skips fresh module entry (uploaded=None, no
+        #     file ever attached this session)
+        #   not uar_analysis_done — skips back-navigation after a completed run
+        #     (uploaded=None looks identical to removal, but results must survive)
         for _k in [
             "uar_raw_df", "uar_file_name", "uar_pending_hash",
             "uar_mapping_done", "uar_column_mapping",
