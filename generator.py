@@ -12476,7 +12476,7 @@ def _uar_preprocess(df: pd.DataFrame) -> tuple:
             lambda d: (d.replace(tzinfo=None) < today_dt) if pd.notna(d) else False)
     else:
         df["training_expired"] = False
-        rules_skipped.append("Training Expiry — training_expiry_date column not provided")
+        pass   # Training Expiry rule not yet live — omit from Rules Not Applied
 
     return df, data_quality_issues, rules_skipped
 
@@ -12525,6 +12525,7 @@ def _uar_score_single(row: pd.Series) -> tuple:
         triggered.append("U6: High-Criticality GxP System (+25)")
 
     # U7 — Dormancy / never-logged-in (mutually exclusive)
+    _u7_dormant_fired = False   # used by U10 to suppress double-counting
     # Never-logged-in scoring is graduated by account age (account_created_date):
     #   < 14 days old  → new account, expected, no flag
     #   14–90 days old → +10 (concern)
@@ -12556,17 +12557,21 @@ def _uar_score_single(row: pd.Series) -> tuple:
                 triggered.append(
                     f"U7: Account Never Used — {account_age} days old, "
                     f"no login on record (+10)")
+                _u7_dormant_fired = True
             else:
                 score += 30
                 triggered.append(
                     f"U7: Account Never Used — {account_age} days old, "
                     f"likely orphaned (+30)")
+                _u7_dormant_fired = True
         else:
             score += _UAR_SCORE_WEIGHTS["Never_Logged_In"]
             triggered.append("U7: Account Never Used — No Login Date on Record (+20)")
+            _u7_dormant_fired = True
     elif not days_is_null and isinstance(days, (int, float)) and days > _UAR_DORMANCY_DAYS:
         score += _UAR_SCORE_WEIGHTS["Dormant_90"]
         triggered.append(f"U7: Dormant Account — {int(days)} days since last login (+15)")
+        _u7_dormant_fired = True   # flag for U10 suppression
 
     # U8 — Ghost account: employment inactive, system account still active
     emp_norm = row.get("employment_status_norm")
@@ -12605,6 +12610,20 @@ def _uar_score_single(row: pd.Series) -> tuple:
         # has_justification == False means: column present, this row's value is blank/invalid
         _u10_no_just = (row.get("has_justification") is False)
         if _u10_active and _u10_dormant and _u10_priv and _u10_no_just:
+            # U10 supersedes U7 — remove U7 dormancy score+trigger to avoid
+            # double-counting the same dormancy condition at different weights.
+            if _u7_dormant_fired:
+                _u7_entry = next(
+                    (t for t in triggered if t.startswith("U7:")), None)
+                if _u7_entry is not None:
+                    triggered.remove(_u7_entry)
+                    # Reverse the U7 score contribution
+                    if "Dormant Account" in _u7_entry:
+                        score -= _UAR_SCORE_WEIGHTS["Dormant_90"]
+                    elif "No Login Date" in _u7_entry:
+                        score -= _UAR_SCORE_WEIGHTS["Never_Logged_In"]
+                    elif "days old" in _u7_entry:
+                        score -= (30 if "orphaned" in _u7_entry else 10)
             score += _UAR_SCORE_WEIGHTS["Dormant_Privileged_No_Justification"]
             _u10_reason = ("never logged in" if _u10_days_null
                            else f"{int(_u10_days)} days since last login")
@@ -13314,9 +13333,16 @@ def uar_build_excel(
         _pct_risk = "<0.1"
     else:
         _pct_risk = str(round(_pct_risk_raw, 1))
-    _pct_ghost  = round(smry.get("ghost_count",    0) / _total * 100, 1)
-    _pct_dorm   = round(smry.get("dormant_count",  0) / _active * 100, 1)
-    _pct_just   = round(smry.get("no_just_count",  0) / _total * 100, 1)
+    _pct_ghost_raw = smry.get("ghost_count",   0) / _total * 100 if _total else 0
+    _pct_dorm_raw  = smry.get("dormant_count", 0) / _active * 100 if _active else 0
+    _pct_just_raw  = smry.get("no_just_count", 0) / _total * 100 if _total else 0
+    def _fmt_pct(raw):
+        if raw == 0:       return "0.0"
+        if raw < 0.1:      return "<0.1"
+        return str(round(raw, 1))
+    _pct_ghost = _fmt_pct(_pct_ghost_raw)
+    _pct_dorm  = _fmt_pct(_pct_dorm_raw)
+    _pct_just  = _fmt_pct(_pct_just_raw)
 
     _summary_row("ACCESS GOVERNANCE KPIs", "", section=True)
     _summary_row("% Critical + High Users",       f"{_pct_risk}%  ({_crit_high} of {_total:,})")
@@ -13360,7 +13386,16 @@ def uar_build_excel(
     # =========================================================================
     # SHEET 2 — TOP 10 HIGH-RISK USERS
     # =========================================================================
-    ws2 = wb.create_sheet("Top 10 High-Risk Users")
+    # Sheet title: show count and highest tier present
+    _top_n_total = len(result.get("top_users", pd.DataFrame()))
+    _top_hc = len(result.get("top_users", pd.DataFrame()).pipe(
+        lambda d: d[d["Risk_Level"].isin(["High", "Critical"])] if not d.empty else d))
+    _ws2_title = (
+        f"Top {_top_n_total} High-Risk Users"
+        if _top_hc == _top_n_total
+        else f"Top {_top_n_total} Flagged Users by Risk Score"
+    )
+    ws2 = wb.create_sheet(_ws2_title)
 
     # Plain-English rule label map (item 10)
     _RULE_PLAIN = {
@@ -13368,7 +13403,7 @@ def uar_build_excel(
         "U3": "Approval Authority", "U4": "Release Capability",
         "U5": "Master Data Modification", "U6": "GxP Critical System",
         "U7": "Dormant / Never Used", "U8": "Ghost Account",
-        "U9": "No Justification",
+        "U9": "No Justification", "U10": "Dormant Privileged, No Justification",
     }
     def _plain_rules(triggered_str: str) -> str:
         """Convert 'U1: Admin Account (+40) | U6: ...' → 'Admin Account · GxP Critical System'"""
@@ -16009,6 +16044,10 @@ def dim_build_excel(result: dict, system_name: str, file_name: str,
         for k, v in _ALCOA_MAP.items():
             if k.lower() in str(rule_str).lower():
                 return v
+        # UAR rule patterns (U1·U7·U9·U10 etc.) don't map to ALCOA+ event
+        # categories — they are access control findings, not audit trail events.
+        if re.search(r'U\d', str(rule_str)):
+            return "Access Control"
         return "—"
 
     rule_cols = [
