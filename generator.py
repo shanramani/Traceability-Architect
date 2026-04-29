@@ -21895,11 +21895,14 @@ section[data-testid="stSidebar"] .stRadio [data-baseweb="radio"] div div {
                             st.success(f"User '{new_u_clean}' created with role: {new_r}.")
                     else:
                         st.warning("Username and password are required.")
-    # ── Top action bar — Back (sticky fixed) + End Session ───────────────────
+    # ── Bottom action bar — Back + End Session ───────────────────────────────
+    # Rendered AFTER all module content so it never sits adjacent to module
+    # buttons (e.g. UAR confirm mapping) and cannot be accidentally triggered.
     _in_pr_submodule = (
         st.session_state.get("pr_active_module") is not None
         or st.session_state.get("main_view") == "dim"
     )
+    st.markdown("---")
     if _in_pr_submodule:
         _back_col, _spacer_col, _end_col = st.columns([5, 4, 3])
         with _back_col:
