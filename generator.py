@@ -14342,29 +14342,33 @@ them in Step 2.
     _req_fields   = [f for f in _UAR_DISPLAY_FIELDS if f[2]]
     _opt_fields   = [f for f in _UAR_DISPLAY_FIELDS if not f[2]]
 
+    def _uar_selectbox(field, label, avail):
+        """Render a selectbox that persists user selection across reruns.
+        Priority: (1) existing session_state value from prior interaction,
+        (2) stored mapping from confirmed session, (3) autodetect, (4) index 0.
+        Reading from session_state[key] is the only way to survive rerenders
+        without resetting the user's manual selection back to the autodetected value."""
+        _key = f"uar_map_{field}"
+        # Current widget value already in session state (user changed it)
+        _ss_val = st.session_state.get(_key)
+        _auto   = _uar_mapping_stored.get(field) or _uar_autodetect(field, raw_df.columns)
+        _default = _ss_val if (_ss_val and _ss_val in avail) else (_auto if _auto in avail else avail[0])
+        _idx = avail.index(_default)
+        return st.selectbox(label, avail, index=_idx, key=_key)
+
     st.markdown("**★ Required fields**")
     _req_cols = st.columns(len(_req_fields))
     for (field, label, _), col in zip(_req_fields, _req_cols):
-        _auto = _uar_mapping_stored.get(field) or _uar_autodetect(field, raw_df.columns)
         with col:
-            _uar_mapping[field] = st.selectbox(
-                label, _avail_uar,
-                index=_avail_uar.index(_auto) if _auto in _avail_uar else 0,
-                key=f"uar_map_{field}"
-            )
+            _uar_mapping[field] = _uar_selectbox(field, label, _avail_uar)
 
     st.markdown("**Optional fields**")
     for _row_start in range(0, len(_opt_fields), 3):
         _row_fields = _opt_fields[_row_start:_row_start+3]
         _opt_row_cols = st.columns(3)
         for (field, label, _), col in zip(_row_fields, _opt_row_cols):
-            _auto = _uar_mapping_stored.get(field) or _uar_autodetect(field, raw_df.columns)
             with col:
-                _uar_mapping[field] = st.selectbox(
-                    label, _avail_uar,
-                    index=_avail_uar.index(_auto) if _auto in _avail_uar else 0,
-                    key=f"uar_map_{field}"
-                )
+                _uar_mapping[field] = _uar_selectbox(field, label, _avail_uar)
 
     _uar_req_ok = all(
         _uar_mapping.get(f, "(not mapped)") != "(not mapped)"
