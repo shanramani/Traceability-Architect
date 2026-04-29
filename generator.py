@@ -14252,11 +14252,17 @@ them in Step 2.
                         "uar_scored_result", "uar_analysis_done",
                     ],
                 )
+                _uar_prev_hash = st.session_state.get("uar_pending_hash", "")
+                _uar_is_new_file = (_uar_new_hash != _uar_prev_hash)
                 st.session_state["uar_raw_df"]        = raw_df
                 st.session_state["uar_file_name"]     = uploaded.name
                 st.session_state["uar_pending_hash"]  = _uar_new_hash
-                st.session_state["uar_mapping_done"]  = False
-                st.session_state["uar_column_mapping"] = {}
+                # Only reset mapping when a genuinely new file is uploaded.
+                # On reruns with the same file still attached, preserve the
+                # mapping state so confirm button click is not undone.
+                if _uar_is_new_file:
+                    st.session_state["uar_mapping_done"]   = False
+                    st.session_state["uar_column_mapping"] = {}
                 # Auto-derive review period from date columns in the file
                 _uar_date_derived = False
                 for _dcol in ["last_login", "last_login_date", "lastlogindate",
