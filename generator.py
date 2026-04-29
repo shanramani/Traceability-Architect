@@ -10945,7 +10945,7 @@ def at_build_excel(top_df, scored_df, system_name, r_start, r_end, fname) -> byt
             note_text = (
                 f"Showing {n_shown} escalated event(s) from the Full Audit Log "
                 f"({_tier_str}). Each event triggered at least one named detection rule "
-                f"(Rules 1–17) at or above its threshold. All events remain visible "
+                f"(Rules 1–15) at or above its threshold. All events remain visible "
                 f"in the Full Audit Log sheet."
             )
         else:
@@ -18029,7 +18029,7 @@ def show_audit_trail(user: str, role: str, model_id: str):
         _rule_row_b("at_r15_on", 13, "Missing Timestamp",                "High · T1",     "21 CFR Part 11 §11.10(e) · ALCOA+ Contemporaneous", "timestamp")
 
         _section_header("🟡  Behaviour", "behaviour")
-        _rule_row_b("at_r2_on",  15, "Contemporaneous Burst",            "Medium · T1",   "ALCOA+ Contemporaneous · 21 CFR Part 11 §11.10(e)", "behaviour")
+        _rule_row_b("at_r2_on",  14, "Contemporaneous Burst",            "Medium · T1",   "ALCOA+ Contemporaneous · 21 CFR Part 11 §11.10(e)", "behaviour")
 
         # v96 — Rule 17 (Workflow Status Reversal) re-instated per QA-manager review.
         # Tier shown as Critical · T1 because the rule fires Critical when the
@@ -18038,7 +18038,7 @@ def show_audit_trail(user: str, role: str, model_id: str):
         # Displayed in its own section (Workflow) at the end of the list per the
         # append-don't-renumber decision (Option X).
         _section_header("⚫  Workflow Integrity", "workflow")
-        _rule_row_b("at_r20_on", 17, "Workflow Status Reversal",         "Critical · T1", "21 CFR Part 11 §11.10(e) · ALCOA+ Original · GAMP 5", "workflow")
+        _rule_row_b("at_r20_on", 15, "Workflow Status Reversal",         "Critical · T1", "21 CFR Part 11 §11.10(e) · ALCOA+ Original · GAMP 5", "workflow")
         # === CLAUDE PROTECTED END ===
         # ── Guard rail ────────────────────────────────────────────────────────
         st.markdown("---")
@@ -18069,7 +18069,7 @@ def show_audit_trail(user: str, role: str, model_id: str):
     # ── Config summary pill (shown on all subsequent steps) ───────────────────
     _cfg_col, _edit_col = st.columns([5, 1])
     with _cfg_col:
-        st.caption(f"⚙️ {_at_rules_active}/17 rules active for this run")
+        st.caption(f"⚙️ {_at_rules_active}/15 rules active for this run")
     with _edit_col:
         if st.button("Edit Rules", key="at_edit_rules", use_container_width=True):
             st.session_state["at_config_confirmed"] = False
@@ -20794,7 +20794,7 @@ match your system's export column names to the fields above — rename nothing i
                 st.write("📊 Step 1: Parsing timestamps and running 15-rule scoring engine...")
                 _ = prog.progress(0.05)
                 scored = at_score_events(df, rule_config=_AT_RULE_CONFIG)
-                st.write(f"✅ Step 1 complete — {len(scored):,} events scored across 17 rules")
+                st.write(f"✅ Step 1 complete — {len(scored):,} events scored across 15 rules")
                 _ = prog.progress(0.50)
 
                 # ── FIX 7: Tag out-of-period events ───────────────────────────
@@ -21024,10 +21024,7 @@ match your system's export column names to the fields above — rename nothing i
                 ).strip(" →") or f"Period {st.session_state.get('dim_periods_banked',0)+1}"
                 _at_sys  = st.session_state.get("at_system_name", "System")
                 _at_file = st.session_state.get("at_file_name", "")
-                _hc_scored = pd.concat([
-                    scored[scored["Risk_Tier"].isin(["High", "Critical"])],
-                    _r11_medium
-                ]).drop_duplicates()
+                _hc_scored = scored[scored["Risk_Tier"].isin(["High", "Critical"])].copy()
                 _dim_rows = []
                 # Build config hash — identifies which rules were active this run
                 import hashlib as _hashlib
