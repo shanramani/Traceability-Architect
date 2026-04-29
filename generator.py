@@ -14189,6 +14189,21 @@ them in Step 2.
         key=f"uar_upload_{st.session_state.get('uar_key_n', 0)}",
     )
 
+    if not uploaded and st.session_state.get("uar_raw_df") is not None:
+        # File was removed — clear all UAR state so mapper/preview disappear
+        for _k in [
+            "uar_raw_df", "uar_file_name", "uar_pending_hash",
+            "uar_mapping_done", "uar_column_mapping",
+            "uar_scored_result", "uar_analysis_done", "uar_running",
+        ]:
+            if _k in st.session_state:
+                del st.session_state[_k]
+        # Clear selectbox selections
+        for _sk in list(st.session_state.keys()):
+            if _sk.startswith("_uar_selectbox"):
+                del st.session_state[_sk]
+        st.rerun()
+
     if uploaded:
         try:
             _uar_raw_bytes = uploaded.getvalue()
