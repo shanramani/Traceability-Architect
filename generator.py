@@ -13804,24 +13804,24 @@ def show_user_access_review(user: str, role: str, model_id: str):
             line-height:1.55;color:#cbd5e1;background:#0b1220;padding:14px 18px;
             border-radius:8px;border:1px solid #1e293b;'>
 <span style='color:#fca5a5;font-weight:700;'>🔴 Privilege Escalation (3 rules)</span><br>
-&nbsp;&nbsp;• <b>Is_Admin</b> (+40) — Admin role on GxP system<br>
-&nbsp;&nbsp;• <b>Can_Delete</b> (+30) — Destructive privilege<br>
-&nbsp;&nbsp;• <b>Can_Approve</b> (+30) — Approval authority<br>
+&nbsp;&nbsp;1. <b>Is_Admin</b> (+40) — Admin role on GxP system<br>
+&nbsp;&nbsp;2. <b>Can_Delete</b> (+30) — Destructive privilege<br>
+&nbsp;&nbsp;3. <b>Can_Approve</b> (+30) — Approval authority<br>
 <br>
 <span style='color:#fdba74;font-weight:700;'>🟠 Access Governance (4 rules)</span><br>
-&nbsp;&nbsp;• <b>Can_Release</b> (+25) — Release/publish authority<br>
-&nbsp;&nbsp;• <b>Can_Modify_Master_Data</b> (+25)<br>
-&nbsp;&nbsp;• <b>GxP_High</b> (+25) — GxP-critical system access<br>
-&nbsp;&nbsp;• <b>Dormant_Privileged_No_Justification</b> (+25)
+&nbsp;&nbsp;4. <b>Can_Release</b> (+25) — Release/publish authority<br>
+&nbsp;&nbsp;5. <b>Can_Modify_Master_Data</b> (+25)<br>
+&nbsp;&nbsp;6. <b>GxP_High</b> (+25) — GxP-critical system access<br>
+&nbsp;&nbsp;7. <b>Dormant_Privileged_No_Justification</b> (+25)
        <span style='color:#86efac;'>← NEW v96</span><br>
 <br>
 <span style='color:#fde047;font-weight:700;'>🟡 User Attribution (3 rules)</span><br>
-&nbsp;&nbsp;• <b>Never_Logged_In</b> (+20)<br>
-&nbsp;&nbsp;• <b>Ghost_Account</b> (+20) — Terminated but active<br>
-&nbsp;&nbsp;• <b>Dormant_90</b> (+15) — &gt;90 days since last login<br>
+&nbsp;&nbsp;8. <b>Never_Logged_In</b> (+20)<br>
+&nbsp;&nbsp;9. <b>Ghost_Account</b> (+20) — Terminated but active<br>
+&nbsp;&nbsp;10. <b>Dormant_90</b> (+15) — &gt;90 days since last login<br>
 <br>
 <span style='color:#93c5fd;font-weight:700;'>🔵 Multi-factor risk (1 rule)</span><br>
-&nbsp;&nbsp;• <b>Multi_Privilege</b> (+10) — ≥3 high-risk privileges<br>
+&nbsp;&nbsp;11. <b>Multi_Privilege</b> (+10) — ≥3 high-risk privileges<br>
 <br>
 <span style='color:#94a3b8;font-style:italic;'>
 Regulatory basis: 21 CFR §11.10(d), EU Annex 11 §12,
@@ -13833,14 +13833,12 @@ NIST 800-53 AC-2, ISO 27001 A.9.2, ALCOA+ Attributable
         )
 
     # ── System metadata ───────────────────────────────────────────────────────
-    mc1, _mc_spacer = st.columns([2, 4])
-    with mc1:
-        st.session_state["uar_system_name"] = st.text_input(
-            "System Name",
-            value=st.session_state.get("uar_system_name", ""),
-            placeholder="e.g. LabVantage LIMS",
-            key="uar_sysname",
-        )
+    st.session_state["uar_system_name"] = st.text_input(
+        "System Name",
+        value=st.session_state.get("uar_system_name", ""),
+        placeholder="e.g. LabVantage LIMS",
+        key="uar_sysname",
+    )
     # Review period dates auto-derived from uploaded file after upload
     st.markdown("---")
 
@@ -14315,7 +14313,7 @@ them in Step 2.
         ("can_release",              "Can Release (Y/N)",             False),
         ("can_modify_master_data",   "Can Modify Master Data (Y/N)",  False),
         ("gxp_criticality",          "GxP Criticality Level",         False),
-        ("last_login",               "Last Login Date",               False),
+        ("last_login_date",           "Last Login Date",               False),
         ("employment_status",        "Employment Status",             False),
         ("access_justification",     "Access Justification (text)",   False),
         ("created_date",             "Account Created Date",          False),
