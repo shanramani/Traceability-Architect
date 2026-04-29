@@ -4350,6 +4350,7 @@ _defaults = {
     "uar_review_end":       "",
     "uar_file_name":        "",
     "uar_key_n":            0,
+    "uar_file_was_attached": False,   # True only after a file is read this session
     # ── Audit Trail Intelligence (Periodic Review Module 1) ──────────────────
     "at_raw_df":            None,
     "at_mapped_df":         None,
@@ -13568,11 +13569,56 @@ def uar_build_excel(
         )
     ws4.row_dimensions[1].height = 18
 
+    # Performance: cap All Users sheet at 5,000 rows (sorted by Risk_Score desc).
+    # For large files (100k+) the per-cell openpyxl write loop previously took
+    # 3-7 minutes and triggered Streamlit session timeouts. Inspectors review
+    # High/Critical findings — the full dataset tail adds no evidence value.
+    _AU_ROW_CAP = 5_000
+    _all_df_total = len(all_df)
+    if len(all_df) > _AU_ROW_CAP:
+        all_df = all_df.sort_values("Risk_Score", ascending=False).head(_AU_ROW_CAP)
+    _au_capped = _all_df_total > _AU_ROW_CAP
+
+    # Add cap notice as first data row if truncated
+    if _au_capped:
+        note_row = ws4.cell(
+            row=2, column=1,
+            value=(
+                f"ℹ️ Showing top {_AU_ROW_CAP:,} users by Risk Score "
+                f"(file had {_all_df_total:,} rows). "
+                f"All High/Critical users are included — low-risk tail truncated."
+            )
+        )
+        note_row.font      = Font(name="Calibri", size=8, italic=True, color="374151")
+        note_row.alignment = Alignment(horizontal="left", vertical="center")
+        _data_start_row = 3
+    else:
+        _data_start_row = 2
+
+    # Risk_Level column index (for selective styling — only this col gets colour)
+    _rl_col_idx = (present_cols.index("Risk_Level") + 1
+                   if "Risk_Level" in present_cols else None)
+    _dl_col_idx = (present_cols.index("days_since_last_login") + 1
+                   if "days_since_last_login" in present_cols else None)
+
+    # Workbook-level named style for plain data cells — applied once, not per cell
+    from openpyxl.styles import NamedStyle
+    if "_uar_data_cell" not in wb.named_styles:
+        _ns = NamedStyle(name="_uar_data_cell")
+        _ns.font      = Font(name="Calibri", size=8)
+        _ns.alignment = Alignment(horizontal="left", vertical="center",
+                                  wrap_text=False)
+        _ns.border    = bdr
+        wb.add_named_style(_ns)
+
     if not all_df.empty:
-        for ri, (_, row_data) in enumerate(all_df.iterrows(), 2):
-            tier = str(row_data.get("Risk_Level", "Low"))
+        # itertuples is ~10x faster than iterrows for large frames
+        _col_positions = {col: idx for idx, col in enumerate(present_cols)}
+        for ri, row_tuple in enumerate(all_df.itertuples(index=False),
+                                       _data_start_row):
+            tier = str(getattr(row_tuple, "Risk_Level", "Low"))
             for ci, col_key in enumerate(present_cols, 1):
-                val = row_data.get(col_key, "")
+                val = getattr(row_tuple, col_key, "")
                 if isinstance(val, bool):
                     val = "Y" if val else "N"
                 elif col_key == "days_since_last_login":
@@ -13580,15 +13626,19 @@ def uar_build_excel(
                         val = "< 1 day" if int(val) == 0 else f"{int(val)} days"
                     else:
                         val = "Never"
-                elif pd.isna(val) if not isinstance(val, (str, bool)) else False:
-                    val = ""
+                elif not isinstance(val, (str, bool)):
+                    try:
+                        val = "" if pd.isna(val) else val
+                    except (TypeError, ValueError):
+                        pass
                 c = ws4.cell(row=ri, column=ci, value=val)
-                if col_key == "Risk_Level":
+                if ci == _rl_col_idx:
+                    # Only Risk_Level column gets colour styling
                     _cell_style(c, bold=True,
                                 bg=C_RISK.get(tier, "FFFFFF"),
                                 fg=C_RISK_FG.get(tier, "1A1A1A"), size=8)
                 else:
-                    _cell_style(c, size=8, wrap=False)
+                    c.style = "_uar_data_cell"
             ws4.row_dimensions[ri].height = 14
 
     ws4.freeze_panes = "A2"
@@ -14189,12 +14239,18 @@ them in Step 2.
         key=f"uar_upload_{st.session_state.get('uar_key_n', 0)}",
     )
 
-    if not uploaded and st.session_state.get("uar_raw_df") is not None:
-        # File was removed — clear all UAR state so mapper/preview disappear
+    if (not uploaded
+            and st.session_state.get("uar_file_was_attached", False)
+            and st.session_state.get("uar_raw_df") is not None):
+        # File was actively removed by user — clear all UAR state.
+        # Guard: uar_file_was_attached ensures this only fires when the user
+        # genuinely attached then removed a file, not on fresh module entry
+        # after navigating back from DIM (which also has uploaded=None).
         for _k in [
             "uar_raw_df", "uar_file_name", "uar_pending_hash",
             "uar_mapping_done", "uar_column_mapping",
             "uar_scored_result", "uar_analysis_done", "uar_running",
+            "uar_file_was_attached",
         ]:
             if _k in st.session_state:
                 del st.session_state[_k]
@@ -14261,6 +14317,7 @@ them in Step 2.
                 st.session_state["uar_raw_df"]        = raw_df
                 st.session_state["uar_file_name"]     = uploaded.name
                 st.session_state["uar_pending_hash"]  = _uar_new_hash
+                st.session_state["uar_file_was_attached"] = True
                 # Only reset mapping when a genuinely new file is uploaded.
                 # On reruns with the same file still attached, preserve the
                 # mapping state so confirm button click is not undone.
