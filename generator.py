@@ -11898,9 +11898,8 @@ _UAR_SCORE_WEIGHTS = {
     "Ghost_Account":          20,    # employment_status != active, account_status = active
     "Dormant_90":             15,    # > 90 days since last login (mutually exclusive with Never)
     "Missing_Justification":  15,
-    "Multi_Privilege":        10,    # >= 3 high-risk privilege flags simultaneously
     # ── v96 extension (UAR Spec v1.2) ─────────────────────────────────────────
-    "Dormant_Privileged_No_Justification":  25,   # U11 — same tier as Can_Release
+    "Dormant_Privileged_No_Justification":  25,   # U10 — same tier as Can_Release
 }
 
 # ── Risk bands ────────────────────────────────────────────────────────────────
@@ -12009,7 +12008,7 @@ GxP CRITICALITY DERIVATION (from system_name field, case-insensitive)
             Asset Management, IT Support, Confluence
   Medium → All other systems
 
-RISK SCORING — ADDITIVE INTEGER MODEL (Rules U1–U11)
+RISK SCORING — ADDITIVE INTEGER MODEL (Rules U1–U10)
   U1  +40  Is_Admin = Y (privileged system access)
   U2  +30  Can_Delete = Y (record deletion capability)
   U3  +30  Can_Approve = Y (approval authority)
@@ -12027,8 +12026,7 @@ RISK SCORING — ADDITIVE INTEGER MODEL (Rules U1–U11)
   U7  +15  Days since last login > 90 (mutually exclusive with null — one or the other)
   U8  +20  Employment_Status ≠ Active AND Account_Status = Active (ghost account)
   U9  +15  Access_Justification missing or blank (governance gap)
-  U10 +10  Three or more high-risk privilege flags simultaneously (privilege accumulation)
-  U11 +25  Dormant Privileged Account Without Justification (NEW v96)
+  U10 +25  Dormant Privileged Account Without Justification (v96)
            Fires when ALL: account_status=Active AND
              (last_login null OR ≥90 days ago) AND
              at least one of {Is_Admin, Can_Delete, Can_Approve, Can_Release,
@@ -12041,7 +12039,7 @@ RISK SCORING — ADDITIVE INTEGER MODEL (Rules U1–U11)
            ISO 27001 A.9.2.5; ALCOA+ Attributable.
 
 v96 RULE MIGRATION NOTES
-  v94 AT Rule 14 (Dormant Account Sudden Activity) → migrated to UAR U11 (rewritten
+  v94 AT Rule 14 (Dormant Account Sudden Activity) → migrated to UAR U10 (rewritten
                                                        as snapshot rule)
   v94 AT Rule 16 (First-Time Behavior, half)        → DROPPED. Functionality gap
                                                        partially covered by AT Rule 10
@@ -12060,7 +12058,7 @@ v96 RULE MIGRATION NOTES
 POSITIONING (per UAR Spec v1.2 §11)
   The UAR module focuses on access-control risks required by Part 11 and Annex 11,
   and extends them with behavioural detection only where it strengthens auditability
-  without introducing noise. U11 is anchored to regulatory language, not heuristic.
+  without introducing noise. U10 is anchored to regulatory language, not heuristic.
 
 RISK TIERS
   Critical  > 90
@@ -12448,14 +12446,14 @@ def _uar_preprocess(df: pd.DataFrame) -> tuple:
         df["has_justification"] = True   # can't penalise what wasn't collected
         rules_skipped.append("U9 (Missing Justification) — access_justification column not provided")
 
-    # ── U11 silent-skip detection (UAR Spec v1.2 §3.1) ───────────────────────
-    # U11 cannot distinguish "undocumented" from "field not captured by this customer"
+    # ── U10 silent-skip detection (UAR Spec v1.2 §3.1) ───────────────────────
+    # U10 cannot distinguish "undocumented" from "field not captured by this customer"
     # if the entire dataset has zero non-blank justification values. In that case
-    # U11 silent-skips on every row.
+    # U10 silent-skips on every row.
     if "access_justification" not in df.columns:
         df["_u11_silent_skip"] = True
         rules_skipped.append(
-            "U11 (Dormant Privileged Without Justification) — "
+            "U10 (Dormant Privileged Without Justification) — "
             "access_justification column not present in source export")
     else:
         _any_valid_just = bool(df["has_justification"].any())
@@ -12581,12 +12579,7 @@ def _uar_score_single(row: pd.Series) -> tuple:
         score += _UAR_SCORE_WEIGHTS["Missing_Justification"]
         triggered.append("U9: No Access Justification on Record (+15)")
 
-    # U10 — Privilege accumulation (>= 3 high-risk flags)
-    if int(row.get("privilege_count", 0)) >= 3:
-        score += _UAR_SCORE_WEIGHTS["Multi_Privilege"]
-        triggered.append("U10: Privilege Accumulation — ≥3 High-Risk Flags (+10)")
-
-    # ── U11 — Dormant Privileged Account Without Justification ───────────────
+    # ── U10 — Dormant Privileged Account Without Justification ───────────────
     # v96 extension per UAR Spec v1.2 §3.1.
     # Fires when ALL of:
     #   - account is active
@@ -12595,28 +12588,28 @@ def _uar_score_single(row: pd.Series) -> tuple:
     #     {Is_Admin, Can_Delete, Can_Approve, Can_Release, Can_Modify_Master_Data}
     #   - justification field is blank/null  AND  the column exists+has data somewhere
     #     in the dataset (silent-skip handled in _uar_preprocess)
-    _u11_skip = bool(row.get("_u11_silent_skip", False))
-    if not _u11_skip:
-        _u11_active = (str(row.get("account_status_norm", "")).strip() == "Active")
-        _u11_days   = row.get("days_since_last_login")
-        _u11_days_null = (_u11_days is None
-                           or (isinstance(_u11_days, float) and _u11_days != _u11_days))
-        _u11_dormant = _u11_days_null or (
-            isinstance(_u11_days, (int, float)) and _u11_days >= _UAR_DORMANCY_DAYS
+    _u10_skip = bool(row.get("_u11_silent_skip", False))
+    if not _u10_skip:
+        _u10_active = (str(row.get("account_status_norm", "")).strip() == "Active")
+        _u10_days   = row.get("days_since_last_login")
+        _u10_days_null = (_u10_days is None
+                           or (isinstance(_u10_days, float) and _u10_days != _u10_days))
+        _u10_dormant = _u10_days_null or (
+            isinstance(_u10_days, (int, float)) and _u10_days >= _UAR_DORMANCY_DAYS
         )
-        _u11_priv = bool(
+        _u10_priv = bool(
             row.get("Is_Admin") or row.get("Can_Delete") or row.get("Can_Approve")
             or row.get("Can_Release") or row.get("Can_Modify_Master_Data")
         )
         # has_justification == False means: column present, this row's value is blank/invalid
-        _u11_no_just = (row.get("has_justification") is False)
-        if _u11_active and _u11_dormant and _u11_priv and _u11_no_just:
+        _u10_no_just = (row.get("has_justification") is False)
+        if _u10_active and _u10_dormant and _u10_priv and _u10_no_just:
             score += _UAR_SCORE_WEIGHTS["Dormant_Privileged_No_Justification"]
-            _u11_reason = ("never logged in" if _u11_days_null
-                           else f"{int(_u11_days)} days since last login")
+            _u10_reason = ("never logged in" if _u10_days_null
+                           else f"{int(_u10_days)} days since last login")
             triggered.append(
-                f"U11: Dormant Privileged Account Without Justification — "
-                f"{_u11_reason}, no business justification on record (+25)")
+                f"U10: Dormant Privileged Account Without Justification — "
+                f"{_u10_reason}, no business justification on record (+25)")
 
     return score, triggered
 
@@ -12759,6 +12752,20 @@ def uar_score_users(df: pd.DataFrame, at_top_df: pd.DataFrame = None) -> dict:
     """
     # ── 1. Normalise column names ─────────────────────────────────────────────
     df = _uar_normalise_columns(df)
+    # Guard: deduplicate any remaining duplicate column names (common in large
+    # exports from SAP/Workday that concatenate sheets). PyArrow raises
+    # ValueError on st.dataframe() if duplicates are present.
+    if df.columns.duplicated().any():
+        _seen_cols: dict = {}
+        _new_cols = []
+        for _col in df.columns:
+            if _col in _seen_cols:
+                _seen_cols[_col] += 1
+                _new_cols.append(f"{_col}_{_seen_cols[_col]}")
+            else:
+                _seen_cols[_col] = 0
+                _new_cols.append(_col)
+        df.columns = _new_cols
 
     # ── 2. Validate required columns ─────────────────────────────────────────
     missing_required = _UAR_REQUIRED_COLS - set(df.columns)
@@ -12849,7 +12856,7 @@ def uar_score_users(df: pd.DataFrame, at_top_df: pd.DataFrame = None) -> dict:
     if "u9:" in all_triggered_text:
         themes.append("Access justifications missing")
     if "u11:" in all_triggered_text:
-        themes.append("Dormant privileged accounts without justification (U11)")
+        themes.append("Dormant privileged accounts without justification (U10)")
     if not themes:
         themes.append("No significant risk themes identified")
 
@@ -12857,8 +12864,8 @@ def uar_score_users(df: pd.DataFrame, at_top_df: pd.DataFrame = None) -> dict:
     _ghost_count  = int(df["Triggered_Rules"].str.contains("U8:", na=False).sum())
     _dorm_count   = int(df["Triggered_Rules"].str.contains("Dormant Account", na=False).sum())
     _nojust_count = int(df["Triggered_Rules"].str.contains("U9:", na=False).sum())
-    # v96: U11 firing count (Dormant Privileged No Justification)
-    _u11_count    = int(df["Triggered_Rules"].str.contains("U11:", na=False).sum())
+    # v96: U10 firing count (Dormant Privileged No Justification)
+    _u11_count    = int(df["Triggered_Rules"].str.contains("U10:", na=False).sum())
 
     summary = {
         "total_users":         len(df),
@@ -12968,12 +12975,6 @@ def _uar_deterministic_narrative(row: dict) -> str:
     if "U9:" in triggered:
         parts.append("and has no valid documented access justification on record")
 
-    # Privilege accumulation (U10) — three or more high-risk flags simultaneously
-    if "U10:" in triggered:
-        parts.append(
-            "and holds three or more simultaneous high-risk privileges "
-            "(privilege accumulation — highest-risk access pattern in GxP audits)"
-        )
 
     # Never used
     if "Never Used" in triggered or "No Login Date" in triggered:
@@ -13021,9 +13022,6 @@ def _uar_finding_rationale(row: dict) -> str:
     if "U1:" in triggered and "U8:" in triggered:
         return (f"Admin account with ghost account status ({tier}) — "
                 f"administrative access active despite inactive employment.")
-    if "U1:" in triggered and "U10:" in triggered:
-        return (f"Admin account with privilege accumulation ({tier}) — "
-                f"three or more high-risk functions combined on one account.")
     if "U1:" in triggered and "U2:" in triggered:
         return (f"Admin account with delete capability ({tier}) — "
                 f"can remove GxP records and suppress audit trail evidence.")
@@ -13328,8 +13326,8 @@ def uar_build_excel(
     _u11_count = int(smry.get("u11_count", 0))
     if _u11_count > 0:
         _pct_u11 = round(_u11_count / _total * 100, 1)
-        _summary_row("U11: Dormant Privileged Without Justification",
-                     f"{_u11_count}  ({_pct_u11}% of users)  [NEW v96]")
+        _summary_row("U10: Dormant Privileged Without Justification",
+                     f"{_u11_count}  ({_pct_u11}% of users)")
     row += 1
 
     _summary_row("KEY RISK THEMES", "", section=True)
@@ -13369,7 +13367,7 @@ def uar_build_excel(
         "U3": "Approval Authority", "U4": "Release Capability",
         "U5": "Master Data Modification", "U6": "GxP Critical System",
         "U7": "Dormant / Never Used", "U8": "Ghost Account",
-        "U9": "No Justification", "U10": "Privilege Accumulation",
+        "U9": "No Justification",
     }
     def _plain_rules(triggered_str: str) -> str:
         """Convert 'U1: Admin Account (+40) | U6: ...' → 'Admin Account · GxP Critical System'"""
@@ -13673,9 +13671,7 @@ def uar_build_excel(
          "employment_status ≠ Active AND account_status = Active"),
         ("U9",  "Missing Access Justification",     "Medium",   "+15",
          "access_justification column present but value blank/null for this user"),
-        ("U10", "Privilege Accumulation",           "Medium",   "+10",
-         "≥3 high-risk privilege flags simultaneously on one account"),
-        ("U11", "Dormant Privileged, No Justification","High",  "+25",
+        ("U10", "Dormant Privileged, No Justification","High",  "+25",
          "Active account + last_login null/≥90d + ≥1 privilege flag + no justification"),
         ("SoD", "Segregation of Duties Conflict",   "High",     "Flag",
          "6 pairs: Create+Approve, ModMaster+Approve, Delete+Approve, Admin+Approve/Delete/Release"),
@@ -13779,7 +13775,7 @@ def show_user_access_review(user: str, role: str, model_id: str):
     st.markdown(
         "<p style='color:#94a3b8;margin-top:-12px;'>"
         "Upload your system user access export to run the deterministic GxP access "
-        "review engine — 11 scoring rules, 6 SoD conflict checks, and peer anomaly "
+        "review engine — 10 scoring rules, 6 SoD conflict checks, and peer anomaly "
         "detection. Produces a GxP evidence package "
         "for your Periodic Review Report per 21 CFR Part 11 §11.10(d) and EU Annex 11 "
         "Clause 12.</p>",
@@ -13812,16 +13808,13 @@ def show_user_access_review(user: str, role: str, model_id: str):
 &nbsp;&nbsp;4. <b>Can_Release</b> (+25) — Release/publish authority<br>
 &nbsp;&nbsp;5. <b>Can_Modify_Master_Data</b> (+25)<br>
 &nbsp;&nbsp;6. <b>GxP_High</b> (+25) — GxP-critical system access<br>
-&nbsp;&nbsp;7. <b>Dormant_Privileged_No_Justification</b> (+25)
-       <span style='color:#86efac;'>← NEW v96</span><br>
+&nbsp;&nbsp;7. <b>Dormant_Privileged_No_Justification</b> (+25) — Dormant privileged, no justification<br>
 <br>
 <span style='color:#fde047;font-weight:700;'>🟡 User Attribution (3 rules)</span><br>
 &nbsp;&nbsp;8. <b>Never_Logged_In</b> (+20)<br>
 &nbsp;&nbsp;9. <b>Ghost_Account</b> (+20) — Terminated but active<br>
 &nbsp;&nbsp;10. <b>Dormant_90</b> (+15) — &gt;90 days since last login<br>
 <br>
-<span style='color:#93c5fd;font-weight:700;'>🔵 Multi-factor risk (1 rule)</span><br>
-&nbsp;&nbsp;11. <b>Multi_Privilege</b> (+10) — ≥3 high-risk privileges<br>
 <br>
 <span style='color:#94a3b8;font-style:italic;'>
 Regulatory basis: 21 CFR §11.10(d), EU Annex 11 §12,
@@ -13958,7 +13951,7 @@ them in Step 2.
              "Add explicit Y/N privilege flags (is_admin, can_delete, can_approve, "
              "can_release, can_modify_master_data) for highest-accuracy scoring. "
              "Add last_login_date and employment_status for dormancy and ghost-account "
-             "detection. Add access_justification to enable the U11 dormant-privileged rule."),
+             "detection. Add access_justification to enable the U10 dormant-privileged rule."),
             ("Step 4 — Upload and map",
              "Upload to the UAR module. The tool will auto-map recognised column names "
              "to the required fields. If any columns cannot be auto-detected, a column "
@@ -14024,7 +14017,7 @@ them in Step 2.
              "(U8 +20 pts): system access active but HR status Terminated."),
             ("access_justification  (free text)",
              "Business justification for this user's access grant. "
-             "Used by U9 (missing justification, +15 pts) and U11 (dormant privileged "
+             "Used by U9 (missing justification, +15 pts) and U10 (dormant privileged "
              "account with no justification on record, +25 pts — new in v96). "
              "A valid justification is at least 4 meaningful characters. "
              "'N/A', 'yes', 'ok', 'TBD' are treated as missing."),
@@ -14059,10 +14052,7 @@ them in Step 2.
              "Look for: nojust01, nojust02, dormant01, dormant02, nver02. "
              "access_justification is blank — governance gap. Regulators cite this "
              "during PAI and 483 inspections."),
-            ("U10 — Privilege Accumulation ≥3 high-risk flags  (+10 pts)",
-             "Look for: multipriv01 (5 high-risk flags simultaneously). "
-             "Not a violation on its own but elevates overall risk significantly."),
-            ("U11 — Dormant Privileged Account Without Justification  (+25 pts)  [NEW v96]",
+            ("U10 — Dormant Privileged Account Without Justification  (+25 pts)",
              "Look for: dormant01 (admin, 9+ months dormant, no justification — "
              "will fire U11 on top of U1+U7+U9); dormant02 (admin, never logged, no just); "
              "nver02 (can_approve, never logged, 90+ days, no just). "
@@ -14080,10 +14070,10 @@ them in Step 2.
         # ── Rule count confirmation ────────────────────────────────────────────
         r = _blank(ws_use, r)
         _rs_note = ws_use.cell(row=r, column=1, value=(
-            "VALINTEL UAR has 11 scoring rules in total (U1–U11). "
-            "U11 (Dormant Privileged Without Justification) is the most recently added rule (v96). "
-            "The 11 rules cover Privilege Escalation (U1–U6), User Attribution (U7–U8), "
-            "Access Governance (U9, U11), and Multi-factor risk (U10). "
+            "VALINTEL UAR has 10 scoring rules in total (U1–U10). "
+            "U10 (Dormant Privileged Without Justification) is the highest-weighted governance rule (v96). "
+            "The 10 rules cover Privilege Escalation (U1–U6), User Attribution (U7–U8), "
+            "and Access Governance (U9–U10). "
             "All rules score additively — a single user can accumulate points across multiple rules."
         ))
         _rs_note.font = Font(bold=True, color="064E3B", size=11, name="Calibri")
@@ -14146,8 +14136,8 @@ them in Step 2.
             ("ikim",      "Mfg Supervisor",  "Active",   "N","N","Y","N","N", "High","Active",     "2024-12-19", "2019-11-03", "Mfg supervision"),
             # Edge cases for detection rules
             ("ghost01",   "QC Analyst",      "Active",   "N","N","Y","N","N", "High","Terminated", "2024-08-01", "2022-05-10", "Sample analysis"),  # U8
-            ("dormant01", "Senior Admin",    "Active",   "Y","Y","Y","Y","Y", "High","Active",     "2024-03-12", "2018-01-15", ""),                  # U11 candidate (admin, dormant 9mo+, no justification)
-            ("dormant02", "DBA Backup",      "Active",   "Y","Y","N","N","Y", "High","Active",     "",          "2017-09-01", ""),                  # U11 candidate (admin, never logged, no justification)
+            ("dormant01", "Senior Admin",    "Active",   "Y","Y","Y","Y","Y", "High","Active",     "2024-03-12", "2018-01-15", ""),                  # U10 candidate (admin, dormant 9mo+, no justification)
+            ("dormant02", "DBA Backup",      "Active",   "Y","Y","N","N","Y", "High","Active",     "",          "2017-09-01", ""),                  # U10 candidate (admin, never logged, no justification)
             ("nojust01",  "QC Reviewer",     "Active",   "N","N","Y","Y","N", "High","Active",     "2024-12-19", "2023-06-01", ""),                  # U9 (no justification)
             ("nojust02",  "Doc Approver",    "Active",   "N","N","Y","N","N", "Medium","Active",   "2024-12-15", "2022-12-08", ""),                  # U9
             ("multipriv01","Power User",     "Active",   "Y","Y","Y","Y","Y", "High","Active",     "2024-12-19", "2020-04-30", "Power user role per SOP-IT-007"),  # U10
@@ -14263,6 +14253,13 @@ them in Step 2.
                 if _uar_is_new_file:
                     st.session_state["uar_mapping_done"]   = False
                     st.session_state["uar_column_mapping"] = {}
+                    # Clear all selectbox selections so mapper shows fresh dropdowns
+                    for _sk in list(st.session_state.keys()):
+                        if _sk.startswith("_uar_selectbox"):
+                            del st.session_state[_sk]
+                    # Clear stale analysis and preview state
+                    st.session_state["uar_scored_result"] = None
+                    st.session_state["uar_analysis_done"] = False
                 # Auto-derive review period from date columns in the file
                 _uar_date_derived = False
                 for _dcol in ["last_login", "last_login_date", "lastlogindate",
@@ -14428,9 +14425,13 @@ them in Step 2.
             )
 
     if run_btn:
-        # Lock the button before starting work — re-runs during analysis will
-        # see uar_running=True and render disabled.
+        # Lock the button immediately and force a rerender so the disabled/spinner
+        # state is visible before work starts. Without st.rerun() here, Streamlit
+        # executes the whole block synchronously and the button never shows disabled.
         st.session_state["uar_running"] = True
+        st.rerun()
+
+    if st.session_state.get("uar_running") and not st.session_state.get("uar_analysis_done"):
         at_top = st.session_state.get("at_top20_df")   # cross-module: from AT session
         # Apply confirmed column mapping: rename user's columns to internal names
         _uar_col_map = st.session_state.get("uar_column_mapping", {})
@@ -14457,7 +14458,7 @@ them in Step 2.
 
             _n_users = result['summary'].get('total_users', 0)
             _prog_bar.progress(55, text=f"Scored {_n_users:,} users…")
-            _prog_status.caption(f"Step 2/4 — Risk scoring complete across 11 rules · {_n_users:,} users processed")
+            _prog_status.caption(f"Step 2/4 — Risk scoring complete across 10 rules · {_n_users:,} users processed")
             if not result["top_users"].empty:
                 _prog_bar.progress(70, text="Generating AI review narratives…")
                 _prog_status.caption("Step 3/4 — Generating AI-assisted review narratives for top users")
@@ -14679,6 +14680,8 @@ them in Step 2.
              .replace("System_Narrative", "System Narrative")
             for c in display_top.columns
         ]
+        # Belt-and-suspenders: drop any duplicate cols before Arrow serialisation
+        display_top = display_top.loc[:, ~display_top.columns.duplicated()]
         st.dataframe(display_top, use_container_width=True, hide_index=True)
 
     # ── SoD conflicts ─────────────────────────────────────────────────────────
@@ -17649,7 +17652,7 @@ div.vl-btn-soon > div.stButton > button {
     <span class="vl-badge vl-badge-live">Live</span>
     <p class="vl-card-title">User Access Review</p>
     <p class="vl-card-ref">21 CFR Part 11 §11.300 · EU Annex 11 Cl. 12</p>
-    <p class="vl-card-desc">Upload your user access export to flag SoD conflicts, dormant accounts, admin misuse, and privilege accumulation. 10 deterministic rules.</p>
+    <p class="vl-card-desc">Upload your user access export to flag SoD conflicts, dormant accounts, admin misuse, and dormant privileged access. 10 deterministic rules.</p>
   </div>
   <div class="vl-card" id="vl-card-dci">
     <div class="vl-card-glow" style="background:linear-gradient(90deg,#059669,#34d399);"></div>
