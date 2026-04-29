@@ -7197,7 +7197,7 @@ def _at_del_recreate_scores(df: pd.DataFrame) -> pd.Series:
 # v96 UI-sequence rule number remap (internal v94 → v96 UI number)
 _RULE_NUM_REMAP = {
     "1":  "6",    # Vague Rationale
-    "2":  "15",   # Contemporaneous Burst
+    "2":  "14",   # Contemporaneous Burst
     "3":  "10",   # Admin/GxP Conflict (merged into UI #10)
     "4":  "7",    # Change Control Drift
     "5":  "9",    # Failed Login → Data Manipulation
@@ -7212,7 +7212,7 @@ _RULE_NUM_REMAP = {
     "17": "3",    # Missing Before/After Values
     "18": "4",    # Self-Approval SoD Violation
     "19": "5",    # Modification After Approval
-    "20": "17",   # Workflow Status Reversal (re-instated v96)
+    "20": "15",   # Workflow Status Reversal (re-instated v96)
     "25": "14",   # Future Timestamp
 }
 
@@ -10945,13 +10945,13 @@ def at_build_excel(top_df, scored_df, system_name, r_start, r_end, fname) -> byt
             note_text = (
                 f"Showing {n_shown} escalated event(s) from the Full Audit Log "
                 f"({_tier_str}). Each event triggered at least one named detection rule "
-                f"(Rules 1–17) at or above its threshold. All events remain visible "
+                f"(Rules 1–15) at or above its threshold. All events remain visible "
                 f"in the Full Audit Log sheet."
             )
         else:
             note_text = (
                 f"No events met the escalation threshold in this review period. "
-                f"All {n_shown or 0} events were auto-cleared by the 17-rule detection engine. "
+                f"All {n_shown or 0} events were auto-cleared by the 15-rule detection engine. "
                 f"The Full Audit Log sheet contains the complete scored event list."
             )
     ws2.merge_cells(f"A1:{get_column_letter(len(reviewer_cols))}1")
@@ -11312,9 +11312,9 @@ def at_build_excel(top_df, scored_df, system_name, r_start, r_end, fname) -> byt
         ("at_r11_on", "12", "Critical", "Tier 1", "Timestamp Reversal",                   "Approval timestamp earlier than creation timestamp for same record_id. Chronologically impossible.",                                                                          "21 CFR Part 11 §11.10(e); ALCOA+ Contemporaneous",                         "Clause 9"),
         ("at_r15_on", "13", "High",     "Tier 1", "Missing Timestamp",                    "Null or unparseable timestamp on any audit trail event.",                                                                                                                      "21 CFR Part 11 §11.10(e); ALCOA+ Contemporaneous",                         "—"),
         # ── Behaviour (15–16) ─────────────────────────────────────────────────
-        ("at_r2_on",  "15", "Medium",   "Tier 1", "Contemporaneous Burst (narrowed)",     "≥8 events by same human user_id within a 10-minute rolling window on GxP-critical records only. Service/shared accounts excluded.",                                          "ALCOA+ Contemporaneous; 21 CFR Part 11 §11.10(e); EU Annex 11 §9",         "Clause 9"),
+        ("at_r2_on",  "14", "Medium",   "Tier 1", "Contemporaneous Burst (narrowed)",     "≥8 events by same human user_id within a 10-minute rolling window on GxP-critical records only. Service/shared accounts excluded.",                                          "ALCOA+ Contemporaneous; 21 CFR Part 11 §11.10(e); EU Annex 11 §9",         "Clause 9"),
         # ── Workflow Integrity (17) ───────────────────────────────────────────
-        ("at_r20_on", "17", "Critical", "Tier 1", "Workflow Status Reversal",            "Backward workflow status transition on same record_id (e.g. Approved→Draft, Released→Pending, Closed→Open). Fires Critical when record is GxP-critical (RESULTS, BATCH, etc.); High otherwise. Silent-skip if no status/state/workflow column present.", "21 CFR Part 11 §11.10(e); ALCOA+ Original; GAMP 5 (2nd Ed, 2022)",         "Clause 9"),
+        ("at_r20_on", "15", "Critical", "Tier 1", "Workflow Status Reversal",            "Backward workflow status transition on same record_id (e.g. Approved→Draft, Released→Pending, Closed→Open). Fires Critical when record is GxP-critical (RESULTS, BATCH, etc.); High otherwise. Silent-skip if no status/state/workflow column present.", "21 CFR Part 11 §11.10(e); ALCOA+ Original; GAMP 5 (2nd Ed, 2022)",         "Clause 9"),
     ]
 
     _TIER_FILL = {"Critical": "FEE2E2", "High": "FEF3C7", "Medium": "DBEAFE"}
@@ -11395,7 +11395,7 @@ def at_build_excel(top_df, scored_df, system_name, r_start, r_end, fname) -> byt
     # appear in toggle captions, Detection Logic sheet, and this appendix.
     _RA_ROWS = [
         ("1",  "Vague Rationale",                 "Kept",                 "6",   ""),
-        ("2",  "Contemporaneous Burst",           "Narrowed",             "15",  "≥8 in 10 min, GxP records, human users only"),
+        ("2",  "Contemporaneous Burst",           "Narrowed",             "14",  "≥8 in 10 min, GxP records, human users only"),
         ("3",  "Admin/GxP Conflict",              "Merged into Rule 10",  "10",  "Single privileged-user-modification check"),
         ("4",  "Change Control Drift",            "Narrowed",             "7",   "Modify + reason blank + approver blank (all 3)"),
         ("5",  "Failed Login → Manipulation",     "Narrowed + silent-skip", "9", "AUTH_FAILURE → write within 15 min on GxP"),
@@ -11413,7 +11413,7 @@ def at_build_excel(top_df, scored_df, system_name, r_start, r_end, fname) -> byt
         ("17", "Missing Before/After Values",     "Kept",                 "3",   ""),
         ("18", "Self-Approval SoD Violation",     "Kept",                 "4",   ""),
         ("19", "Modification After Approval",     "Kept",                 "5",   ""),
-        ("20", "Workflow Status Reversal",        "Re-instated as #17",   "17", "Critical when on GxP record (RESULTS, BATCH, etc.); High otherwise. Re-added per QA review — top fraud-hiding pattern."),
+        ("20", "Workflow Status Reversal",        "Re-instated as #15",   "15", "Critical when on GxP record (RESULTS, BATCH, etc.); High otherwise. Re-added per QA review — top fraud-hiding pattern."),
         ("21", "Role / Permission Change",        "Dropped",              "—",   "Required AT event history; UAR cannot host (modular principle)"),
         ("22", "Duplicate Timestamp Collision",   "Dropped",              "—",   "Sub-second noise, false-positive prone"),
         ("23", "Missing Record ID",               "Dropped",              "—",   "Overlapped Rule 17 (Missing Before/After Values)"),
@@ -11422,7 +11422,7 @@ def at_build_excel(top_df, scored_df, system_name, r_start, r_end, fname) -> byt
     ]
     _STATUS_FILL = {
         "Kept":                   ("DCFCE7", "15803D"),
-        "Re-instated as #17":     ("DCFCE7", "15803D"),
+        "Re-instated as #15":     ("DCFCE7", "15803D"),
         "Narrowed":               ("FEF3C7", "92400E"),
         "Narrowed + silent-skip": ("FEF3C7", "92400E"),
         "Merged into Rule 10":    ("DBEAFE", "1E40AF"),
@@ -11616,8 +11616,8 @@ def at_build_excel(top_df, scored_df, system_name, r_start, r_end, fname) -> byt
         ("11", "Missing User Attribution",                "High"),
         ("12", "Timestamp Reversal",                      "Critical"),
         ("13", "Missing Timestamp",                       "High"),
-        ("15", "Contemporaneous Burst",                   "Medium"),
-        ("17", "Workflow Status Reversal",                "Critical"),
+        ("14", "Contemporaneous Burst",                   "Medium"),
+        ("15", "Workflow Status Reversal",                "Critical"),
     ]
     _TIER_FILL_RS = {
         "Critical": ("FEE2E2", "991B1B"),
@@ -17630,7 +17630,7 @@ div.vl-btn-soon > div.stButton > button {
     <span class="vl-badge vl-badge-live">Live</span>
     <p class="vl-card-title">Audit Trail Review</p>
     <p class="vl-card-ref">21 CFR Part 11 §11.10(e) · EU Annex 11 Cl. 9</p>
-    <p class="vl-card-desc">Upload your audit trail log to run the 17-rule detection engine. Escalates the highest-risk events with a GxP evidence package ready for inspection.</p>
+    <p class="vl-card-desc">Upload your audit trail log to run the 15-rule detection engine. Escalates the highest-risk events with a GxP evidence package ready for inspection.</p>
   </div>
   <div class="vl-card" id="vl-card-uar">
     <div class="vl-card-glow" style="background:linear-gradient(90deg,#7c3aed,#a78bfa);"></div>
@@ -17797,7 +17797,7 @@ def show_audit_trail(user: str, role: str, model_id: str):
         st.markdown("---")
 
     # ── Initialise rule config defaults ───────────────────────────────────────
-    # v96 — 17-rule ruleset. Active toggles default ON; dropped rules default OFF
+    # v97 — 15-rule ruleset. Active toggles default ON; dropped rules default OFF
     # and are hidden from the UI. Old toggle keys preserved (not renamed) so that
     # existing session state and saved configurations continue to load cleanly.
     # See AT Rules Spec v2.0 §1 for the v96 ruleset and §2 for the dropped rules.
@@ -18034,7 +18034,7 @@ def show_audit_trail(user: str, role: str, model_id: str):
         _rule_row_b("at_r15_on", 13, "Missing Timestamp",                "High · T1",     "21 CFR Part 11 §11.10(e) · ALCOA+ Contemporaneous", "timestamp")
 
         _section_header("🟡  Behaviour", "behaviour")
-        _rule_row_b("at_r2_on",  15, "Contemporaneous Burst",            "Medium · T1",   "ALCOA+ Contemporaneous · 21 CFR Part 11 §11.10(e)", "behaviour")
+        _rule_row_b("at_r2_on",  14, "Contemporaneous Burst",            "Medium · T1",   "ALCOA+ Contemporaneous · 21 CFR Part 11 §11.10(e)", "behaviour")
 
         # v96 — Rule 17 (Workflow Status Reversal) re-instated per QA-manager review.
         # Tier shown as Critical · T1 because the rule fires Critical when the
@@ -18043,7 +18043,7 @@ def show_audit_trail(user: str, role: str, model_id: str):
         # Displayed in its own section (Workflow) at the end of the list per the
         # append-don't-renumber decision (Option X).
         _section_header("⚫  Workflow Integrity", "workflow")
-        _rule_row_b("at_r20_on", 17, "Workflow Status Reversal",         "Critical · T1", "21 CFR Part 11 §11.10(e) · ALCOA+ Original · GAMP 5", "workflow")
+        _rule_row_b("at_r20_on", 15, "Workflow Status Reversal",         "Critical · T1", "21 CFR Part 11 §11.10(e) · ALCOA+ Original · GAMP 5", "workflow")
         # === CLAUDE PROTECTED END ===
         # ── Guard rail ────────────────────────────────────────────────────────
         st.markdown("---")
@@ -18074,7 +18074,7 @@ def show_audit_trail(user: str, role: str, model_id: str):
     # ── Config summary pill (shown on all subsequent steps) ───────────────────
     _cfg_col, _edit_col = st.columns([5, 1])
     with _cfg_col:
-        st.caption(f"⚙️ {_at_rules_active}/17 rules active for this run")
+        st.caption(f"⚙️ {_at_rules_active}/15 rules active for this run")
     with _edit_col:
         if st.button("Edit Rules", key="at_edit_rules", use_container_width=True):
             st.session_state["at_config_confirmed"] = False
@@ -18111,7 +18111,7 @@ def show_audit_trail(user: str, role: str, model_id: str):
 | `record_id` | ID of the record affected | Rules 6, 18, 19, 23 |
 | `comments` | Change reason / rationale text | Rule 1 — Vague Rationale |
 | `new_value` | The value that was written | Rules 4, 17 |
-| `old_value` | The original value before change | Rule 17 — Before/After integrity |
+| `old_value` | The original value before change | Rule 3 — Before/After integrity |
 | `status` / `workflow` | Workflow state of record | Rule 20 — Status Reversal |
 
 **Column names don't need to match exactly.** The column mapper in Step 2 lets you
@@ -18224,7 +18224,7 @@ match your system's export column names to the fields above — rename nothing i
                 ("comments",     "Change rationale or reason field as logged by the system. Drives Rule 6 (Vague Rationale)."),
                 ("new_value",    "Updated value after the change (numeric or text). Required for Rule 3 (Before/After integrity)."),
                 ("old_value",    "Original value before the change. Required for Rule 3 (Before/After integrity). For CREATE events, N/A is valid."),
-                ("status",       "Workflow state of the record (e.g. Draft, Approved, Released). Required for Rule 17 (Workflow Status Reversal)."),
+                ("status",       "Workflow state of the record (e.g. Draft, Approved, Released). Required for Rule 15 (Workflow Status Reversal)."),
             ]
             for i, (col, desc) in enumerate(col_guide):
                 r = _data_row(r, col, desc, alt=(i % 2 == 1))
@@ -18290,12 +18290,12 @@ match your system's export column names to the fields above — rename nothing i
                  "Any event with a null or unparseable timestamp. Without a timestamp the "
                  "contemporaneous principle cannot be verified."),
                 # ── Behaviour (15) ────────────────────────────────────────
-                ("Rule 15 — Contemporaneous Burst (narrowed)  [Medium · T1]",
+                ("Rule 14 — Contemporaneous Burst (narrowed)  [Medium · T1]",
                  "≥8 events by the same human user_id within a 10-minute rolling window on "
                  "GxP-critical records only. Service and shared accounts excluded. "
                  "Requires: timestamp + user_id + action_type + record_type."),
                 # ── Workflow Integrity (17) ───────────────────────────────────
-                ("Rule 17 — Workflow Status Reversal  [Critical (GxP) / High otherwise]",
+                ("Rule 15 — Workflow Status Reversal  [Critical (GxP) / High otherwise]",
                  "Backward workflow status transition on the same record_id (e.g. "
                  "Approved → Draft, Released → Pending, Closed → Open). Fires Critical when "
                  "the record is GxP-critical (RESULTS, BATCH, SAMPLE_DATA, etc.); High on "
@@ -20796,10 +20796,10 @@ match your system's export column names to the fields above — rename nothing i
                         f"Results will appear automatically when scoring is complete.",
                         icon="🔄",
                     )
-                st.write("📊 Step 1: Parsing timestamps and running 17-rule scoring engine...")
+                st.write("📊 Step 1: Parsing timestamps and running 15-rule scoring engine...")
                 _ = prog.progress(0.05)
                 scored = at_score_events(df, rule_config=_AT_RULE_CONFIG)
-                st.write(f"✅ Step 1 complete — {len(scored):,} events scored across 17 rules")
+                st.write(f"✅ Step 1 complete — {len(scored):,} events scored across 15 rules")
                 _ = prog.progress(0.50)
 
                 # ── FIX 7: Tag out-of-period events ───────────────────────────
@@ -21029,10 +21029,7 @@ match your system's export column names to the fields above — rename nothing i
                 ).strip(" →") or f"Period {st.session_state.get('dim_periods_banked',0)+1}"
                 _at_sys  = st.session_state.get("at_system_name", "System")
                 _at_file = st.session_state.get("at_file_name", "")
-                _hc_scored = pd.concat([
-                    scored[scored["Risk_Tier"].isin(["High", "Critical"])],
-                    _r11_medium
-                ]).drop_duplicates()
+                _hc_scored = scored[scored["Risk_Tier"].isin(["High", "Critical"])].copy()
                 _dim_rows = []
                 # Build config hash — identifies which rules were active this run
                 import hashlib as _hashlib
@@ -21630,7 +21627,7 @@ match your system's export column names to the fields above — rename nothing i
         if n_esc == 0:
             _content_body = (
                 f"System-assisted audit trail review of {n_total:,} events using a "
-                f"17-rule anomaly detection engine found no events meeting escalation "
+                f"15-rule anomaly detection engine found no events meeting escalation "
                 f"threshold. {pct_clr}% of events were auto-cleared. No findings "
                 f"require human disposition for this review period. "
                 f"Complies with 21 CFR Part 11 §11.10(e) and EU Annex 11 Clause 9."
@@ -21638,7 +21635,7 @@ match your system's export column names to the fields above — rename nothing i
         else:
             _content_body = (
                 f"System-assisted audit trail review identified the {n_esc} highest-risk "
-                f"events from {n_total:,} total entries using a 17-rule anomaly detection "
+                f"events from {n_total:,} total entries using a 15-rule anomaly detection "
                 f"engine. {pct_clr}% of events were auto-cleared as low risk. "
                 f"All {n_esc} escalated events are available for human review and have "
                 f"been dispositioned by the undersigned as documented in the attached "
