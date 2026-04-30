@@ -12882,7 +12882,11 @@ def uar_score_users(df: pd.DataFrame, at_top_df: pd.DataFrame = None) -> dict:
 
     # KPI counts for Summary sheet
     _ghost_count  = int(df["Triggered_Rules"].str.contains("U8:", na=False).sum())
-    _dorm_count   = int(df["Triggered_Rules"].str.contains("Dormant Account", na=False).sum())
+    # Count dormant users: U7 "Dormant Account" OR U10 (which implies dormancy
+    # and suppresses U7 to avoid double-counting — so U10 users must be included).
+    _dorm_u7  = df["Triggered_Rules"].str.contains("Dormant Account", na=False)
+    _dorm_u10 = df["Triggered_Rules"].str.contains("U10:", na=False)
+    _dorm_count = int((_dorm_u7 | _dorm_u10).sum())
     _nojust_count = int(df["Triggered_Rules"].str.contains("U9:", na=False).sum())
     # v96: U10 firing count (Dormant Privileged No Justification)
     _u11_count    = int(df["Triggered_Rules"].str.contains("U10:", na=False).sum())
@@ -13352,7 +13356,7 @@ def uar_build_excel(
     # v96 — show U11 KPI only when applicable (UAR Spec v1.2 §7.2)
     _u11_count = int(smry.get("u11_count", 0))
     if _u11_count > 0:
-        _pct_u11 = round(_u11_count / _total * 100, 1)
+        _pct_u11 = _fmt_pct(_u11_count / _total * 100 if _total else 0)
         _summary_row("U10: Dormant Privileged Without Justification",
                      f"{_u11_count}  ({_pct_u11}% of users)")
     row += 1
@@ -17360,7 +17364,14 @@ def show_dim(user: str, role: str, model_id: str):
 
     # ── Download Evidence Package — placed directly below period table ─────────
     _dl_sys   = st.session_state.get("dim_system_name","System")
-    _dl_fname = f"AT auto-feed ({_banked} periods)"
+    # Build source label from modules that actually contributed data
+    _banked_rows = st.session_state.get("dim_accumulated_rows", [])
+    _modules_run = sorted(set(
+        r.get("Source_Module", "AT") for r in _banked_rows
+        if r.get("Source_Module") in ("AT", "UAR")
+    ))
+    _src_label = " + ".join(_modules_run) if _modules_run else "AT"
+    _dl_fname = f"{_src_label} ({_banked} period{'s' if _banked != 1 else ''})"
     _dl_out   = f"DIM_{_dl_sys.replace(' ','_')}_{datetime.datetime.utcnow().strftime('%Y-%m-%d')}.xlsx"
     with st.spinner("Building evidence package…"):
         _dl_xlsx = dim_build_excel(result, _dl_sys, _dl_fname, model_id)
