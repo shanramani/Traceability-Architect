@@ -12904,6 +12904,8 @@ def uar_score_users(df: pd.DataFrame, at_top_df: pd.DataFrame = None) -> dict:
         "dormant_count":       _dorm_count,
         "no_just_count":       _nojust_count,
         "u11_count":           _u11_count,                # v96 — UAR Spec §7.2
+        "training_expired_count": int(df["training_expired"].sum()) if "training_expired" in df.columns else 0,
+        "training_col_present": "training_expiry_date" in df.columns,
         "key_themes":          themes[:5],
     }
 
@@ -13021,6 +13023,19 @@ def _uar_deterministic_narrative(row: dict) -> str:
         if "U6:" in triggered: flags.append("access to a GxP-critical system")
         if flags:
             parts.append(f"with capability to: {', '.join(flags)}")
+
+    # Training expiry enhancer — no score impact, narrative flag only
+    # Fires when training_expiry_date column is present and row is expired
+    if row.get("training_expired") is True:
+        _exp_date = row.get("training_expiry_parsed", "")
+        _exp_str  = ""
+        try:
+            import pandas as _pd
+            if _exp_date and not _pd.isna(_exp_date):
+                _exp_str = f" (expired {_pd.Timestamp(_exp_date).strftime('%d-%b-%Y')})"
+        except Exception:
+            pass
+        parts.append(f"⚠ GxP training expired{_exp_str} — access without current training is a 21 CFR Part 11 gap")
 
     # Cross-module
     if cross == "Y":
@@ -13359,6 +13374,13 @@ def uar_build_excel(
         _pct_u11 = _fmt_pct(_u11_count / _total * 100 if _total else 0)
         _summary_row("U10: Dormant Privileged Without Justification",
                      f"{_u11_count}  ({_pct_u11}% of users)")
+    # Training expiry KPI — shown only when training_expiry_date column was present
+    _train_exp_count = int(smry.get("training_expired_count", 0))
+    _train_col_present = smry.get("training_col_present", False)
+    if _train_col_present:
+        _pct_train = _fmt_pct(_train_exp_count / _total * 100 if _total else 0)
+        _summary_row("% Expired GxP Training",
+                     f"{_pct_train}%  ({_train_exp_count} users with lapsed training)")
     row += 1
 
     _summary_row("KEY RISK THEMES", "", section=True)
@@ -14433,6 +14455,7 @@ them in Step 2.
         ("employment_status",        "Employment Status",             False),
         ("access_justification",     "Access Justification (text)",   False),
         ("created_date",             "Account Created Date",          False),
+        ("training_expiry_date",     "GxP Training Expiry Date",      False),
     ]
 
     def _uar_autodetect(field, cols):
