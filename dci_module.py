@@ -1929,21 +1929,11 @@ def _render_dci_results_from_session(user, model_id):
     else:
         st.success("✅ No records flagged at Medium or higher.")
 
-    # ── Auto-bank confirmation banner (persistent results view) ───────────────
-    _bp = st.session_state.get("dci_dim_banked_period")
-    _bc = st.session_state.get("dci_dim_banked_count", 0)
-    if _bp:
-        _msg = (
-            f"✅ **Banked to DIM automatically** — clean period ({_bp})."
-            if (_bc <= 1 and n_crit == 0 and n_high == 0)
-            else f"✅ **Banked to DIM automatically** — {_bc} finding(s) in period *{_bp}*."
-        )
-        st.success(_msg)
-
     # Download + Open DIM
     st.markdown("---")
     st.markdown("### Download Evidence Package")
 
+    # Row 1: Download + Start New Analysis side by side
     dc1, dc2 = st.columns(2)
     with dc1:
         try:
@@ -1975,11 +1965,38 @@ def _render_dci_results_from_session(user, model_id):
             st.error(f"Excel build failed: {e}")
 
     with dc2:
-        if st.button("📊 Open DIM", use_container_width=True,
-                     key="dci_open_dim_persistent"):
-            import streamlit as _st2
-            _st2.session_state["main_view"] = "dim"
-            _st2.rerun()
+        if st.button("🔄 Start New Analysis", key="dci_reset_btn_persistent",
+                     use_container_width=True):
+            for k in ["dci_scored_df", "dci_analysis_done",
+                      "dci_last_run_fingerprint", "dci_config_hash",
+                      "dci_file_name", "dci_pending_hash",
+                      "dci_last_run_hash", "dci_last_run_filename",
+                      "dci_invalidation_msg",
+                      "dci_r_start_derived", "dci_r_end_derived",
+                      "dci_dim_banked_period", "dci_dim_banked_count"]:
+                if k in st.session_state:
+                    del st.session_state[k]
+            st.rerun()
+
+    # Row 2: Open DIM full width
+    st.markdown("<div style='margin-top:8px;'></div>", unsafe_allow_html=True)
+    if st.button("📊 Open Data Integrity Monitor →", use_container_width=True,
+                 key="dci_open_dim_persistent", type="primary"):
+        import streamlit as _st2
+        _st2.session_state["main_view"] = "dim"
+        _st2.rerun()
+
+    # DIM banked confirmation — below Open DIM
+    _bp = st.session_state.get("dci_dim_banked_period")
+    _bc = st.session_state.get("dci_dim_banked_count", 0)
+    if _bp:
+        _msg = (
+            f"✅ **Banked to DIM automatically** — clean period ({_bp})."
+            if (_bc <= 1 and n_crit == 0 and n_high == 0)
+            else f"✅ **Banked to DIM automatically** — {_bc} finding(s) in period *{_bp}*. "
+                 "Open DIM to run cross-module convergence analysis."
+        )
+        st.success(_msg)
 
 
 def show_dci_review(user, role, model_id):
@@ -2115,8 +2132,9 @@ def show_dci_review(user, role, model_id):
         instructions = [
             ("How to use this template",
              "Replace the sample rows on the 'Deviation Log' sheet with your "
-             "own deviation/CAPA register export. Required columns are marked "
-             "with ★. Save the file and upload it to VALINTEL's DCI module."),
+             "own deviation/CAPA register export. Mandatory columns (★) must be "
+             "present. Optional columns (◈) enhance the analysis when available. "
+             "Save the file and upload it to VALINTEL's DCI module."),
             ("★ record_id",
              "Unique identifier for the deviation, CAPA, or NC record. "
              "Aliases accepted: deviation_id, capa_id, nc_id, event_id."),
@@ -2147,35 +2165,104 @@ def show_dci_review(user, role, model_id):
             ("★ sla_days",
              "Target close-by SLA in days. Used by Rules 11–14 to measure "
              "compliance against your own internal SLA."),
-            ("Run DCI",
-             "Once uploaded, DCI will validate column presence, score every "
-             "record across 14 rules, surface pattern findings (recurrence, "
-             "weak investigations, SLA breaches), and produce a 5-sheet Excel "
-             "evidence package."),
         ]
+        # Mandatory section header styling
         ws_use.column_dimensions["A"].width = 38
         ws_use.column_dimensions["B"].width = 100
-        for r, (k, v) in enumerate(instructions, 3):
+
+        # Section label: Mandatory
+        _mand_hdr_row = 3
+        _mand_label = ws_use.cell(row=_mand_hdr_row, column=1,
+                                   value="MANDATORY COLUMNS (★)")
+        _mand_label.font = Font(bold=True, color="FFFFFF", size=10)
+        _mand_label.fill = PatternFill("solid", fgColor="1E3A5F")
+        _mand_label.alignment = Alignment(vertical="center", indent=1)
+        ws_use.merge_cells(f"A{_mand_hdr_row}:B{_mand_hdr_row}")
+        ws_use.row_dimensions[_mand_hdr_row].height = 22
+
+        for r, (k, v) in enumerate(instructions, _mand_hdr_row + 1):
             cell_k = ws_use.cell(row=r, column=1, value=k)
-            cell_k.font = Font(bold=True, color="334155", size=11)
+            cell_k.font = Font(bold=True, color="1E3A5F", size=11)
             cell_k.alignment = Alignment(vertical="top", wrap_text=True)
             cell_v = ws_use.cell(row=r, column=2, value=v)
-            cell_v.font = Font(color="475569", size=11)
+            cell_v.font = Font(color="334155", size=11)
             cell_v.alignment = Alignment(vertical="top", wrap_text=True)
             ws_use.row_dimensions[r].height = 38
+
+        # Section label: Optional columns
+        _opt_start_row = _mand_hdr_row + 1 + len(instructions)
+        _opt_label = ws_use.cell(row=_opt_start_row, column=1,
+                                  value="OPTIONAL COLUMNS (◈)  — enhance analysis when present")
+        _opt_label.font = Font(bold=True, color="FFFFFF", size=10)
+        _opt_label.fill = PatternFill("solid", fgColor="166534")
+        _opt_label.alignment = Alignment(vertical="center", indent=1)
+        ws_use.merge_cells(f"A{_opt_start_row}:B{_opt_start_row}")
+        ws_use.row_dimensions[_opt_start_row].height = 22
+
+        optional_instructions = [
+            ("◈ training_expiry_date",
+             "Date the assigned investigator's GxP training expires. When present "
+             "and expired, CAPA assessment narrative is enhanced with expiry date "
+             "and regulatory citation. No score impact — narrative only."),
+            ("◈ reopen_date",
+             "Explicit date the record was re-opened. Strengthens Rule 10 "
+             "(Re-opened CAPA) rationale when populated."),
+            ("◈ last_activity_date",
+             "Date of the most recent update or activity on the record. "
+             "Used by Rule 14 (No Activity) to flag stale open records. "
+             "If absent, Rule 14 is automatically skipped."),
+            ("◈ risk_level",
+             "Pre-assigned risk level from your QMS (Low / Medium / High / Critical). "
+             "Included in the evidence package for cross-reference; not used in scoring."),
+            ("◈ product",
+             "Product name or batch reference. Included in evidence package "
+             "for traceability; not used in scoring."),
+        ]
+        for r, (k, v) in enumerate(optional_instructions, _opt_start_row + 1):
+            cell_k = ws_use.cell(row=r, column=1, value=k)
+            cell_k.font = Font(bold=True, color="166534", size=11)
+            cell_k.fill = PatternFill("solid", fgColor="F0FDF4")
+            cell_k.alignment = Alignment(vertical="top", wrap_text=True)
+            cell_v = ws_use.cell(row=r, column=2, value=v)
+            cell_v.font = Font(color="166534", size=11)
+            cell_v.fill = PatternFill("solid", fgColor="F0FDF4")
+            cell_v.alignment = Alignment(vertical="top", wrap_text=True)
+            ws_use.row_dimensions[r].height = 48
+
+        # Run DCI row — after optional
+        _run_row = _opt_start_row + 1 + len(optional_instructions)
+        _rk = ws_use.cell(row=_run_row, column=1, value="Run DCI")
+        _rk.font = Font(bold=True, color="334155", size=11)
+        _rk.alignment = Alignment(vertical="top", wrap_text=True)
+        _rv = ws_use.cell(row=_run_row, column=2,
+                           value="Once uploaded, DCI will validate column presence, score every "
+                                 "record across 13 rules, surface pattern findings (recurrence, "
+                                 "weak investigations, SLA breaches), and produce a 5-sheet Excel "
+                                 "evidence package.")
+        _rv.font = Font(color="475569", size=11)
+        _rv.alignment = Alignment(vertical="top", wrap_text=True)
+        ws_use.row_dimensions[_run_row].height = 38
 
         # Sheet 2 — Deviation Log (sample data)
         ws_data = wb.create_sheet("Deviation Log")
         ws_data.sheet_view.showGridLines = False
-        DCI_HEADERS = [
+        DCI_HEADERS_MANDATORY = [
             "record_id", "record_type", "deviation_category", "system_name",
             "open_date", "close_date", "rca_text", "capa_text",
             "assigned_to", "approved_by", "status", "sla_days",
         ]
+        DCI_HEADERS_OPTIONAL = [
+            "training_expiry_date", "reopen_date", "last_activity_date",
+            "risk_level", "product",
+        ]
+        DCI_HEADERS = DCI_HEADERS_MANDATORY + DCI_HEADERS_OPTIONAL
         for ci, h in enumerate(DCI_HEADERS, 1):
             c = ws_data.cell(row=1, column=ci, value=h)
             c.font = Font(bold=True, color="FFFFFF", size=11)
-            c.fill = PatternFill("solid", fgColor="1E3A5F")
+            if h in DCI_HEADERS_OPTIONAL:
+                c.fill = PatternFill("solid", fgColor="166534")  # green for optional
+            else:
+                c.fill = PatternFill("solid", fgColor="1E3A5F")  # navy for mandatory
             c.alignment = Alignment(horizontal="left", vertical="center", indent=1)
 
         # 25 sample rows demonstrating all 14 detection rules
@@ -2213,7 +2300,8 @@ def show_dci_review(user, role, model_id):
                 cell.alignment = Alignment(horizontal="left", vertical="top",
                                             wrap_text=True, indent=1)
             ws_data.row_dimensions[ri].height = 60
-        col_widths = [16, 12, 22, 14, 12, 12, 50, 50, 12, 12, 11, 9]
+        col_widths = [16, 12, 22, 14, 12, 12, 50, 50, 12, 12, 11, 9,
+                      18, 14, 18, 12, 18]
         for ci, w in enumerate(col_widths, 1):
             ws_data.column_dimensions[get_column_letter(ci)].width = w
         ws_data.freeze_panes = "A2"
@@ -2406,46 +2494,64 @@ def show_dci_review(user, role, model_id):
                     + ", ".join(f"'{k}' → `{v}`" for k, v in _map_override.items())
                 )
 
-    # Rule config
+    # Rule display — read-only, all rules always active, shown chronologically
     st.markdown("---")
-    st.markdown("### 2. Rule Configuration")
+    st.markdown("### 2. Detection Rules")
     st.caption(
-        "14 rules across 4 engines. Default: 12 ON, 2 OFF (Rules 11 and 14). "
-        "Disabled rules still compute scores for the Full Log but are "
-        "excluded from Risk_Tier and Records for Review."
+        "13 rules across 4 engines — all active. Rules are deterministic: "
+        "keyword-match and threshold-based only, no AI in the scoring path."
     )
 
-    if "dci_rule_config" not in st.session_state:
-        st.session_state["dci_rule_config"] = dict(_DCI_RULE_DEFAULTS)
-
-    cfg = st.session_state["dci_rule_config"]
-
-    engine_labels = {
-        "A": "🟡 RCA Recurrence",
-        "B": "🔴 Weak Investigation",
-        "C": "🔵 CAPA Effectiveness",
-        "D": "🟣 SLA / Aging",
-    }
-
-    with st.expander("Configure rules (optional)", expanded=False):
-        for engine_code, engine_name in engine_labels.items():
-            st.markdown(f"**{engine_name}**")
-            engine_rules = [m for m in _DCI_RULE_META if m[4] == engine_code]
-            for num, name, sev, tier, _, dflt, cfg_key in engine_rules:
-                cfg[cfg_key] = st.checkbox(
-                    f"Rule {num} — {name} ({sev} · {tier})",
-                    value=cfg.get(cfg_key, dflt),
-                    key=f"dci_cfg_{cfg_key}",
-                )
-            st.markdown("")
+    # Always use all defaults — no user config
+    cfg = dict(_DCI_RULE_DEFAULTS)
+    # Force all rules ON (Rules 11 and 14 were optional — now all active)
+    for k in cfg:
+        cfg[k] = True
     st.session_state["dci_rule_config"] = cfg
 
-    active_count = sum(1 for v in cfg.values() if v)
-    st.info(f"🔧 **{active_count}** of 14 rules active")
+    engine_labels = {
+        "A": ("🟡", "RCA Recurrence",     "Rules 1–3  ·  Recurring categories, repeat systems"),
+        "B": ("🔴", "Weak Investigation",  "Rules 4–7  ·  Short RCA, vague cause, missing CAPA"),
+        "C": ("🔵", "CAPA Effectiveness",  "Rules 8–11 ·  Training-only CAPA, re-opened, repeat post-closure"),
+        "D": ("🟣", "SLA / Aging",         "Rules 12–13 · Overdue, near-breach"),
+    }
 
-    if active_count == 0:
-        st.error("⚠️ At least one rule must be active to run analysis.")
-        return
+    with st.expander("View all 13 detection rules", expanded=False):
+        # Sort rules chronologically by rule number
+        sorted_rules = sorted(_DCI_RULE_META, key=lambda m: m[0])
+        current_engine = None
+        for num, name, sev, tier, engine_code, _, cfg_key in sorted_rules:
+            if engine_code != current_engine:
+                current_engine = engine_code
+                em, en, edesc = engine_labels[engine_code]
+                st.markdown(
+                    f"<div style='background:#f8fafc;border-left:3px solid #334155;"
+                    f"padding:6px 12px;margin:10px 0 4px 0;'>"
+                    f"<span style='font-weight:700;font-size:0.9rem;'>{em} {en}</span>"
+                    f"<span style='color:#64748b;font-size:0.82rem;margin-left:10px;'>{edesc}</span>"
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )
+            _sev_colors = {
+                "Critical": ("#fee2e2", "#dc2626"),
+                "High":     ("#fef3c7", "#d97706"),
+                "Medium":   ("#dbeafe", "#2563eb"),
+            }
+            _sbg, _sc = _sev_colors.get(sev, ("#f1f5f9", "#475569"))
+            st.markdown(
+                f"<div style='display:flex;align-items:center;gap:10px;"
+                f"padding:4px 8px;margin-bottom:2px;'>"
+                f"<span style='font-size:0.82rem;color:#334155;min-width:180px;'>"
+                f"<b>Rule {num}</b> — {name}</span>"
+                f"<span style='background:{_sbg};color:{_sc};border-radius:4px;"
+                f"padding:1px 7px;font-size:0.75rem;font-weight:600;'>{sev}</span>"
+                f"<span style='color:#22c55e;font-size:0.8rem;'>✓ Active</span>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+
+    active_count = len(_DCI_RULE_META)  # Always all rules
+    st.caption(f"✓ {active_count} rules active")
 
     # Run Analysis
     st.markdown("---")
@@ -2689,33 +2795,17 @@ def show_dci_review(user, role, model_id):
     else:
         st.success("✅ No records flagged at Medium or higher.")
 
-    # ── Auto-bank confirmation banner ─────────────────────────────────────────
-    _banked_period = st.session_state.get("dci_dim_banked_period")
-    _banked_count  = st.session_state.get("dci_dim_banked_count", 0)
-    if _banked_period:
-        if _banked_count <= 1 and n_crit == 0 and n_high == 0:
-            st.success(
-                f"✅ **Banked to DIM automatically** — clean period "
-                f"({_banked_period}). DIM records that DCI ran with zero High/Critical findings."
-            )
-        else:
-            st.success(
-                f"✅ **Banked to DIM automatically** — {_banked_count} "
-                f"High/Critical finding(s) added to period *{_banked_period}*. "
-                f"Open DIM to run cross-module convergence analysis."
-            )
-
     # Download + Open DIM
     st.markdown("---")
     st.markdown("### 5. Download Evidence Package")
-
-    dc1, dc2 = st.columns(2)
 
     sys_name = st.session_state.get("dci_system_name", "System")
     cfg_hash = st.session_state.get("dci_config_hash", "")
     dci_r_start = st.session_state.get("dci_r_start_derived", "")
     dci_r_end   = st.session_state.get("dci_r_end_derived", "")
 
+    # Row 1: Download + Start New Analysis side by side
+    dc1, dc2 = st.columns(2)
     with dc1:
         try:
             xlsx_bytes = dci_build_excel(
@@ -2745,15 +2835,6 @@ def show_dci_review(user, role, model_id):
             st.error(f"Excel build failed: {e}")
 
     with dc2:
-        if st.button("📊 Open DIM", use_container_width=True, key="dci_open_dim_btn"):
-            import streamlit as _st2
-            _st2.session_state["main_view"] = "dim"
-            _st2.rerun()
-
-    # ── v96 — Start New Analysis ──────────────────────────────────────────────
-    st.markdown("<div style='margin-top:14px;'></div>", unsafe_allow_html=True)
-    _na_col, _ = st.columns([3, 5])
-    with _na_col:
         if st.button("🔄 Start New Analysis", key="dci_reset_btn",
                      use_container_width=True):
             for k in ["dci_scored_df", "dci_analysis_done",
@@ -2761,16 +2842,40 @@ def show_dci_review(user, role, model_id):
                       "dci_file_name", "dci_pending_hash",
                       "dci_last_run_hash", "dci_last_run_filename",
                       "dci_invalidation_msg",
-                      "dci_review_start", "dci_review_end"]:
+                      "dci_r_start_derived", "dci_r_end_derived",
+                      "dci_dim_banked_period", "dci_dim_banked_count"]:
                 if k in st.session_state:
                     del st.session_state[k]
             st.rerun()
 
-    # ── v96 — Compliance-language DIM banked confirmation ─────────────────────
+    # Row 2: Open DIM (full width)
+    st.markdown("<div style='margin-top:8px;'></div>", unsafe_allow_html=True)
+    if st.button("📊 Open Data Integrity Monitor →", key="dci_open_dim_btn",
+                 use_container_width=True, type="primary"):
+        st.session_state["main_view"] = "dim"
+        st.rerun()
+
+    # DIM banked confirmation — below Open DIM
+    _banked_period = st.session_state.get("dci_dim_banked_period")
+    _banked_count  = st.session_state.get("dci_dim_banked_count", 0)
+    if _banked_period:
+        if _banked_count <= 1 and n_crit == 0 and n_high == 0:
+            st.success(
+                f"✅ **Banked to DIM automatically** — clean period "
+                f"({_banked_period}). DCI ran with zero High/Critical findings."
+            )
+        else:
+            st.success(
+                f"✅ **Banked to DIM automatically** — {_banked_count} "
+                f"High/Critical finding(s) added to period *{_banked_period}*. "
+                f"Open DIM to run cross-module convergence analysis."
+            )
+
+    # Compliance evidence confirmation
     if st.session_state.get("dci_analysis_done"):
         st.markdown(
             "<div style='background:#f0fdf4;border:1.5px solid #16a34a;"
-            "border-radius:10px;padding:10px 18px;margin-top:14px;'>"
+            "border-radius:10px;padding:10px 18px;margin-top:10px;'>"
             "<span style='color:#15803d;font-size:0.92rem;'>"
             "✓ <b>This run is now part of your DIM evidence package.</b> "
             "Results banked to DIM. Open DIM to run cross-module convergence."
