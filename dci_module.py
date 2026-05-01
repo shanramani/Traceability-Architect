@@ -441,6 +441,7 @@ _DCI_RULE_DEFAULTS = {
     "dci_r7_on":  True,   "dci_r8_on":  True,
     "dci_r9_on":  True,   "dci_r10_on": True,   "dci_r11_on": False,
     "dci_r12_on": True,   "dci_r13_on": True,   "dci_r14_on": False,
+    "dci_r15_on": True,   # Rule 15 — Training-Only CAPA on Recurrent Failure
 }
 
 _DCI_CFG_SCORE_MAP = {
@@ -476,6 +477,7 @@ _DCI_RULE_META = [
     (12, "Overdue",                           "High",     "T1", "D", True,  "dci_r12_on"),
     (13, "Near-Breach",                       "Medium",   "T1", "D", True,  "dci_r13_on"),
     (14, "No Activity",                       "Medium",   "T2", "D", False, "dci_r14_on"),
+    (15, "Training-Only CAPA on Recurrence",  "High",     "T1", "C", True,  "dci_r15_on"),
 ]
 
 _DCI_SEVERITY_SCORE = {"Critical": 9.0, "High": 7.0, "Medium": 6.0}
@@ -1084,9 +1086,111 @@ def dci_score_records(df, rule_config=None):
     df["All_Rules_Fired"] = df.apply(_rules_fired, axis=1)
     df["Detection_Basis"] = df.apply(_detection_basis, axis=1)
 
+    # ── IQI — Investigation Quality Index ─────────────────────────────────────
+    # IQI = 100 × (1 − total_fired_score / max_possible_score)
+    # max_possible = 9 × number of active rules (default 12 ON → 108)
+    # All score columns for active rules
+    _active_score_cols = [
+        sc for cfg_key, score_cols in _DCI_CFG_SCORE_MAP.items()
+        if rule_config.get(cfg_key, True)
+        for sc in score_cols
+        if sc in df.columns
+    ]
+    _n_active = len(_active_score_cols)
+    _max_possible = 9.0 * _n_active if _n_active > 0 else 108.0
+
+    def _compute_iqi(row):
+        total = sum(float(row.get(sc, 0)) for sc in _active_score_cols)
+        raw = 100.0 * (1.0 - total / _max_possible)
+        return int(max(0, min(100, round(raw))))
+
+    def _iqi_band(iqi_val):
+        if iqi_val >= 85: return "Strong"
+        if iqi_val >= 65: return "Acceptable"
+        if iqi_val >= 40: return "Weak"
+        return "Poor"
+
+    def _iqi_drivers(row):
+        """One-line explanation: which rules fired and how much each cost."""
+        hits = []
+        for sc, threshold, _ in _DCI_RULE_TIER_PRIORITY:
+            val = float(row.get(sc, 0))
+            if val >= threshold:
+                name = _DCI_RULE_DISPLAY_NAMES.get(sc, sc)
+                hits.append(f"{name} (−{int(val)})")
+        if not hits:
+            return "No issues detected — investigation meets all quality checks."
+        return "Deductions: " + " · ".join(hits)
+
+    df["IQI"]         = df.apply(_compute_iqi, axis=1)
+    df["IQI_Band"]    = df["IQI"].apply(_iqi_band)
+    df["IQI_Drivers"] = df.apply(_iqi_drivers, axis=1)
+
+    # ── CAPA Type Classification ───────────────────────────────────────────────
+    # Deterministic keyword classifier — tags each record's CAPA by control type.
+    # Four types in effectiveness hierarchy: Engineering > Systemic > Procedural > Training
+    _CAPA_TYPE_KEYWORDS = {
+        "Engineering":  ["engineer", "redesign", "hardware", "automation", "interlock",
+                         "sensor", "software patch", "firmware", "equipment mod",
+                         "physical control", "poka-yoke", "alarm"],
+        "Systemic":     ["process change", "system change", "workflow", "redesigned",
+                         "restructur", "reorgan", "root cause system", "process redesign",
+                         "system redesign", "fundamental", "overhaul"],
+        "Procedural":   ["sop", "procedure", "protocol", "work instruction", "checklist",
+                         "policy", "revised", "updated procedure", "amended", "guideline"],
+        "Training":     ["train", "retrain", "awareness", "remind", "coached",
+                         "refresher", "education", "briefing", "inform", "instruct"],
+    }
+    # Order matters — first match wins (engineering > systemic > procedural > training)
+    _CAPA_TYPE_ORDER = ["Engineering", "Systemic", "Procedural", "Training"]
+
+    def _classify_capa_type(row):
+        capa_text = str(row.get("capa_text", "")).lower().strip()
+        if not capa_text or capa_text in ("nan", "none", ""):
+            return "None"
+        for ctype in _CAPA_TYPE_ORDER:
+            if any(kw in capa_text for kw in _CAPA_TYPE_KEYWORDS[ctype]):
+                return ctype
+        return "Other"
+
+    df["CAPA_Type"] = df.apply(_classify_capa_type, axis=1)
+
+    # ── Rule 15 — Training-Only CAPA on Recurrent Failure (CAPA Effectiveness) ──
+    # Fires when: CAPA_Type = Training AND (Rule 1 OR Rule 9 already fired)
+    # Effect: escalates Risk_Tier one level (Medium→High, High→Critical)
+    # Does NOT change Risk_Score (score stays deterministic from rules 1-14)
+    # Records the escalation reason in a new column.
+    _TIER_ESCALATE = {"Low": "Medium", "Medium": "High", "High": "Critical", "Critical": "Critical"}
+
+    def _apply_rule15(row):
+        if row["CAPA_Type"] != "Training":
+            return row["Risk_Tier"], ""
+        r1_fired = float(row.get("score_dci_rule1_recurring_category", 0)) >= 6.0
+        r9_fired = float(row.get("score_dci_rule9_repeat_post_closure", 0)) >= 9.0
+        if r1_fired or r9_fired:
+            trigger = "Rule 1 (Recurring Category)" if r1_fired else "Rule 9 (Repeat Post-Closure)"
+            new_tier = _TIER_ESCALATE.get(row["Risk_Tier"], row["Risk_Tier"])
+            if new_tier != row["Risk_Tier"]:
+                return new_tier, (
+                    f"Rule 15 escalation: Training-only CAPA on recurrent failure "
+                    f"({trigger} fired). Training CAPAs do not prevent recurrence — "
+                    f"systemic action required per ICH Q10 §3.2.3."
+                )
+        return row["Risk_Tier"], ""
+
+    r15_results = df.apply(_apply_rule15, axis=1, result_type="expand")
+    df["Rule15_Tier"]   = r15_results[0]
+    df["Rule15_Reason"] = r15_results[1]
+
+    # Apply Rule 15 escalation to Risk_Tier (original preserved in Risk_Tier_Base)
+    df["Risk_Tier_Base"] = df["Risk_Tier"]
+    df["Risk_Tier"]      = df["Rule15_Tier"]
+    df = df.drop(columns=["Rule15_Tier"])
+
+    # Recount after Rule 15 escalation for sort
     df["_tier_rank"] = df["Risk_Tier"].map(_TIER_RANK).fillna(3).astype(int)
     df = df.sort_values(
-        ["_tier_rank", "Risk_Score"], ascending=[True, False]
+        ["_tier_rank", "IQI"], ascending=[True, True]   # worst IQI first within tier
     ).drop(columns=["_tier_rank"]).reset_index(drop=True)
 
     return df
@@ -1157,6 +1261,19 @@ def dci_build_excel(scored_df, system_name, r_start, r_end, fname,
     n_medium   = int((scored_df["Risk_Tier"] == "Medium").sum())   if n_total else 0
     n_hc       = n_critical + n_high
 
+    # IQI summary stats
+    _iqi_vals   = scored_df["IQI"].dropna() if "IQI" in scored_df.columns and n_total else []
+    _iqi_mean   = round(float(_iqi_vals.mean()), 1) if len(_iqi_vals) else "—"
+    _iqi_min    = int(_iqi_vals.min()) if len(_iqi_vals) else "—"
+    _iqi_poor   = int((_iqi_vals < 40).sum()) if len(_iqi_vals) else 0
+    _iqi_strong = int((_iqi_vals >= 85).sum()) if len(_iqi_vals) else 0
+
+    # Rule 15 escalations
+    _r15_count  = int((scored_df.get("Rule15_Reason", "") != "").sum()) if n_total else 0
+
+    # CAPA type breakdown
+    _capa_types = scored_df["CAPA_Type"].value_counts().to_dict() if "CAPA_Type" in scored_df.columns and n_total else {}
+
     # ── Sheet 1 — Summary ───────────────────────────────────────────────
     ws1 = wb.active
     ws1.title = "Summary"
@@ -1179,12 +1296,25 @@ def dci_build_excel(scored_df, system_name, r_start, r_end, fname,
     _hdr(ws1, 5, 2, "Value", width=60)
 
     kpi_rows = [
-        ("Records Analyzed",       str(n_total)),
-        ("Critical Findings",      str(n_critical)),
-        ("High Findings",          str(n_high)),
-        ("Medium Findings",        str(n_medium)),
-        ("Records Requiring Review", f"{n_hc} (Critical + High)"),
+        ("Records Analyzed",         str(n_total)),
+        ("Critical Findings",         str(n_critical)),
+        ("High Findings",             str(n_high)),
+        ("Medium Findings",           str(n_medium)),
+        ("Records Requiring Review",  f"{n_hc} (Critical + High)"),
+        ("— — —",                     ""),
+        ("Period IQI (avg)",          f"{_iqi_mean}" + (" / 100" if _iqi_mean != "—" else "")),
+        ("Lowest Record IQI",         str(_iqi_min) + (" / 100" if _iqi_min != "—" else "")),
+        ("Records IQI < 40 (Poor)",   str(_iqi_poor)),
+        ("Records IQI ≥ 85 (Strong)", str(_iqi_strong)),
+        ("Rule 15 Escalations",       str(_r15_count) + (" (training CAPA on recurrence)" if _r15_count else "")),
     ]
+    # Add CAPA type breakdown if data present
+    if _capa_types:
+        kpi_rows.append(("— — —", ""))
+        for ctype in ["Engineering", "Systemic", "Procedural", "Training", "Other", "None"]:
+            cnt = _capa_types.get(ctype, 0)
+            if cnt:
+                kpi_rows.append((f"CAPA Type: {ctype}", str(cnt)))
     for i, (k, v) in enumerate(kpi_rows, 6):
         _cell(ws1, i, 1, k, bold=True, bg=C_LIGHT)
         _cell(ws1, i, 2, v)
@@ -1235,8 +1365,12 @@ def dci_build_excel(scored_df, system_name, r_start, r_end, fname,
         ("Approved By",     "approved_by",         18),
         ("Risk Tier",       "Risk_Tier",           12),
         ("Risk Score",      "Risk_Score",          11),
+        ("IQI",             "IQI",                  8),
+        ("IQI Band",        "IQI_Band",            14),
+        ("CAPA Type",       "CAPA_Type",           14),
         ("Primary Rule",    "Primary_Rule",        36),
-        ("All Rules Fired", "All_Rules_Fired",     50),
+        ("IQI Drivers",     "IQI_Drivers",         60),
+        ("Rule 15 Note",    "Rule15_Reason",       50),
         ("Detection Basis", "Detection_Basis",     80),
     ]
 
@@ -1269,11 +1403,27 @@ def dci_build_excel(scored_df, system_name, r_start, r_end, fname,
                 horizontal="center" if ci > 1 else "left",
                 vertical="top",
                 wrap_text=col_key in ("Detection_Basis", "All_Rules_Fired",
-                                      "Primary_Rule"))
+                                      "Primary_Rule", "IQI_Drivers", "Rule15_Reason"))
             c.border = bdr
             if col_key == "Risk_Tier":
                 c.font = Font(name="Calibri", bold=True, size=9, color=tier_fg)
                 c.fill = _fill(tier_bg)
+            elif col_key == "IQI":
+                # Colour-code IQI: green (strong) → red (poor)
+                try:
+                    iq = int(val) if val != "" else -1
+                except (ValueError, TypeError):
+                    iq = -1
+                if iq >= 85:
+                    c.fill = _fill("D1FAE5"); c.font = Font(name="Calibri", bold=True, size=9, color="065F46")
+                elif iq >= 65:
+                    c.fill = _fill("FEF9C3"); c.font = Font(name="Calibri", bold=True, size=9, color="713F12")
+                elif iq >= 40:
+                    c.fill = _fill("FED7AA"); c.font = Font(name="Calibri", bold=True, size=9, color="7C2D12")
+                elif iq >= 0:
+                    c.fill = _fill("FEE2E2"); c.font = Font(name="Calibri", bold=True, size=9, color="7F1D1D")
+            elif col_key == "Rule15_Reason" and val:
+                c.fill = _fill("FFF7ED")  # amber tint for escalation notes
             elif ri % 2 == 0:
                 c.fill = _fill("F8FAFC")
         ws2.row_dimensions[ri].height = 36
@@ -1301,8 +1451,13 @@ def dci_build_excel(scored_df, system_name, r_start, r_end, fname,
         ("Approved By",   "approved_by",         16),
         ("RCA Text",      "rca_text",            40),
         ("CAPA Text",     "capa_text",           40),
+        ("CAPA Type",     "CAPA_Type",           14),
         ("Risk Tier",     "Risk_Tier",           10),
         ("Risk Score",    "Risk_Score",          10),
+        ("IQI",           "IQI",                  8),
+        ("IQI Band",      "IQI_Band",            14),
+        ("IQI Drivers",   "IQI_Drivers",         55),
+        ("Rule 15 Note",  "Rule15_Reason",       45),
         ("Primary Rule",  "Primary_Rule",        30),
     ]
     for sc, _, _ in _DCI_RULE_TIER_PRIORITY:
@@ -1331,11 +1486,24 @@ def dci_build_excel(scored_df, system_name, r_start, r_end, fname,
             c.alignment = Alignment(
                 horizontal="center" if ci > 1 else "left",
                 vertical="top",
-                wrap_text=col_key in ("rca_text", "capa_text"))
+                wrap_text=col_key in ("rca_text", "capa_text", "IQI_Drivers", "Rule15_Reason"))
             c.border = bdr
             if col_key == "Risk_Tier":
                 c.font = Font(name="Calibri", bold=True, size=9, color=tier_fg)
                 c.fill = _fill(tier_bg)
+            elif col_key == "IQI":
+                try:
+                    iq = int(val) if val != "" else -1
+                except (ValueError, TypeError):
+                    iq = -1
+                if iq >= 85:
+                    c.fill = _fill("D1FAE5"); c.font = Font(name="Calibri", bold=True, size=8.5, color="065F46")
+                elif iq >= 65:
+                    c.fill = _fill("FEF9C3"); c.font = Font(name="Calibri", bold=True, size=8.5, color="713F12")
+                elif iq >= 40:
+                    c.fill = _fill("FED7AA"); c.font = Font(name="Calibri", bold=True, size=8.5, color="7C2D12")
+                elif iq >= 0:
+                    c.fill = _fill("FEE2E2"); c.font = Font(name="Calibri", bold=True, size=8.5, color="7F1D1D")
             elif ri % 2 == 0:
                 c.fill = _fill("F8FAFC")
         ws3.row_dimensions[ri].height = 22
@@ -1382,12 +1550,16 @@ def dci_build_excel(scored_df, system_name, r_start, r_end, fname,
         9:  "Same record_type + system_name + deviation_category re-opens within "
             "90 days of a prior closure.",
         10: "Status normalizes to 're-opened' / 'reopened'.",
-        11: "Closed record, close_date - open_date < 3 days. "
+        11: "Closed record, close_date - open_date < threshold days (default 7). "
             "Both dates required.",
         12: "open_date + sla_days < today AND status != Closed. "
             "Requires numeric sla_days.",
-        13: "open_date + sla_days - today in [0, 7] AND status != Closed.",
+        13: "open_date + sla_days - today <= near_breach_pct% elapsed AND status != Closed.",
         14: "Open >= 30 days, no close_date, status != Closed.",
+        15: "CAPA_Type = Training AND (Rule 1 OR Rule 9 fired on same record). "
+            "Escalates Risk_Tier one level. Does not change Risk_Score. "
+            "Rationale: training-only CAPAs on recurrent failures indicate "
+            "CAPA ineffectiveness per ICH Q10 §3.2.3.",
     }
 
     for ri, (num, name, sev, tier, eng, dflt, cfg_key) in enumerate(
@@ -1408,7 +1580,7 @@ def dci_build_excel(scored_df, system_name, r_start, r_end, fname,
     _hdr(ws4, ri_ai, 1, "AI Use in Scoring")
     ws4.merge_cells(start_row=ri_ai, start_column=1, end_row=ri_ai, end_column=6)
     _cell(ws4, ri_ai + 1, 1,
-          "No AI is used in DCI rule scoring or tier assignment. All 14 rules "
+          "No AI is used in DCI rule scoring or tier assignment. All 15 rules "
           "are deterministic Python logic operating on keyword/date checks. "
           "AI (if present in narrative generation for Summary) is advisory text "
           "only — Risk_Score, Risk_Tier, and rule firing are fully reproducible "
@@ -1418,6 +1590,41 @@ def dci_build_excel(scored_df, system_name, r_start, r_end, fname,
     ws4.merge_cells(start_row=ri_ai+1, start_column=1,
                     end_row=ri_ai+1, end_column=6)
     ws4.row_dimensions[ri_ai + 1].height = 60
+
+    # IQI explanation block
+    ri_iqi = ri_ai + 4
+    _hdr(ws4, ri_iqi, 1, "Investigation Quality Index (IQI) — How It Works")
+    ws4.merge_cells(start_row=ri_iqi, start_column=1, end_row=ri_iqi, end_column=6)
+    _cell(ws4, ri_iqi + 1, 1,
+          "IQI = 100 × (1 − total_fired_score ÷ max_possible_score)  "
+          "where max_possible = 9 × number of active rules (default 12 ON → 108 max).  "
+          "IQI 100 = perfect investigation, no issues found.  "
+          "IQI 0 = every active rule fired.  "
+          "Bands: 85–100 Strong · 65–84 Acceptable · 40–64 Weak · 0–39 Poor.  "
+          "IQI is a parallel quality lens — it does NOT replace Risk_Tier. "
+          "Sort the Full Log by IQI ascending to find the weakest investigations first.",
+          wrap=True)
+    ws4.merge_cells(start_row=ri_iqi+1, start_column=1,
+                    end_row=ri_iqi+1, end_column=6)
+    ws4.row_dimensions[ri_iqi + 1].height = 70
+
+    # CAPA Type explanation block
+    ri_ct = ri_iqi + 4
+    _hdr(ws4, ri_ct, 1, "CAPA Type Classification — Deterministic Keyword Matching")
+    ws4.merge_cells(start_row=ri_ct, start_column=1, end_row=ri_ct, end_column=6)
+    _cell(ws4, ri_ct + 1, 1,
+          "Each CAPA is classified by control type using keyword matching on capa_text.  "
+          "Types (effectiveness hierarchy, strongest first):  "
+          "Engineering (hardware/automation/interlock) → "
+          "Systemic (process redesign/workflow change) → "
+          "Procedural (SOP/protocol/checklist update) → "
+          "Training (retrain/awareness/reminder).  "
+          "First match wins. Rule 15 escalates records where CAPA_Type = Training "
+          "AND the same failure has already recurred (Rule 1 or Rule 9 fired).",
+          wrap=True)
+    ws4.merge_cells(start_row=ri_ct+1, start_column=1,
+                    end_row=ri_ct+1, end_column=6)
+    ws4.row_dimensions[ri_ct + 1].height = 80
 
     # ── Sheet 5 — Integrity Audit ────────────────────────────────────────
     ws5 = wb.create_sheet("Integrity Audit")
@@ -1553,6 +1760,7 @@ def _dci_bank_to_dim(scored_df, period_label, system_name, file_name,
             "Event_Timestamp": event_ts,
             "Source_File":     file_name,
             "Source_Module":   "DCI",
+            "IQI":             int(row.get("IQI", 0)) if "IQI" in row.index else 0,
         })
 
     existing = [
@@ -1634,11 +1842,9 @@ def _render_dci_results_from_session(user, model_id):
     cfg_hash  = st.session_state.get("dci_config_hash", "")
     cfg       = st.session_state.get("dci_rule_config", dict(_DCI_RULE_DEFAULTS))
 
-    # Reconstruct review-period strings if available
-    _ds = st.session_state.get("dci_review_start")
-    _de = st.session_state.get("dci_review_end")
-    dci_r_start = _ds.strftime("%d-%b-%Y") if _ds else ""
-    dci_r_end   = _de.strftime("%d-%b-%Y") if _de else ""
+    # Reconstruct review-period strings from derived keys
+    dci_r_start = st.session_state.get("dci_r_start_derived", "")
+    dci_r_end   = st.session_state.get("dci_r_end_derived",   "")
 
     n_crit = int((scored_df["Risk_Tier"] == "Critical").sum())
     n_high = int((scored_df["Risk_Tier"] == "High").sum())
@@ -1653,13 +1859,23 @@ def _render_dci_results_from_session(user, model_id):
     with kc3: st.metric("Medium",   n_med)
     with kc4: st.metric("Low",      n_low)
 
+    if "IQI" in scored_df.columns and len(scored_df):
+        _ivals = scored_df["IQI"].dropna()
+        _imean = round(float(_ivals.mean()), 1)
+        _imin  = int(_ivals.min())
+        _ipoor = int((_ivals < 40).sum())
+        iq1, iq2, iq3 = st.columns(3)
+        with iq1: st.metric("Period IQI (avg)", f"{_imean} / 100")
+        with iq2: st.metric("Lowest Record IQI", f"{_imin} / 100")
+        with iq3: st.metric("Records IQI < 40 (Poor)", str(_ipoor))
+
     review_df = scored_df[scored_df["Risk_Tier"].isin(
         ["Critical", "High", "Medium"])]
     if not review_df.empty:
         st.markdown("**Records for Review** (Critical + High + Medium):")
         display_cols = ["record_id", "record_type", "deviation_category",
                         "system_name", "status", "Risk_Tier", "Risk_Score",
-                        "Primary_Rule"]
+                        "IQI", "IQI_Band", "CAPA_Type", "Primary_Rule"]
         display_cols = [c for c in display_cols if c in review_df.columns]
         st.dataframe(
             review_df[display_cols].head(50),
@@ -2208,11 +2424,20 @@ def show_dci_review(user, role, model_id):
             # (existing rows for this period+module are replaced, not duplicated).
             try:
                 _ec_fn = _gen().get("_dim_event_category")
-                _auto_period = (
+                # Period label mirrors UAR pattern: "date_range (filename_stem)"
+                # so two different CAPA exports for the same date range get
+                # distinct DIM period keys and don't overwrite each other.
+                _dci_fname_stem = file_name.rsplit(".", 1)[0][:30] if file_name else ""
+                _dci_date_range = (
                     f"{dci_r_start} → {dci_r_end}"
-                    if (dci_r_start and dci_r_end)
-                    else f"DCI Period {st.session_state.get('dim_periods_banked', 0) + 1}"
+                    if (dci_r_start and dci_r_end) else ""
                 )
+                if _dci_date_range and _dci_fname_stem:
+                    _auto_period = f"{_dci_date_range} ({_dci_fname_stem})"
+                elif _dci_date_range:
+                    _auto_period = _dci_date_range
+                else:
+                    _auto_period = f"DCI Period {st.session_state.get('dim_periods_banked', 0) + 1}"
                 _auto_banked = _dci_bank_to_dim(
                     scored_df,
                     period_label=_auto_period,
@@ -2278,13 +2503,33 @@ def show_dci_review(user, role, model_id):
     with kc3: st.metric("Medium",   n_med)
     with kc4: st.metric("Low",      n_low)
 
+    # IQI summary row
+    if "IQI" in scored_df.columns and len(scored_df):
+        _ivals = scored_df["IQI"].dropna()
+        _imean = round(float(_ivals.mean()), 1)
+        _imin  = int(_ivals.min())
+        _ipoor = int((_ivals < 40).sum())
+        iq1, iq2, iq3 = st.columns(3)
+        with iq1:
+            st.metric("Period IQI (avg)", f"{_imean} / 100",
+                      help="Investigation Quality Index — 100 = perfect, 0 = all rules fired. "
+                           "Average across all records in this dataset.")
+        with iq2:
+            st.metric("Lowest Record IQI", f"{_imin} / 100",
+                      help="The weakest individual investigation. Check IQI Drivers column "
+                           "in the evidence package to see exactly which rules fired.")
+        with iq3:
+            st.metric("Records IQI < 40 (Poor)", str(_ipoor),
+                      help="Records where the total rule penalty is severe — "
+                           "multiple critical gaps found.")
+
     review_df = scored_df[scored_df["Risk_Tier"].isin(
         ["Critical", "High", "Medium"])]
     if not review_df.empty:
         st.markdown("**Records for Review** (Critical + High + Medium):")
         display_cols = ["record_id", "record_type", "deviation_category",
                         "system_name", "status", "Risk_Tier", "Risk_Score",
-                        "Primary_Rule"]
+                        "IQI", "IQI_Band", "CAPA_Type", "Primary_Rule"]
         display_cols = [c for c in display_cols if c in review_df.columns]
         st.dataframe(
             review_df[display_cols].head(50),
