@@ -1853,21 +1853,63 @@ def _render_dci_results_from_session(user, model_id):
 
     st.markdown("---")
     st.markdown("### Results")
-    kc1, kc2, kc3, kc4 = st.columns(4)
-    with kc1: st.metric("Critical", n_crit)
-    with kc2: st.metric("High",     n_high)
-    with kc3: st.metric("Medium",   n_med)
-    with kc4: st.metric("Low",      n_low)
+
+    # Color-coded risk tier cards — matches AT/UAR theme
+    _tier_cards_p = [
+        ("#fee2e2", "#dc2626", "#7f1d1d", "🔴 Critical", n_crit),
+        ("#fef3c7", "#d97706", "#78350f", "🟠 High",     n_high),
+        ("#dbeafe", "#2563eb", "#1e3a8a", "🔵 Medium",   n_med),
+        ("#f0fdf4", "#16a34a", "#14532d", "🟢 Low",      n_low),
+    ]
+    _pcard_html = "<div style='display:flex;gap:12px;margin-bottom:12px;'>"
+    for _bg, _accent, _text, _label, _val in _tier_cards_p:
+        _pcard_html += (
+            f"<div style='flex:1;background:{_bg};border:1.5px solid {_accent};"
+            f"border-radius:10px;padding:14px 16px;text-align:center;'>"
+            f"<div style='font-size:0.82rem;color:{_accent};font-weight:600;"
+            f"letter-spacing:0.04em;margin-bottom:4px;'>{_label}</div>"
+            f"<div style='font-size:2.1rem;font-weight:800;color:{_text};'>{_val}</div>"
+            f"</div>"
+        )
+    _pcard_html += "</div>"
+    st.markdown(_pcard_html, unsafe_allow_html=True)
 
     if "IQI" in scored_df.columns and len(scored_df):
         _ivals = scored_df["IQI"].dropna()
         _imean = round(float(_ivals.mean()), 1)
         _imin  = int(_ivals.min())
         _ipoor = int((_ivals < 40).sum())
-        iq1, iq2, iq3 = st.columns(3)
-        with iq1: st.metric("Period IQI (avg)", f"{_imean} / 100")
-        with iq2: st.metric("Lowest Record IQI", f"{_imin} / 100")
-        with iq3: st.metric("Records IQI < 40 (Poor)", str(_ipoor))
+
+        def _iqi_color_p(val):
+            if val >= 85: return ("#f0fdf4", "#16a34a", "#14532d")
+            if val >= 65: return ("#dbeafe", "#2563eb", "#1e3a8a")
+            if val >= 40: return ("#fef3c7", "#d97706", "#78350f")
+            return ("#fee2e2", "#dc2626", "#7f1d1d")
+
+        _ibg1p, _ia1p, _it1p = _iqi_color_p(_imean)
+        _ibg2p, _ia2p, _it2p = _iqi_color_p(_imin)
+        _ibg3p = ("#fee2e2", "#dc2626", "#7f1d1d") if _ipoor > 0 else ("#f0fdf4", "#16a34a", "#14532d")
+
+        _iqi_html_p = (
+            "<div style='display:flex;gap:12px;margin-bottom:14px;'>"
+            f"<div style='flex:1;background:{_ibg1p[0]};border:1.5px solid {_ibg1p[1]};"
+            f"border-radius:10px;padding:12px 16px;text-align:center;'>"
+            f"<div style='font-size:0.78rem;color:{_ibg1p[1]};font-weight:600;'>📊 Period IQI (avg)</div>"
+            f"<div style='font-size:1.8rem;font-weight:800;color:{_ibg1p[2]};'>{_imean}<span style='font-size:0.9rem;'>/100</span></div>"
+            f"</div>"
+            f"<div style='flex:1;background:{_ibg2p[0]};border:1.5px solid {_ibg2p[1]};"
+            f"border-radius:10px;padding:12px 16px;text-align:center;'>"
+            f"<div style='font-size:0.78rem;color:{_ibg2p[1]};font-weight:600;'>📉 Lowest Record IQI</div>"
+            f"<div style='font-size:1.8rem;font-weight:800;color:{_ibg2p[2]};'>{_imin}<span style='font-size:0.9rem;'>/100</span></div>"
+            f"</div>"
+            f"<div style='flex:1;background:{_ibg3p[0]};border:1.5px solid {_ibg3p[1]};"
+            f"border-radius:10px;padding:12px 16px;text-align:center;'>"
+            f"<div style='font-size:0.78rem;color:{_ibg3p[1]};font-weight:600;'>⚠️ Records IQI &lt; 40 (Poor)</div>"
+            f"<div style='font-size:1.8rem;font-weight:800;color:{_ibg3p[2]};'>{_ipoor}</div>"
+            f"</div>"
+            "</div>"
+        )
+        st.markdown(_iqi_html_p, unsafe_allow_html=True)
 
     review_df = scored_df[scored_df["Risk_Tier"].isin(
         ["Critical", "High", "Medium"])]
@@ -1961,9 +2003,9 @@ def show_dci_review(user, role, model_id):
 
     st.markdown("---")
 
-    # System metadata
-    mc1, mc2, mc3 = st.columns(3)
-    with mc1:
+    # System metadata — system name only (no date inputs, period derived from data like AT)
+    _sn_col, _ = st.columns([2, 4])
+    with _sn_col:
         st.session_state["dci_system_name"] = st.text_input(
             "System Name",
             value=st.session_state.get("dci_system_name", ""),
@@ -1971,72 +2013,84 @@ def show_dci_review(user, role, model_id):
             key="dci_sysname",
         )
 
-    def _prev_quarter_dates():
-        today = _dt.date.today()
-        q = (today.month - 1) // 3 + 1
-        if q == 1:
-            return (_dt.date(today.year - 1, 10, 1),
-                    _dt.date(today.year - 1, 12, 31))
-        elif q == 2:
-            return (_dt.date(today.year, 1, 1), _dt.date(today.year, 3, 31))
-        elif q == 3:
-            return (_dt.date(today.year, 4, 1), _dt.date(today.year, 6, 30))
-        else:
-            return (_dt.date(today.year, 7, 1), _dt.date(today.year, 9, 30))
-
-    _pq_start, _pq_end = _prev_quarter_dates()
-    with mc2:
-        dci_start = st.date_input(
-            "Review Period Start",
-            value=st.session_state.get("dci_review_start", _pq_start),
-            format="DD/MM/YYYY", key="dci_start_picker",
-        )
-        st.session_state["dci_review_start"] = dci_start
-    with mc3:
-        dci_end = st.date_input(
-            "Review Period End",
-            value=st.session_state.get("dci_review_end", _pq_end),
-            format="DD/MM/YYYY", key="dci_end_picker",
-        )
-        st.session_state["dci_review_end"] = dci_end
-
-    dci_r_start = dci_start.strftime("%d-%b-%Y") if dci_start else ""
-    dci_r_end   = dci_end.strftime("%d-%b-%Y")   if dci_end   else ""
+    # Period strings derived from data (set after scoring, like AT)
+    dci_r_start = st.session_state.get("dci_r_start_derived", "")
+    dci_r_end   = st.session_state.get("dci_r_end_derived",   "")
 
     st.markdown("---")
 
     # Upload
     st.markdown("### 1. Upload Deviation/CAPA Log")
 
-    # ── v96 — Collapsible "What columns do you need" expander ─────────────────
-    with st.expander("📋 What columns do you need? (click to expand)",
-                     expanded=False):
+    # ── Collapsible "What columns do you need" — mandatory on top, optional below ──
+    with st.expander("📋 What columns do you need? (click to expand)", expanded=False):
         st.markdown(
-            """
-**Required columns** (★) — DCI cannot run without these. Common aliases (e.g.
-`deviation_id` → `record_id`) are auto-detected:
+            "<p style='font-size:0.85rem;color:#94a3b8;margin-bottom:6px;'>"
+            "Column aliases are auto-detected (e.g. <code>deviation_id</code> → "
+            "<code>record_id</code>). Mandatory columns must be present to run analysis.</p>",
+            unsafe_allow_html=True,
+        )
 
-| Column | Purpose | Example |
-|---|---|---|
-| ★ `record_id` | Unique deviation/CAPA identifier | DEV-2024-001 |
-| ★ `record_type` | Deviation, CAPA, NC, Investigation | Deviation |
-| ★ `deviation_category` | Cause category / classification | Equipment, Procedure |
-| ★ `system_name` | Source GxP system | LIMS, MES, EQMS |
-| ★ `open_date` | When the record was opened | 2024-03-15 |
-| ★ `close_date` | When the record was closed (blank if open) | 2024-04-22 |
-| ★ `rca_text` | Root cause analysis narrative | Free-text |
-| ★ `capa_text` | CAPA description / actions taken | Free-text |
-| ★ `assigned_to` | Investigator assigned | jdoe |
-| ★ `approved_by` | QA approver | jsmith |
-| ★ `status` | Open, Closed, Cancelled | Closed |
-| ★ `sla_days` | Target close-by SLA in days | 30 |
+        # ── Mandatory columns ──
+        st.markdown(
+            "<div style='font-weight:700;font-size:0.93rem;color:#1e3a5f;"
+            "margin-bottom:4px;'>⬛ Mandatory columns</div>",
+            unsafe_allow_html=True,
+        )
+        _mand_rows = [
+            ("`record_id`",          "Unique deviation/CAPA identifier",         "DEV-2024-001"),
+            ("`record_type`",        "Deviation, CAPA, NC, Investigation",        "Deviation"),
+            ("`deviation_category`", "Cause category / classification",           "Equipment Failure"),
+            ("`system_name`",        "Source GxP system",                        "LIMS, MES, EQMS"),
+            ("`open_date`",          "When the record was opened",               "2024-03-15"),
+            ("`close_date`",         "When the record was closed (blank if open)","2024-04-22"),
+            ("`rca_text`",           "Root cause analysis narrative",             "Free-text narrative"),
+            ("`capa_text`",          "CAPA description / actions taken",         "Free-text actions"),
+            ("`assigned_to`",        "Investigator assigned",                     "jdoe"),
+            ("`approved_by`",        "QA approver",                              "jsmith"),
+            ("`status`",             "Open, Closed, Cancelled, Re-opened",        "Closed"),
+            ("`sla_days`",           "Target close-by SLA in days",              "30"),
+        ]
+        _mand_table = (
+            "| Column | Purpose | Example |\n|---|---|---|\n"
+            + "\n".join(f"| {c} | {p} | {e} |" for c, p, e in _mand_rows)
+        )
+        st.markdown(_mand_table)
 
-**14 detection rules across 4 engines:**
-- **RCA Recurrence** (Rules 1–3): Repeat categories, repeat systems
-- **Weak Investigation** (Rules 4–7): Short RCA, vague cause, missing CAPA
-- **CAPA Effectiveness** (Rules 8–10): Re-opened, weak training-only CAPAs
-- **SLA Aging** (Rules 11–14): Overdue, near-breach, no-activity records
-            """
+        st.markdown("<div style='margin-top:10px;'></div>", unsafe_allow_html=True)
+
+        # ── Optional columns ──
+        st.markdown(
+            "<div style='font-weight:700;font-size:0.93rem;color:#15803d;"
+            "margin-bottom:4px;'>🟩 Optional columns — enhance analysis when present</div>",
+            unsafe_allow_html=True,
+        )
+        _opt_rows = [
+            ("`training_expiry_date`", "Adds training expiry narrative to CAPA assessment",  "2025-06-30"),
+            ("`reopen_date`",          "Explicit re-open date for Rule 10 (re-opened CAPA)", "2024-07-01"),
+            ("`last_activity_date`",   "Last update date; used by Rule 14 (no activity)",    "2024-08-15"),
+            ("`risk_level`",           "Pre-assigned risk — shown in evidence package",       "High"),
+            ("`product`",              "Product or batch reference",                          "Batch 24B-01"),
+        ]
+        _opt_html = "".join(
+            f"<div style='display:flex;gap:8px;padding:4px 0;border-bottom:1px solid #f0fdf4;'>"
+            f"<span style='color:#15803d;font-family:monospace;min-width:160px;'>{c}</span>"
+            f"<span style='color:#334155;font-size:0.88rem;flex:1;'>{p}</span>"
+            f"<span style='color:#64748b;font-size:0.83rem;min-width:110px;'>{e}</span>"
+            f"</div>"
+            for c, p, e in _opt_rows
+        )
+        st.markdown(
+            f"<div style='background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;"
+            f"padding:10px 14px;'>{_opt_html}</div>",
+            unsafe_allow_html=True,
+        )
+
+        st.markdown(
+            "<p style='font-size:0.82rem;color:#94a3b8;margin-top:10px;'>"
+            "14 detection rules across 4 engines — RCA Recurrence (1–3) · "
+            "Weak Investigation (4–7) · CAPA Effectiveness (8–11) · SLA Aging (12–15)</p>",
+            unsafe_allow_html=True,
         )
 
     # ── v96 — Sample template download ────────────────────────────────────────
@@ -2221,11 +2275,8 @@ def show_dci_review(user, role, model_id):
         return
 
     if dci_file is None:
-        st.info(
-            "📋 **Expected columns** (aliases accepted): record_id, record_type, "
-            "deviation_category, system_name, open_date, close_date, rca_text, "
-            "capa_text, assigned_to, approved_by, status, sla_days"
-        )
+        st.caption("Upload your deviation/CAPA log above to begin. "
+                   "Expand 'What columns do you need?' for column guidance.")
         return
 
     try:
@@ -2306,6 +2357,54 @@ def show_dci_review(user, role, model_id):
         return
 
     st.success(f"✓ File loaded: **{len(dci_df)} record(s)** · {len(dci_df.columns)} columns")
+
+    # ── Data preview — top 10 rows, expandable ────────────────────────────────
+    with st.expander("🔍 Data Preview — first 10 rows (click to expand)", expanded=False):
+        st.dataframe(dci_df_raw.head(10), use_container_width=True, hide_index=True)
+
+    # ── Column Mapping — dropdowns for unmapped required columns ──────────────
+    # Build a list of required columns that didn't auto-resolve
+    _raw_cols_norm = {str(c).strip().lower().replace(" ", "_"): c
+                      for c in dci_df_raw.columns}
+    _already_mapped = set(col_rename.values()) | (
+        set(dci_df.columns) & _DCI_REQUIRED_COLS
+    )
+    _unmapped_required = [
+        canon for canon in sorted(_DCI_REQUIRED_COLS)
+        if canon not in _already_mapped and canon not in set(dci_df.columns)
+    ]
+    if _unmapped_required:
+        with st.expander(
+            f"🗂️ Column Mapping — {len(_unmapped_required)} column(s) need mapping "
+            "(click to expand)", expanded=True
+        ):
+            st.markdown(
+                "<p style='font-size:0.85rem;color:#94a3b8;margin-bottom:8px;'>"
+                "The following required columns were not auto-detected. "
+                "Select the matching column from your file, or leave as "
+                "<em>— Skip —</em> to exclude that rule engine.</p>",
+                unsafe_allow_html=True,
+            )
+            _file_col_options = ["— Skip —"] + list(dci_df_raw.columns)
+            _map_override = {}
+            _map_cols = st.columns(min(3, len(_unmapped_required)))
+            for _mi, _canon in enumerate(_unmapped_required):
+                with _map_cols[_mi % 3]:
+                    _sel = st.selectbox(
+                        f"`{_canon}`",
+                        options=_file_col_options,
+                        index=0,
+                        key=f"dci_colmap_{_canon}",
+                        help=f"Map your file column to the DCI '{_canon}' field",
+                    )
+                    if _sel != "— Skip —":
+                        _map_override[_sel] = _canon
+            if _map_override:
+                dci_df = dci_df.rename(columns=_map_override)
+                st.caption(
+                    f"✓ Manually mapped: "
+                    + ", ".join(f"'{k}' → `{v}`" for k, v in _map_override.items())
+                )
 
     # Rule config
     st.markdown("---")
@@ -2400,6 +2499,20 @@ def show_dci_review(user, role, model_id):
             with st.spinner("Scoring records across 14 rules…"):
                 scored_df = dci_score_records(dci_df, rule_config=cfg)
             st.session_state["dci_scored_df"] = scored_df
+
+            # Derive period dates from data (like AT — no manual date pickers)
+            try:
+                if "open_date" in scored_df.columns:
+                    _dates = pd.to_datetime(scored_df["open_date"], errors="coerce").dropna()
+                    if len(_dates):
+                        st.session_state["dci_r_start_derived"] = _dates.min().strftime("%d-%b-%Y")
+                        st.session_state["dci_r_end_derived"]   = _dates.max().strftime("%d-%b-%Y")
+                    else:
+                        st.session_state["dci_r_start_derived"] = ""
+                        st.session_state["dci_r_end_derived"]   = ""
+            except Exception:
+                st.session_state["dci_r_start_derived"] = ""
+                st.session_state["dci_r_end_derived"]   = ""
             st.session_state["dci_analysis_done"] = True
 
             # v96 — record run hash for upload invalidation on next file
@@ -2428,9 +2541,11 @@ def show_dci_review(user, role, model_id):
                 # so two different CAPA exports for the same date range get
                 # distinct DIM period keys and don't overwrite each other.
                 _dci_fname_stem = file_name.rsplit(".", 1)[0][:30] if file_name else ""
+                _dci_r_start_d = st.session_state.get("dci_r_start_derived", "")
+                _dci_r_end_d   = st.session_state.get("dci_r_end_derived", "")
                 _dci_date_range = (
-                    f"{dci_r_start} → {dci_r_end}"
-                    if (dci_r_start and dci_r_end) else ""
+                    f"{_dci_r_start_d} → {_dci_r_end_d}"
+                    if (_dci_r_start_d and _dci_r_end_d) else ""
                 )
                 if _dci_date_range and _dci_fname_stem:
                     _auto_period = f"{_dci_date_range} ({_dci_fname_stem})"
@@ -2497,31 +2612,64 @@ def show_dci_review(user, role, model_id):
     n_med  = int((scored_df["Risk_Tier"] == "Medium").sum())
     n_low  = int((scored_df["Risk_Tier"] == "Low").sum())
 
-    kc1, kc2, kc3, kc4 = st.columns(4)
-    with kc1: st.metric("Critical", n_crit)
-    with kc2: st.metric("High",     n_high)
-    with kc3: st.metric("Medium",   n_med)
-    with kc4: st.metric("Low",      n_low)
+    # Color-coded risk tier cards — matches AT/UAR theme
+    _tier_cards = [
+        ("#fee2e2", "#dc2626", "#7f1d1d", "🔴 Critical", n_crit),
+        ("#fef3c7", "#d97706", "#78350f", "🟠 High",     n_high),
+        ("#dbeafe", "#2563eb", "#1e3a8a", "🔵 Medium",   n_med),
+        ("#f0fdf4", "#16a34a", "#14532d", "🟢 Low",      n_low),
+    ]
+    _card_html = "<div style='display:flex;gap:12px;margin-bottom:12px;'>"
+    for _bg, _accent, _text, _label, _val in _tier_cards:
+        _card_html += (
+            f"<div style='flex:1;background:{_bg};border:1.5px solid {_accent};"
+            f"border-radius:10px;padding:14px 16px;text-align:center;'>"
+            f"<div style='font-size:0.82rem;color:{_accent};font-weight:600;"
+            f"letter-spacing:0.04em;margin-bottom:4px;'>{_label}</div>"
+            f"<div style='font-size:2.1rem;font-weight:800;color:{_text};'>{_val}</div>"
+            f"</div>"
+        )
+    _card_html += "</div>"
+    st.markdown(_card_html, unsafe_allow_html=True)
 
-    # IQI summary row
+    # IQI summary row — color-coded by band
     if "IQI" in scored_df.columns and len(scored_df):
         _ivals = scored_df["IQI"].dropna()
         _imean = round(float(_ivals.mean()), 1)
         _imin  = int(_ivals.min())
         _ipoor = int((_ivals < 40).sum())
-        iq1, iq2, iq3 = st.columns(3)
-        with iq1:
-            st.metric("Period IQI (avg)", f"{_imean} / 100",
-                      help="Investigation Quality Index — 100 = perfect, 0 = all rules fired. "
-                           "Average across all records in this dataset.")
-        with iq2:
-            st.metric("Lowest Record IQI", f"{_imin} / 100",
-                      help="The weakest individual investigation. Check IQI Drivers column "
-                           "in the evidence package to see exactly which rules fired.")
-        with iq3:
-            st.metric("Records IQI < 40 (Poor)", str(_ipoor),
-                      help="Records where the total rule penalty is severe — "
-                           "multiple critical gaps found.")
+
+        def _iqi_color(val):
+            if val >= 85: return ("#f0fdf4", "#16a34a", "#14532d")
+            if val >= 65: return ("#dbeafe", "#2563eb", "#1e3a8a")
+            if val >= 40: return ("#fef3c7", "#d97706", "#78350f")
+            return ("#fee2e2", "#dc2626", "#7f1d1d")
+
+        _ibg1, _ia1, _it1 = _iqi_color(_imean)
+        _ibg2, _ia2, _it2 = _iqi_color(_imin)
+        _ibg3 = ("#fee2e2", "#dc2626", "#7f1d1d") if _ipoor > 0 else ("#f0fdf4", "#16a34a", "#14532d")
+
+        _iqi_html = (
+            "<div style='display:flex;gap:12px;margin-bottom:14px;'>"
+            f"<div style='flex:1;background:{_ibg1[0]};border:1.5px solid {_ibg1[1]};"
+            f"border-radius:10px;padding:12px 16px;text-align:center;' "
+            f"title='Investigation Quality Index — 100 = perfect, 0 = all rules fired'>"
+            f"<div style='font-size:0.78rem;color:{_ibg1[1]};font-weight:600;'>📊 Period IQI (avg)</div>"
+            f"<div style='font-size:1.8rem;font-weight:800;color:{_ibg1[2]};'>{_imean}<span style='font-size:0.9rem;'>/100</span></div>"
+            f"</div>"
+            f"<div style='flex:1;background:{_ibg2[0]};border:1.5px solid {_ibg2[1]};"
+            f"border-radius:10px;padding:12px 16px;text-align:center;'>"
+            f"<div style='font-size:0.78rem;color:{_ibg2[1]};font-weight:600;'>📉 Lowest Record IQI</div>"
+            f"<div style='font-size:1.8rem;font-weight:800;color:{_ibg2[2]};'>{_imin}<span style='font-size:0.9rem;'>/100</span></div>"
+            f"</div>"
+            f"<div style='flex:1;background:{_ibg3[0]};border:1.5px solid {_ibg3[1]};"
+            f"border-radius:10px;padding:12px 16px;text-align:center;'>"
+            f"<div style='font-size:0.78rem;color:{_ibg3[1]};font-weight:600;'>⚠️ Records IQI &lt; 40 (Poor)</div>"
+            f"<div style='font-size:1.8rem;font-weight:800;color:{_ibg3[2]};'>{_ipoor}</div>"
+            f"</div>"
+            "</div>"
+        )
+        st.markdown(_iqi_html, unsafe_allow_html=True)
 
     review_df = scored_df[scored_df["Risk_Tier"].isin(
         ["Critical", "High", "Medium"])]
@@ -2565,6 +2713,8 @@ def show_dci_review(user, role, model_id):
 
     sys_name = st.session_state.get("dci_system_name", "System")
     cfg_hash = st.session_state.get("dci_config_hash", "")
+    dci_r_start = st.session_state.get("dci_r_start_derived", "")
+    dci_r_end   = st.session_state.get("dci_r_end_derived", "")
 
     with dc1:
         try:
@@ -2627,15 +2777,3 @@ def show_dci_review(user, role, model_id):
             "</span></div>",
             unsafe_allow_html=True,
         )
-
-        # ── v96 — Open DIM button ─────────────────────────────────────────────
-        st.markdown("<div style='margin-top:8px;'></div>", unsafe_allow_html=True)
-        _ddim_col, _ = st.columns([3, 5])
-        with _ddim_col:
-            if st.button("📊 Open Data Integrity Monitor →",
-                         key="dci_open_dim_btn",
-                         use_container_width=True, type="primary"):
-                st.session_state["main_view"] = "dim"
-                st.session_state["dim_analysis_done"] = False
-                st.session_state["dim_autorun_pending"] = True
-                st.rerun()
