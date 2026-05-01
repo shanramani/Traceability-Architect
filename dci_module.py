@@ -1850,6 +1850,7 @@ def _render_dci_results_from_session(user, model_id):
     n_high = int((scored_df["Risk_Tier"] == "High").sum())
     n_med  = int((scored_df["Risk_Tier"] == "Medium").sum())
     n_low  = int((scored_df["Risk_Tier"] == "Low").sum())
+    n_total_p = len(scored_df)
 
     st.markdown("---")
     st.markdown("### Results")
@@ -1861,7 +1862,7 @@ def _render_dci_results_from_session(user, model_id):
         ("#dbeafe", "#2563eb", "#1e3a8a", "🔵 Medium",   n_med),
         ("#f0fdf4", "#16a34a", "#14532d", "🟢 Low",      n_low),
     ]
-    _pcard_html = "<div style='display:flex;gap:12px;margin-bottom:12px;'>"
+    _pcard_html = "<div style='display:flex;gap:12px;margin-bottom:6px;'>"
     for _bg, _accent, _text, _label, _val in _tier_cards_p:
         _pcard_html += (
             f"<div style='flex:1;background:{_bg};border:1.5px solid {_accent};"
@@ -1874,10 +1875,25 @@ def _render_dci_results_from_session(user, model_id):
     _pcard_html += "</div>"
     st.markdown(_pcard_html, unsafe_allow_html=True)
 
+    # Context explanation under tier cards
+    st.markdown(
+        "<div style='background:#f8fafc;border-left:3px solid #94a3b8;"
+        "padding:8px 14px;border-radius:0 6px 6px 0;margin-bottom:14px;'>"
+        "<span style='font-size:0.82rem;color:#475569;'>"
+        "<b>🔴 Critical</b> — multiple serious gaps (missing CAPA, repeat post-closure, vague RCA). "
+        "Requires immediate remediation and re-investigation. &nbsp;|&nbsp; "
+        "<b>🟠 High</b> — significant issue present (short RCA, repeat system, overdue). "
+        "Review and action required before next period. &nbsp;|&nbsp; "
+        "<b>🔵 Medium</b> — pattern detected but lower severity (recurring category, near-breach). "
+        "Monitor and address in current cycle. &nbsp;|&nbsp; "
+        "<b>🟢 Low</b> — no rules fired. Investigation meets quality checks."
+        "</span></div>",
+        unsafe_allow_html=True,
+    )
+
     if "IQI" in scored_df.columns and len(scored_df):
         _ivals = scored_df["IQI"].dropna()
         _imean = round(float(_ivals.mean()), 1)
-        _imin  = int(_ivals.min())
         _ipoor = int((_ivals < 40).sum())
 
         def _iqi_color_p(val):
@@ -1886,30 +1902,41 @@ def _render_dci_results_from_session(user, model_id):
             if val >= 40: return ("#fef3c7", "#d97706", "#78350f")
             return ("#fee2e2", "#dc2626", "#7f1d1d")
 
-        _ibg1p, _ia1p, _it1p = _iqi_color_p(_imean)
-        _ibg2p, _ia2p, _it2p = _iqi_color_p(_imin)
+        _ibg1p = _iqi_color_p(_imean)
         _ibg3p = ("#fee2e2", "#dc2626", "#7f1d1d") if _ipoor > 0 else ("#f0fdf4", "#16a34a", "#14532d")
 
         _iqi_html_p = (
-            "<div style='display:flex;gap:12px;margin-bottom:14px;'>"
+            "<div style='display:flex;gap:12px;margin-bottom:6px;'>"
             f"<div style='flex:1;background:{_ibg1p[0]};border:1.5px solid {_ibg1p[1]};"
             f"border-radius:10px;padding:12px 16px;text-align:center;'>"
-            f"<div style='font-size:0.78rem;color:{_ibg1p[1]};font-weight:600;'>📊 Period IQI (avg)</div>"
-            f"<div style='font-size:1.8rem;font-weight:800;color:{_ibg1p[2]};'>{_imean}<span style='font-size:0.9rem;'>/100</span></div>"
-            f"</div>"
-            f"<div style='flex:1;background:{_ibg2p[0]};border:1.5px solid {_ibg2p[1]};"
-            f"border-radius:10px;padding:12px 16px;text-align:center;'>"
-            f"<div style='font-size:0.78rem;color:{_ibg2p[1]};font-weight:600;'>📉 Lowest Record IQI</div>"
-            f"<div style='font-size:1.8rem;font-weight:800;color:{_ibg2p[2]};'>{_imin}<span style='font-size:0.9rem;'>/100</span></div>"
+            f"<div style='font-size:0.78rem;color:{_ibg1p[1]};font-weight:600;'>📊 Investigation Quality Index (avg)</div>"
+            f"<div style='font-size:1.8rem;font-weight:800;color:{_ibg1p[2]};'>{_imean}"
+            f"<span style='font-size:0.9rem;font-weight:400;'>/100</span></div>"
             f"</div>"
             f"<div style='flex:1;background:{_ibg3p[0]};border:1.5px solid {_ibg3p[1]};"
             f"border-radius:10px;padding:12px 16px;text-align:center;'>"
-            f"<div style='font-size:0.78rem;color:{_ibg3p[1]};font-weight:600;'>⚠️ Records IQI &lt; 40 (Poor)</div>"
-            f"<div style='font-size:1.8rem;font-weight:800;color:{_ibg3p[2]};'>{_ipoor}</div>"
+            f"<div style='font-size:0.78rem;color:{_ibg3p[1]};font-weight:600;'>⚠️ Records with Poor IQI (&lt;40)</div>"
+            f"<div style='font-size:1.8rem;font-weight:800;color:{_ibg3p[2]};'>{_ipoor}"
+            f"<span style='font-size:0.9rem;font-weight:400;'> of {n_total_p}</span></div>"
             f"</div>"
             "</div>"
         )
         st.markdown(_iqi_html_p, unsafe_allow_html=True)
+        st.markdown(
+            "<div style='background:#f8fafc;border-left:3px solid #94a3b8;"
+            "padding:8px 14px;border-radius:0 6px 6px 0;margin-bottom:14px;'>"
+            "<span style='font-size:0.82rem;color:#475569;'>"
+            "<b>IQI (Investigation Quality Index)</b> measures investigation completeness across all "
+            "active rules. 100 = no issues found. Each rule that fires deducts points proportional "
+            "to its severity. Bands: <b style='color:#15803d;'>85–100 Strong</b> · "
+            "<b style='color:#1d4ed8;'>65–84 Acceptable</b> · "
+            "<b style='color:#b45309;'>40–64 Weak</b> · "
+            "<b style='color:#dc2626;'>0–39 Poor</b>. "
+            "Check the IQI Drivers column in the evidence package to see exactly which rules "
+            "fired and how many points each cost."
+            "</span></div>",
+            unsafe_allow_html=True,
+        )
 
     review_df = scored_df[scored_df["Risk_Tier"].isin(
         ["Critical", "High", "Medium"])]
@@ -2236,7 +2263,7 @@ def show_dci_review(user, role, model_id):
         _rk.alignment = Alignment(vertical="top", wrap_text=True)
         _rv = ws_use.cell(row=_run_row, column=2,
                            value="Once uploaded, DCI will validate column presence, score every "
-                                 "record across 13 rules, surface pattern findings (recurrence, "
+                                 "record across 15 rules, surface pattern findings (recurrence, "
                                  "weak investigations, SLA breaches), and produce a 5-sheet Excel "
                                  "evidence package.")
         _rv.font = Font(color="475569", size=11)
@@ -2422,7 +2449,7 @@ def show_dci_review(user, role, model_id):
     ) or already_overridden):
         return
 
-    # Apply column aliases
+    # Apply column aliases (auto-detection from _DCI_COLUMN_ALIASES)
     dci_df = dci_df_raw.copy()
     col_rename = {}
     for col in dci_df.columns:
@@ -2434,13 +2461,73 @@ def show_dci_review(user, role, model_id):
     if col_rename:
         dci_df = dci_df.rename(columns=col_rename)
 
+    # ── Column Mapping — always shown, all 12 required columns ──────────────
+    # Show before the hard-stop so users can fix missing columns in-UI.
+    # Green tick = auto-resolved. Dropdown = needs manual selection.
+    _raw_file_cols = list(dci_df_raw.columns)
+    _file_col_options = ["— Skip —"] + _raw_file_cols
+    _map_override = {}
+    _col_map_needed = False  # True if any required col still needs manual mapping
+
+    # Build mapping state: for each required canonical col, what did we resolve to?
+    _resolved = {}   # canon → actual column name in dci_df (auto or already renamed)
+    for _canon in sorted(_DCI_REQUIRED_COLS):
+        if _canon in dci_df.columns:
+            _resolved[_canon] = _canon  # already there (direct match or alias rename)
+        else:
+            _col_map_needed = True
+
+    with st.expander(
+        "🗂️ Column Mapping" + (" — ⚠️ some columns need mapping" if _col_map_needed else " — all columns auto-detected ✓"),
+        expanded=_col_map_needed
+    ):
+        st.markdown(
+            "<p style='font-size:0.85rem;color:#94a3b8;margin-bottom:10px;'>"
+            "Common column name aliases are auto-detected. "
+            "Green rows are confirmed. Use dropdowns to map any undetected columns, "
+            "or leave as <em>— Skip —</em> to exclude that rule engine from scoring.</p>",
+            unsafe_allow_html=True,
+        )
+        _map_cols_ui = st.columns(3)
+        for _mi, _canon in enumerate(sorted(_DCI_REQUIRED_COLS)):
+            with _map_cols_ui[_mi % 3]:
+                if _canon in _resolved:
+                    # Auto-resolved — show as green confirmed label
+                    _matched = _resolved[_canon]
+                    st.markdown(
+                        f"<div style='background:#f0fdf4;border:1px solid #bbf7d0;"
+                        f"border-radius:6px;padding:6px 10px;margin-bottom:6px;'>"
+                        f"<div style='font-size:0.72rem;color:#15803d;font-weight:600;'>"
+                        f"✓ `{_canon}`</div>"
+                        f"<div style='font-size:0.8rem;color:#166534;'>"
+                        f"← <code>{_matched}</code></div>"
+                        f"</div>",
+                        unsafe_allow_html=True,
+                    )
+                else:
+                    # Not resolved — show selectbox
+                    _sel = st.selectbox(
+                        f"⚠️ `{_canon}`",
+                        options=_file_col_options,
+                        index=0,
+                        key=f"dci_colmap_{_canon}",
+                        help=f"Select the column in your file that contains '{_canon}' data",
+                    )
+                    if _sel != "— Skip —":
+                        _map_override[_sel] = _canon
+
+    # Apply manual mappings
+    if _map_override:
+        dci_df = dci_df.rename(columns=_map_override)
+
+    # Hard stop — only if still missing after manual mapping
     missing_required = _DCI_REQUIRED_COLS - set(dci_df.columns)
     if missing_required:
         st.error(
-            f"❌ Missing required columns after alias mapping: "
+            f"❌ {len(missing_required)} required column(s) still unmapped: "
             f"{', '.join(sorted(missing_required))}. "
-            "Please ensure your file contains all 12 required columns "
-            "(or standard aliases)."
+            "Use the Column Mapping section above to assign them, or add these "
+            "columns to your file and re-upload."
         )
         return
 
@@ -2450,55 +2537,11 @@ def show_dci_review(user, role, model_id):
     with st.expander("🔍 Data Preview — first 10 rows (click to expand)", expanded=False):
         st.dataframe(dci_df_raw.head(10), use_container_width=True, hide_index=True)
 
-    # ── Column Mapping — dropdowns for unmapped required columns ──────────────
-    # Build a list of required columns that didn't auto-resolve
-    _raw_cols_norm = {str(c).strip().lower().replace(" ", "_"): c
-                      for c in dci_df_raw.columns}
-    _already_mapped = set(col_rename.values()) | (
-        set(dci_df.columns) & _DCI_REQUIRED_COLS
-    )
-    _unmapped_required = [
-        canon for canon in sorted(_DCI_REQUIRED_COLS)
-        if canon not in _already_mapped and canon not in set(dci_df.columns)
-    ]
-    if _unmapped_required:
-        with st.expander(
-            f"🗂️ Column Mapping — {len(_unmapped_required)} column(s) need mapping "
-            "(click to expand)", expanded=True
-        ):
-            st.markdown(
-                "<p style='font-size:0.85rem;color:#94a3b8;margin-bottom:8px;'>"
-                "The following required columns were not auto-detected. "
-                "Select the matching column from your file, or leave as "
-                "<em>— Skip —</em> to exclude that rule engine.</p>",
-                unsafe_allow_html=True,
-            )
-            _file_col_options = ["— Skip —"] + list(dci_df_raw.columns)
-            _map_override = {}
-            _map_cols = st.columns(min(3, len(_unmapped_required)))
-            for _mi, _canon in enumerate(_unmapped_required):
-                with _map_cols[_mi % 3]:
-                    _sel = st.selectbox(
-                        f"`{_canon}`",
-                        options=_file_col_options,
-                        index=0,
-                        key=f"dci_colmap_{_canon}",
-                        help=f"Map your file column to the DCI '{_canon}' field",
-                    )
-                    if _sel != "— Skip —":
-                        _map_override[_sel] = _canon
-            if _map_override:
-                dci_df = dci_df.rename(columns=_map_override)
-                st.caption(
-                    f"✓ Manually mapped: "
-                    + ", ".join(f"'{k}' → `{v}`" for k, v in _map_override.items())
-                )
-
     # Rule display — read-only, all rules always active, shown chronologically
     st.markdown("---")
     st.markdown("### 2. Detection Rules")
     st.caption(
-        "13 rules across 4 engines — all active. Rules are deterministic: "
+        "15 rules across 4 engines — all active. Rules are deterministic: "
         "keyword-match and threshold-based only, no AI in the scoring path."
     )
 
@@ -2516,7 +2559,35 @@ def show_dci_review(user, role, model_id):
         "D": ("🟣", "SLA / Aging",         "Rules 12–13 · Overdue, near-breach"),
     }
 
-    with st.expander("View all 13 detection rules", expanded=False):
+    active_count = len(_DCI_RULE_META)  # Always all rules
+    st.markdown(
+        f"<div style='background:#f0fdf4;border:1px solid #bbf7d0;border-radius:7px;"
+        f"padding:7px 14px;margin-bottom:8px;display:inline-block;'>"
+        f"<span style='color:#15803d;font-weight:600;font-size:0.88rem;'>"
+        f"✓ All {active_count} rules active — no configuration required</span></div>",
+        unsafe_allow_html=True,
+    )
+
+    # Regulation mapped to each rule — shown in UI expander
+    _DCI_RULE_REGS = {
+        1:  "ICH Q10 §3.2",
+        2:  "ICH Q10 §3.2.3 · 21 CFR 820.100(a)(2)",
+        3:  "EU Annex 11 §10 · ICH Q10 §3.2",
+        4:  "21 CFR 820.100(b)(4) · ICH Q10 §3.2.2",
+        5:  "FDA CAPA Guidance (2014) · 21 CFR 820.100(b)(2)",
+        6:  "21 CFR 820.100(b)(2) · 21 CFR 211.192",
+        7:  "21 CFR 820.100(a)(3) · 21 CFR 211.192",
+        8:  "ICH Q10 §3.2.3 · FDA CAPA Guidance (2014)",
+        9:  "21 CFR 820.100(a)(2) · ICH Q10 §3.2.3",
+        10: "21 CFR 820.100(a)(7)",
+        11: "ICH Q10 §3.2.2",
+        12: "21 CFR 820.100(b)(5) · EU Annex 11 §10",
+        13: "FDA CAPA Guidance (2014)",
+        14: "ICH Q10 §3.2.2",
+        15: "ICH Q10 §3.2.3",
+    }
+
+    with st.expander("View all 15 detection rules", expanded=False):
         # Sort rules chronologically by rule number
         sorted_rules = sorted(_DCI_RULE_META, key=lambda m: m[0])
         current_engine = None
@@ -2538,20 +2609,18 @@ def show_dci_review(user, role, model_id):
                 "Medium":   ("#dbeafe", "#2563eb"),
             }
             _sbg, _sc = _sev_colors.get(sev, ("#f1f5f9", "#475569"))
+            _reg = _DCI_RULE_REGS.get(num, "")
             st.markdown(
                 f"<div style='display:flex;align-items:center;gap:10px;"
-                f"padding:4px 8px;margin-bottom:2px;'>"
-                f"<span style='font-size:0.82rem;color:#334155;min-width:180px;'>"
+                f"padding:5px 8px;margin-bottom:2px;border-bottom:1px solid #f1f5f9;'>"
+                f"<span style='font-size:0.82rem;color:#334155;min-width:210px;'>"
                 f"<b>Rule {num}</b> — {name}</span>"
                 f"<span style='background:{_sbg};color:{_sc};border-radius:4px;"
-                f"padding:1px 7px;font-size:0.75rem;font-weight:600;'>{sev}</span>"
-                f"<span style='color:#22c55e;font-size:0.8rem;'>✓ Active</span>"
+                f"padding:1px 7px;font-size:0.75rem;font-weight:600;min-width:64px;text-align:center;'>{sev}</span>"
+                f"<span style='font-size:0.74rem;color:#94a3b8;font-family:monospace;'>{_reg}</span>"
                 f"</div>",
                 unsafe_allow_html=True,
             )
-
-    active_count = len(_DCI_RULE_META)  # Always all rules
-    st.caption(f"✓ {active_count} rules active")
 
     # Run Analysis
     st.markdown("---")
@@ -2717,6 +2786,7 @@ def show_dci_review(user, role, model_id):
     n_high = int((scored_df["Risk_Tier"] == "High").sum())
     n_med  = int((scored_df["Risk_Tier"] == "Medium").sum())
     n_low  = int((scored_df["Risk_Tier"] == "Low").sum())
+    n_total = len(scored_df)
 
     # Color-coded risk tier cards — matches AT/UAR theme
     _tier_cards = [
@@ -2725,7 +2795,7 @@ def show_dci_review(user, role, model_id):
         ("#dbeafe", "#2563eb", "#1e3a8a", "🔵 Medium",   n_med),
         ("#f0fdf4", "#16a34a", "#14532d", "🟢 Low",      n_low),
     ]
-    _card_html = "<div style='display:flex;gap:12px;margin-bottom:12px;'>"
+    _card_html = "<div style='display:flex;gap:12px;margin-bottom:6px;'>"
     for _bg, _accent, _text, _label, _val in _tier_cards:
         _card_html += (
             f"<div style='flex:1;background:{_bg};border:1.5px solid {_accent};"
@@ -2738,11 +2808,26 @@ def show_dci_review(user, role, model_id):
     _card_html += "</div>"
     st.markdown(_card_html, unsafe_allow_html=True)
 
-    # IQI summary row — color-coded by band
+    # Context explanation under tier cards
+    st.markdown(
+        "<div style='background:#f8fafc;border-left:3px solid #94a3b8;"
+        "padding:8px 14px;border-radius:0 6px 6px 0;margin-bottom:14px;'>"
+        "<span style='font-size:0.82rem;color:#475569;'>"
+        "<b>🔴 Critical</b> — multiple serious gaps (missing CAPA, repeat post-closure, vague RCA). "
+        "Requires immediate remediation and re-investigation. &nbsp;|&nbsp; "
+        "<b>🟠 High</b> — significant issue present (short RCA, repeat system, overdue). "
+        "Review and action required before next period. &nbsp;|&nbsp; "
+        "<b>🔵 Medium</b> — pattern detected but lower severity (recurring category, near-breach). "
+        "Monitor and address in current cycle. &nbsp;|&nbsp; "
+        "<b>🟢 Low</b> — no rules fired. Investigation meets quality checks."
+        "</span></div>",
+        unsafe_allow_html=True,
+    )
+
+    # IQI summary — 2 cards only (Period avg + Poor count); Lowest Record removed
     if "IQI" in scored_df.columns and len(scored_df):
         _ivals = scored_df["IQI"].dropna()
         _imean = round(float(_ivals.mean()), 1)
-        _imin  = int(_ivals.min())
         _ipoor = int((_ivals < 40).sum())
 
         def _iqi_color(val):
@@ -2751,31 +2836,42 @@ def show_dci_review(user, role, model_id):
             if val >= 40: return ("#fef3c7", "#d97706", "#78350f")
             return ("#fee2e2", "#dc2626", "#7f1d1d")
 
-        _ibg1, _ia1, _it1 = _iqi_color(_imean)
-        _ibg2, _ia2, _it2 = _iqi_color(_imin)
+        _ibg1 = _iqi_color(_imean)
         _ibg3 = ("#fee2e2", "#dc2626", "#7f1d1d") if _ipoor > 0 else ("#f0fdf4", "#16a34a", "#14532d")
 
         _iqi_html = (
-            "<div style='display:flex;gap:12px;margin-bottom:14px;'>"
+            "<div style='display:flex;gap:12px;margin-bottom:6px;'>"
             f"<div style='flex:1;background:{_ibg1[0]};border:1.5px solid {_ibg1[1]};"
-            f"border-radius:10px;padding:12px 16px;text-align:center;' "
-            f"title='Investigation Quality Index — 100 = perfect, 0 = all rules fired'>"
-            f"<div style='font-size:0.78rem;color:{_ibg1[1]};font-weight:600;'>📊 Period IQI (avg)</div>"
-            f"<div style='font-size:1.8rem;font-weight:800;color:{_ibg1[2]};'>{_imean}<span style='font-size:0.9rem;'>/100</span></div>"
-            f"</div>"
-            f"<div style='flex:1;background:{_ibg2[0]};border:1.5px solid {_ibg2[1]};"
             f"border-radius:10px;padding:12px 16px;text-align:center;'>"
-            f"<div style='font-size:0.78rem;color:{_ibg2[1]};font-weight:600;'>📉 Lowest Record IQI</div>"
-            f"<div style='font-size:1.8rem;font-weight:800;color:{_ibg2[2]};'>{_imin}<span style='font-size:0.9rem;'>/100</span></div>"
+            f"<div style='font-size:0.78rem;color:{_ibg1[1]};font-weight:600;'>📊 Investigation Quality Index (avg)</div>"
+            f"<div style='font-size:1.8rem;font-weight:800;color:{_ibg1[2]};'>{_imean}"
+            f"<span style='font-size:0.9rem;font-weight:400;'>/100</span></div>"
             f"</div>"
             f"<div style='flex:1;background:{_ibg3[0]};border:1.5px solid {_ibg3[1]};"
             f"border-radius:10px;padding:12px 16px;text-align:center;'>"
-            f"<div style='font-size:0.78rem;color:{_ibg3[1]};font-weight:600;'>⚠️ Records IQI &lt; 40 (Poor)</div>"
-            f"<div style='font-size:1.8rem;font-weight:800;color:{_ibg3[2]};'>{_ipoor}</div>"
+            f"<div style='font-size:0.78rem;color:{_ibg3[1]};font-weight:600;'>⚠️ Records with Poor IQI (&lt;40)</div>"
+            f"<div style='font-size:1.8rem;font-weight:800;color:{_ibg3[2]};'>{_ipoor}"
+            f"<span style='font-size:0.9rem;font-weight:400;'> of {n_total}</span></div>"
             f"</div>"
             "</div>"
         )
         st.markdown(_iqi_html, unsafe_allow_html=True)
+        # IQI context explanation
+        st.markdown(
+            "<div style='background:#f8fafc;border-left:3px solid #94a3b8;"
+            "padding:8px 14px;border-radius:0 6px 6px 0;margin-bottom:14px;'>"
+            "<span style='font-size:0.82rem;color:#475569;'>"
+            "<b>IQI (Investigation Quality Index)</b> measures investigation completeness across all "
+            "active rules. 100 = no issues found. Each rule that fires deducts points proportional "
+            "to its severity. Bands: <b style='color:#15803d;'>85–100 Strong</b> · "
+            "<b style='color:#1d4ed8;'>65–84 Acceptable</b> · "
+            "<b style='color:#b45309;'>40–64 Weak</b> · "
+            "<b style='color:#dc2626;'>0–39 Poor</b>. "
+            "Check the IQI Drivers column in the evidence package to see exactly which rules "
+            "fired and how many points each cost."
+            "</span></div>",
+            unsafe_allow_html=True,
+        )
 
     review_df = scored_df[scored_df["Risk_Tier"].isin(
         ["Critical", "High", "Medium"])]
