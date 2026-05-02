@@ -15148,7 +15148,7 @@ def dim_score_periods(df: pd.DataFrame) -> dict:
         return {"error": "Minimum 2 review periods required. "
                          "Check the Review_Period column contains distinct period values."}
 
-    # ── Backfill Source_Module for rows banked before UAR integration ────────
+    # ── Backfill Source_Module for rows banked before UAR/DCI integration ────
     if "Source_Module" not in df.columns:
         df["Source_Module"] = "AT"
     else:
@@ -15172,21 +15172,26 @@ def dim_score_periods(df: pd.DataFrame) -> dict:
         # so a clean AT period is never masked by UAR findings (and vice versa).
         pf_at  = pf_real[pf_real["Source_Module"] == "AT"]
         pf_uar = pf_real[pf_real["Source_Module"] == "UAR"]
+        pf_dci = pf_real[pf_real["Source_Module"] == "DCI"]
         # "Was this module exercised?" — sentinel OR real row presence.
         # This distinguishes "module ran and found nothing" (zero findings is a
         # REAL signal — compare to prior) from "module never ran" (no signal).
         _at_ran  = bool((pf["Source_Module"] == "AT").any())
         _uar_ran = bool((pf["Source_Module"] == "UAR").any())
+        _dci_ran = bool((pf["Source_Module"] == "DCI").any())
         period_rows.append({
             "Review_Period":        p,
             "Total_Findings":       len(pf_real),
             "AT_Findings":          int((pf_real["Source_Module"] == "AT").sum()),
             "UAR_Findings":         int((pf_real["Source_Module"] == "UAR").sum()),
+            "DCI_Findings":         int((pf_real["Source_Module"] == "DCI").sum()),
             "AT_Ran":               _at_ran,
             "UAR_Ran":              _uar_ran,
+            "DCI_Ran":              _dci_ran,
             "High_Critical":        int(pf_real["is_high_crit"].sum()),
             "AT_High_Critical":     int(pf_at["is_high_crit"].sum()),
             "UAR_High_Critical":    int(pf_uar["is_high_crit"].sum()),
+            "DCI_High_Critical":    int(pf_dci["is_high_crit"].sum()),
             "Deletion_Findings":    int(pf_real["is_deletion"].sum()),
             "Failed_Login":         int(pf_real["is_failed_login"].sum()),
             "Dormant_Findings":     int(pf_real["is_dormant"].sum()),
@@ -15195,7 +15200,7 @@ def dim_score_periods(df: pd.DataFrame) -> dict:
     period_df = pd.DataFrame(period_rows)
 
     # Calculate % change column-by-column vs prior period
-    metrics = ["Total_Findings", "AT_Findings", "UAR_Findings",
+    metrics = ["Total_Findings", "AT_Findings", "UAR_Findings", "DCI_Findings",
                "High_Critical", "Deletion_Findings",
                "Failed_Login", "Dormant_Findings"]
     for m in metrics:
@@ -15215,7 +15220,8 @@ def dim_score_periods(df: pd.DataFrame) -> dict:
     # "something vs 0 (never ran)" produces false +infinity or +800% signals.
     # This propagates the module-run-aware logic from the posture engine into
     # the Δ% / trend columns that feed Dashboard KPIs, Top 3, and narrative.
-    for _mod, _ran_key in (("AT_Findings", "AT_Ran"), ("UAR_Findings", "UAR_Ran")):
+    for _mod, _ran_key in (("AT_Findings", "AT_Ran"), ("UAR_Findings", "UAR_Ran"),
+                            ("DCI_Findings", "DCI_Ran")):
         _prev_ran = period_df[_ran_key].shift(1)
         _this_ran = period_df[_ran_key]
         _mask = ~(_this_ran.fillna(False).astype(bool) &
@@ -15294,6 +15300,8 @@ def dim_score_periods(df: pd.DataFrame) -> dict:
         "AT_Findings",  "AT_High_Critical",  "AT_Ran")
     period_df["UAR_Posture"] = _compute_module_postures(
         "UAR_Findings", "UAR_High_Critical", "UAR_Ran")
+    period_df["DCI_Posture"] = _compute_module_postures(
+        "DCI_Findings", "DCI_High_Critical", "DCI_Ran")
 
     # Rank for worst-of comparison. Baseline and N/A are both "no-signal"
     # and excluded from overall comparison unless they're the only entry.
@@ -15311,19 +15319,30 @@ def dim_score_periods(df: pd.DataFrame) -> dict:
         # - Baseline = module's first active period (can't compare to nothing)
         at_p  = row["AT_Posture"]
         uar_p = row["UAR_Posture"]
+        dci_p = row.get("DCI_Posture", "N/A")
         at_silent  = at_p  in ("N/A", "Baseline")
         uar_silent = uar_p in ("N/A", "Baseline")
+        dci_silent = dci_p in ("N/A", "Baseline")
 
-        if at_silent and uar_silent:
+        if at_silent and uar_silent and dci_silent:
             return "Baseline", "—"
-        if at_silent:
-            return uar_p, "UAR"
-        if uar_silent:
-            return at_p, "AT"
-        # Both modules have a comparable trend signal — take worst; tie goes to AT
-        if _POSTURE_RANK[at_p] >= _POSTURE_RANK[uar_p]:
-            return at_p, "AT"
-        return uar_p, "UAR"
+
+        # Collect active signals only
+        _active = {}
+        if not at_silent:  _active["AT"]  = _POSTURE_RANK[at_p]
+        if not uar_silent: _active["UAR"] = _POSTURE_RANK[uar_p]
+        if not dci_silent: _active["DCI"] = _POSTURE_RANK[dci_p]
+
+        if not _active:
+            return "Baseline", "—"
+
+        # Worst-of: highest rank wins; tie priority: AT > UAR > DCI
+        _worst_driver = max(_active, key=lambda k: (_active[k],
+                            {"AT": 3, "UAR": 2, "DCI": 1}[k]))
+        _worst_posture = {
+            "AT": at_p, "UAR": uar_p, "DCI": dci_p
+        }[_worst_driver]
+        return _worst_posture, _worst_driver
 
     _overall = period_df.apply(lambda r: _overall_posture(r), axis=1)
     period_df["DI_Posture"]      = _overall.apply(lambda t: t[0])
@@ -15486,17 +15505,21 @@ def dim_score_periods(df: pd.DataFrame) -> dict:
             (last_row["Total_Findings"] - first_row["Total_Findings"])
             / max(first_row["Total_Findings"], 1) * 100, 1),
         "posture_last":      last_row["DI_Posture"],
-        # Per-module posture split — so narrative can state AT and UAR
+        # Per-module posture split — so narrative can state AT, UAR, and DCI
         # postures independently without commingling.
         "at_posture_first":   first_row.get("AT_Posture",  "Baseline"),
         "at_posture_last":    last_row.get("AT_Posture",   "Baseline"),
         "uar_posture_first":  first_row.get("UAR_Posture", "Baseline"),
         "uar_posture_last":   last_row.get("UAR_Posture",  "Baseline"),
+        "dci_posture_first":  first_row.get("DCI_Posture", "Baseline"),
+        "dci_posture_last":   last_row.get("DCI_Posture",  "Baseline"),
         "posture_driver":     last_row.get("Posture_Driver", "—"),
         "at_findings_first":  int(first_row.get("AT_Findings",  0)),
         "at_findings_last":   int(last_row.get("AT_Findings",   0)),
         "uar_findings_first": int(first_row.get("UAR_Findings", 0)),
         "uar_findings_last":  int(last_row.get("UAR_Findings",  0)),
+        "dci_findings_first": int(first_row.get("DCI_Findings", 0)),
+        "dci_findings_last":  int(last_row.get("DCI_Findings",  0)),
         "repeat_users":      len(repeat_df),
         "top_repeat_user":   repeat_df.iloc[0]["Username"] if len(repeat_df) else None,
         "top_rule":          rule_df.iloc[0]["Rule"] if len(rule_df) else None,
@@ -15648,6 +15671,7 @@ def dim_build_excel(result: dict, system_name: str, file_name: str,
     posture      = smry["posture_last"]
     at_post_last = smry.get("at_posture_last",  "N/A")
     uar_post_last= smry.get("uar_posture_last", "N/A")
+    dci_post_last= smry.get("dci_posture_last", "N/A")
     driver       = smry.get("posture_driver",   "—")
     p_bg, p_fg = _POSTURE_COLORS.get(posture, (C_MID, C_WHITE))
     _posture_icon = {
@@ -15656,13 +15680,14 @@ def dim_build_excel(result: dict, system_name: str, file_name: str,
         "Baseline": "⚪", "N/A": "⚪"
     }.get(posture, "⚪")
     _driver_phrase = (
-        f"  |   Driven by {driver}" if driver in ("AT", "UAR") else ""
+        f"  |   Driven by {driver}" if driver in ("AT", "UAR", "DCI") else ""
     )
     ws1.merge_cells("A4:F4")
     pos = ws1.cell(row=4, column=1,
                    value=f"{_posture_icon}  DI POSTURE: {posture.upper()}"
                          f"   |   AT: {at_post_last.upper()}"
                          f"   |   UAR: {uar_post_last.upper()}"
+                         f"   |   DCI: {dci_post_last.upper()}"
                          f"{_driver_phrase}"
                          f"   |   {last_period_label}")
     pos.font      = Font(name="Calibri", bold=True, size=12, color=p_fg)
@@ -15688,6 +15713,7 @@ def dim_build_excel(result: dict, system_name: str, file_name: str,
     kpis = [
         ("AT Findings",         "AT_Findings",         "0369A1",  True),
         ("UAR Findings",        "UAR_Findings",        "7C3AED",  True),
+        ("DCI Findings",        "DCI_Findings",        "B45309",  True),
         ("Deletion Events",     "Deletion_Findings",   C_RED,     True),
         ("Failed Login Events", "Failed_Login",        "B45309",  True),
     ]
@@ -16148,10 +16174,17 @@ def dim_build_excel(result: dict, system_name: str, file_name: str,
         ws5.row_dimensions[2].height = 14
 
         _heatmap_built = False
-        if not raw_df.empty and "Event_Timestamp" in raw_df.columns and "Username" in raw_df.columns:
+        # Only AT rows have real hourly Event_Timestamp data.
+        # UAR and DCI rows use date strings (not datetimes) — exclude them to
+        # avoid all activity appearing at 00:00 in the heatmap.
+        _hm_source = raw_df[raw_df.get("Source_Module", pd.Series("AT", index=raw_df.index)) != "DCI"] \
+            if "Source_Module" in raw_df.columns else raw_df
+        _hm_source = _hm_source[_hm_source.get("Source_Module", pd.Series("AT", index=_hm_source.index)) != "UAR"] \
+            if "Source_Module" in _hm_source.columns else _hm_source
+        if not _hm_source.empty and "Event_Timestamp" in _hm_source.columns and "Username" in _hm_source.columns:
             try:
-                _hm = raw_df[~raw_df.get("_is_sentinel", pd.Series(False,
-                             index=raw_df.index))].copy()
+                _hm = _hm_source[~_hm_source.get("_is_sentinel", pd.Series(False,
+                             index=_hm_source.index))].copy()
                 _hm["_ts"] = pd.to_datetime(_hm["Event_Timestamp"], errors="coerce")
                 _hm        = _hm.dropna(subset=["_ts"])
                 _hm["_hr"] = _hm["_ts"].dt.hour
@@ -16786,17 +16819,30 @@ def _dim_generate_narrative(smry: dict, period_df: pd.DataFrame,
     at_post_last   = smry.get("at_posture_last",   "Baseline")
     uar_post_first = smry.get("uar_posture_first", "Baseline")
     uar_post_last  = smry.get("uar_posture_last",  "Baseline")
+    dci_post_first = smry.get("dci_posture_first", "Baseline")
+    dci_post_last  = smry.get("dci_posture_last",  "Baseline")
     posture_driver = smry.get("posture_driver",    "—")
     at_first_n     = smry.get("at_findings_first",  0)
     at_last_n      = smry.get("at_findings_last",   0)
     uar_first_n    = smry.get("uar_findings_first", 0)
     uar_last_n     = smry.get("uar_findings_last",  0)
+    dci_first_n    = smry.get("dci_findings_first", 0)
+    dci_last_n     = smry.get("dci_findings_last",  0)
+
+    # Which modules actually ran? (posture = "N/A" means not run in any period)
+    _at_ran  = at_post_last  not in ("N/A",)
+    _uar_ran = uar_post_last not in ("N/A",)
+    _dci_ran = dci_post_last not in ("N/A",)
+    _ran_modules = [m for m, ran in (("AT", _at_ran), ("UAR", _uar_ran), ("DCI", _dci_ran)) if ran]
+    _ran_label = " · ".join(_ran_modules) if _ran_modules else "none"
 
     # Human-readable driver phrase
     if posture_driver == "AT":
         _driver_phrase = "driven by Audit Trail findings"
     elif posture_driver == "UAR":
         _driver_phrase = "driven by User Access Review findings"
+    elif posture_driver == "DCI":
+        _driver_phrase = "driven by Deviation & CAPA Investigation findings"
     else:
         _driver_phrase = "no active module signal in the latest period"
 
@@ -16853,17 +16899,27 @@ def _dim_generate_narrative(smry: dict, period_df: pd.DataFrame,
         "",
         "## Review Scope",
         (f"This report covers {n_periods} review period(s) from {first_p} to {last_p}. "
-         f"Each module (AT, UAR) is trended independently — AT events and UAR "
+         f"Module(s) run: {_ran_label}. Each module is trended independently — "
          f"findings are heterogeneous and are not summed into a single aggregate. "
          f"DI Posture in the latest period: {posture.upper()} ({_driver_phrase})."),
         "",
         "## Module Posture — Split",
-        (f"Audit Trail (AT): {at_first_n} → {at_last_n} findings. "
-         f"AT posture Period 1: {at_post_first.upper()} · "
-         f"Latest: {at_post_last.upper()}."),
-        (f"User Access Review (UAR): {uar_first_n} → {uar_last_n} findings. "
-         f"UAR posture Period 1: {uar_post_first.upper()} · "
-         f"Latest: {uar_post_last.upper()}."),
+        # Only emit a posture line for modules that actually ran.
+        *([
+            (f"Audit Trail (AT): {at_first_n} → {at_last_n} findings. "
+             f"AT posture Period 1: {at_post_first.upper()} · "
+             f"Latest: {at_post_last.upper()}.")
+          ] if _at_ran else []),
+        *([
+            (f"User Access Review (UAR): {uar_first_n} → {uar_last_n} findings. "
+             f"UAR posture Period 1: {uar_post_first.upper()} · "
+             f"Latest: {uar_post_last.upper()}.")
+          ] if _uar_ran else []),
+        *([
+            (f"Deviation & CAPA Investigation (DCI): {dci_first_n} → {dci_last_n} findings. "
+             f"DCI posture Period 1: {dci_post_first.upper()} · "
+             f"Latest: {dci_post_last.upper()}.")
+          ] if _dci_ran else []),
         (f"Overall DI Posture is computed as worst-of per-module posture with "
          f"attribution. A clean period in one module is not masked by findings "
          f"in the other. In the latest period, the overall posture of "
@@ -17193,10 +17249,13 @@ def show_dim(user: str, role: str, model_id: str):
     # Per-module state in the latest period
     _at_ran_last   = bool(_last_row.get("AT_Ran",  False))
     _uar_ran_last  = bool(_last_row.get("UAR_Ran", False))
+    _dci_ran_last  = bool(_last_row.get("DCI_Ran", False))
     _at_post_last  = str(_last_row.get("AT_Posture",  "N/A"))
     _uar_post_last = str(_last_row.get("UAR_Posture", "N/A"))
+    _dci_post_last = str(_last_row.get("DCI_Posture", "N/A"))
     _at_cnt_last   = int(_last_row.get("AT_Findings",  0))
     _uar_cnt_last  = int(_last_row.get("UAR_Findings", 0))
+    _dci_cnt_last  = int(_last_row.get("DCI_Findings", 0))
     _driver        = str(_last_row.get("Posture_Driver", "—"))
 
     # Module summary lines — only mention modules that actually ran
@@ -17221,9 +17280,19 @@ def show_dim(user: str, role: str, model_id: str):
         _summary_parts.append(
             f"<span style='color:{_fg_l};opacity:0.6;'>UAR: not run this period</span>"
         )
+    if _dci_ran_last:
+        _summary_parts.append(
+            f"<span style='color:{_fg_m};font-weight:700;'>DCI</span>: "
+            f"{_dci_cnt_last} finding(s), posture "
+            f"<b style='color:{_fg_m};'>{_dci_post_last}</b>"
+        )
+    else:
+        _summary_parts.append(
+            f"<span style='color:{_fg_l};opacity:0.6;'>DCI: not run this period</span>"
+        )
     _driver_text = (
         f" · <span style='color:{_fg_m};'>driven by {_driver}</span>"
-        if _driver in ("AT", "UAR") else ""
+        if _driver in ("AT", "UAR", "DCI") else ""
     )
 
     _period_lines = "".join(
@@ -17368,10 +17437,19 @@ def show_dim(user: str, role: str, model_id: str):
 
 
 
-    # ── UAR zero-findings contextual note ────────────────────────────────────
+    # ── Cross-module status — dynamic, based on what's actually been run ──────
     _pdf_local = result.get("period_df", pd.DataFrame())
     _uar_total_all_periods = int(_pdf_local["UAR_Findings"].sum()) if "UAR_Findings" in _pdf_local.columns else 0
     _uar_ran_any = bool(_pdf_local["UAR_Ran"].any()) if "UAR_Ran" in _pdf_local.columns else False
+    _at_ran_any  = bool(_pdf_local["AT_Ran"].any())  if "AT_Ran"  in _pdf_local.columns else False
+    _dci_ran_any = bool(_pdf_local["DCI_Ran"].any()) if "DCI_Ran" in _pdf_local.columns else False
+
+    # Identify which modules have NOT yet contributed data
+    _modules_not_run = []
+    if not _at_ran_any:  _modules_not_run.append("Audit Trail (AT)")
+    if not _uar_ran_any: _modules_not_run.append("User Access Review (UAR)")
+    if not _dci_ran_any: _modules_not_run.append("Deviation & CAPA Investigation (DCI)")
+
     if _uar_ran_any and _uar_total_all_periods == 0:
         st.info(
             "ℹ️ **UAR Findings = 0 across all periods.** "
@@ -17379,10 +17457,18 @@ def show_dim(user: str, role: str, model_id: str):
             "This is a legitimate outcome for a well-governed user list. "
             "To verify: re-run UAR with the `UAR_11rule_coverage.csv` test file — all rules should fire."
         )
-    elif not _uar_ran_any and _banked > 0:
+
+    if _modules_not_run and _banked > 0:
+        _ran_labels = sorted(
+            {r.get("Source_Module") for r in _banked_rows
+             if r.get("Source_Module") in ("AT", "UAR", "DCI")}
+        )
+        _ran_str  = " + ".join(_ran_labels) if _ran_labels else "unknown"
+        _miss_str = " and ".join(_modules_not_run)
         st.info(
-            "ℹ️ **UAR not yet run for any banked period.** "
-            "DIM is showing AT findings only. Run a User Access Review to enable cross-module analysis."
+            f"ℹ️ **DIM is showing {_ran_str} findings only.** "
+            f"{_miss_str} ha{'ve' if len(_modules_not_run) > 1 else 's'} not yet been run for any banked period. "
+            f"Run {'those modules' if len(_modules_not_run) > 1 else 'that module'} to enable full cross-module analysis."
         )
 
     # ── Download Evidence Package — placed directly below period table ─────────
@@ -17391,9 +17477,9 @@ def show_dim(user: str, role: str, model_id: str):
     _banked_rows = st.session_state.get("dim_accumulated_rows", [])
     _modules_run = sorted(set(
         r.get("Source_Module", "AT") for r in _banked_rows
-        if r.get("Source_Module") in ("AT", "UAR")
+        if r.get("Source_Module") in ("AT", "UAR", "DCI")
     ))
-    _src_label = " + ".join(_modules_run) if _modules_run else "AT"
+    _src_label = " + ".join(_modules_run) if _modules_run else "DCI"
     _dl_fname = f"{_src_label} ({_banked} period{'s' if _banked != 1 else ''})"
     _dl_out   = f"DIM_{_dl_sys.replace(' ','_')}_{datetime.datetime.utcnow().strftime('%Y-%m-%d')}.xlsx"
     with st.spinner("Building evidence package…"):
