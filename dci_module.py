@@ -214,9 +214,9 @@ _DCI_VOCAB_COLUMNS = {
 #     No regex, no stemming, no NLP.
 
 _DCI_VAGUE_RCA_TERMS = {
-    "human error", "operator error", "mistake", "carelessness",
-    "lack of attention", "oversight", "misunderstanding",
-    "forgot", "forgotten", "negligence",
+    "human error", "operator error", "operator mistake", "mistake",
+    "carelessness", "lack of attention", "oversight", "misunderstanding",
+    "forgot", "forgotten", "negligence", "improper",
 }
 
 _DCI_SPECIFIC_CAUSE_TERMS = {
@@ -235,6 +235,7 @@ _DCI_SPECIFIC_CAUSE_TERMS = {
 _DCI_TRAINING_ONLY_TERMS = {
     "retrain", "retraining", "refresher", "reminder",
     "toolbox talk", "additional training", "training session",
+    "training conducted", "training provided", "trained",
     "awareness", "briefing",
 }
 
@@ -692,10 +693,12 @@ def _dci_rule3_repeat_system(df):
 #  ENGINE B — Weak Investigation (Rules 4-8)
 # ═══════════════════════════════════════════════════════════════════════════
 def _dci_rule4_short_rca(row):
-    """Rule 4 — Short RCA Narrative. Fires on Closed records with non-blank
-    RCA text shorter than 50 chars. High severity."""
+    """Rule 4 — Short RCA Narrative. Fires on Closed OR Re-opened records
+    with non-blank RCA text shorter than 50 chars. High severity.
+    Re-opened records are included: an inadequate RCA is equally problematic
+    whether the record is closed or has been re-opened for further work."""
     status = _dci_normalize_status(row.get("status"))
-    if status != "closed":
+    if status not in ("closed", "reopened"):
         return 0.0, ""
     rca = str(row.get("rca_text", "")).strip()
     if not rca or rca.lower() in ("nan", "none"):
@@ -711,10 +714,12 @@ def _dci_rule4_short_rca(row):
 
 def _dci_rule5_vague_rca(row):
     """Rule 5 — Vague RCA (generic cause only). Per Spec v1.3 §4.3.
-    Fires when: status=Closed AND rca not blank AND vague_term_present
-    AND NOT specific_cause_present. Substring match, case-insensitive."""
+    Fires when: status=Closed OR Re-opened AND rca not blank AND
+    vague_term_present AND NOT specific_cause_present.
+    Re-opened records are included: a re-opened record with vague RCA
+    indicates the original investigation gap was never resolved."""
     status = _dci_normalize_status(row.get("status"))
-    if status != "closed":
+    if status not in ("closed", "reopened"):
         return 0.0, ""
     rca = str(row.get("rca_text", "")).strip().lower()
     if not rca or rca in ("nan", "none"):
@@ -735,9 +740,11 @@ def _dci_rule5_vague_rca(row):
 
 
 def _dci_rule6_missing_rca(row):
-    """Rule 6 — Missing RCA. Closed with blank rca_text. Critical."""
+    """Rule 6 — Missing RCA. Closed or Re-opened with blank rca_text. Critical.
+    Re-opened records are included: a re-opened record still has an obligation
+    to document root cause under 21 CFR 820.100(b)(2)."""
     status = _dci_normalize_status(row.get("status"))
-    if status != "closed":
+    if status not in ("closed", "reopened"):
         return 0.0, ""
     rca = row.get("rca_text")
     is_blank = (
@@ -746,8 +753,9 @@ def _dci_rule6_missing_rca(row):
         or str(rca).strip().lower() in ("", "nan", "none")
     )
     if is_blank:
+        status_label = "closed" if status == "closed" else "re-opened"
         return _DCI_SEVERITY_SCORE["Critical"], (
-            "Record closed with no root cause analysis recorded. "
+            f"Record {status_label} with no root cause analysis recorded. "
             "21 CFR 820.100(b)(2) requires investigation of the cause "
             "of nonconformities."
         )
@@ -755,9 +763,11 @@ def _dci_rule6_missing_rca(row):
 
 
 def _dci_rule7_missing_capa(row):
-    """Rule 7 — Missing CAPA. Closed with blank capa_text. Critical."""
+    """Rule 7 — Missing CAPA. Closed or Re-opened with blank capa_text. Critical.
+    Re-opened records are included: absence of corrective action on a re-opened
+    record indicates the underlying issue has not been addressed."""
     status = _dci_normalize_status(row.get("status"))
-    if status != "closed":
+    if status not in ("closed", "reopened"):
         return 0.0, ""
     capa = row.get("capa_text")
     is_blank = (
@@ -766,8 +776,9 @@ def _dci_rule7_missing_capa(row):
         or str(capa).strip().lower() in ("", "nan", "none")
     )
     if is_blank:
+        status_label = "closed" if status == "closed" else "re-opened"
         return _DCI_SEVERITY_SCORE["Critical"], (
-            "Record closed with no corrective/preventive action recorded. "
+            f"Record {status_label} with no corrective/preventive action recorded. "
             "21 CFR 820.100(a)(3) requires identification of action needed "
             "to correct and prevent recurrence."
         )
@@ -776,10 +787,13 @@ def _dci_rule7_missing_capa(row):
 
 def _dci_rule8_weak_capa(row):
     """Rule 8 — Weak CAPA (training-only). Per Spec v1.3 §4.3.
-    Fires when: status=Closed AND capa not blank AND training term present
-    AND NOT action term present."""
+    Fires when: status=Closed OR Re-opened AND capa not blank AND
+    training term present AND NOT action term present.
+    Re-opened records are included: a training-only CAPA on a re-opened
+    record is particularly concerning — it suggests the initial CAPA
+    was insufficient and no systemic action has been taken."""
     status = _dci_normalize_status(row.get("status"))
-    if status != "closed":
+    if status not in ("closed", "reopened"):
         return 0.0, ""
     capa = str(row.get("capa_text", "")).strip().lower()
     if not capa or capa in ("nan", "none"):
