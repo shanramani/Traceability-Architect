@@ -1451,40 +1451,60 @@ def dci_build_excel(scored_df, system_name, r_start, r_end, fname,
     ).font = Font(name="Calibri", bold=True, size=12, color=C_NAVY)
     ws3.row_dimensions[1].height = 20
 
+    # Row 2 legend: explain the two header colour bands
+    _leg = ws3.cell(row=2, column=1,
+        value="Navy headers = input columns from your file  ·  Teal headers = derived columns added by VALINTEL")
+    _leg.font = Font(name="Calibri", italic=True, size=8, color="64748B")
+    ws3.row_dimensions[2].height = 13
+
+    # Columns: (Display name, internal key, width, is_derived)
+    C_DERIVED_HDR  = "0F5156"   # teal-navy for derived column headers
+    C_DERIVED_FILL = "E0F2F1"   # very light teal for derived data cells (even rows)
+    C_DERIVED_ALT  = "F0FAFA"   # derived data cells (odd rows)
+
     full_cols = [
-        ("Record ID",     "record_id",           16),
-        ("Type",          "record_type",         14),
-        ("Category",      "deviation_category",  18),
-        ("System",        "system_name",         16),
-        ("Open Date",     "open_date",           12),
-        ("Close Date",    "close_date",          12),
-        ("Status",        "status",              12),
-        ("SLA Days",      "sla_days",            10),
-        ("Assigned To",   "assigned_to",         16),
-        ("Approved By",   "approved_by",         16),
-        ("RCA Text",      "rca_text",            40),
-        ("CAPA Text",     "capa_text",           40),
-        ("CAPA Type",     "CAPA_Type",           14),
-        ("Risk Tier",     "Risk_Tier",           10),
-        ("Risk Score",    "Risk_Score",          10),
-        ("IQI",           "IQI",                  8),
-        ("IQI Band",      "IQI_Band",            14),
-        ("IQI Drivers",   "IQI_Drivers",         55),
-        ("Rule 15 Note",  "Rule15_Reason",       45),
-        ("Primary Rule",  "Primary_Rule",        30),
+        ("Record ID",     "record_id",           16,  False),
+        ("Type",          "record_type",         14,  False),
+        ("Category",      "deviation_category",  18,  False),
+        ("System",        "system_name",         16,  False),
+        ("Open Date",     "open_date",           12,  False),
+        ("Close Date",    "close_date",          12,  False),
+        ("Status",        "status",              12,  False),
+        ("SLA Days",      "sla_days",            10,  False),
+        ("Assigned To",   "assigned_to",         16,  False),
+        ("Approved By",   "approved_by",         16,  False),
+        ("RCA Text",      "rca_text",            40,  False),
+        ("CAPA Text",     "capa_text",           40,  False),
+        ("CAPA Type",     "CAPA_Type",           14,  True),
+        ("Risk Tier",     "Risk_Tier",           10,  True),
+        ("Risk Score",    "Risk_Score",          10,  True),
+        ("IQI",           "IQI",                  8,  True),
+        ("IQI Band",      "IQI_Band",            14,  True),
+        ("IQI Drivers",   "IQI_Drivers",         55,  True),
+        ("Rule 15 Note",  "Rule15_Reason",       45,  True),
+        ("Primary Rule",  "Primary_Rule",        30,  True),
     ]
     for sc, _, _ in _DCI_RULE_TIER_PRIORITY:
         rn = sc.split("rule")[1].split("_")[0]
-        full_cols.append((f"R{rn} Score", sc, 9))
+        full_cols.append((f"R{rn} Score", sc, 9, True))
 
-    for ci, (hdr, _, width) in enumerate(full_cols, 1):
-        _hdr(ws3, 3, ci, hdr, width=width)
+    for ci, (hdr, _, width, is_derived) in enumerate(full_cols, 1):
+        ws3.column_dimensions[get_column_letter(ci)].width = width
+        hdr_cell = ws3.cell(row=3, column=ci, value=hdr)
+        hdr_cell.alignment = Alignment(horizontal="center", vertical="center")
+        hdr_cell.border = bdr
+        if is_derived:
+            hdr_cell.font = Font(name="Calibri", bold=True, size=9, color="FFFFFF")
+            hdr_cell.fill = PatternFill("solid", fgColor=C_DERIVED_HDR)
+        else:
+            hdr_cell.font = Font(name="Calibri", bold=True, size=9, color="FFFFFF")
+            hdr_cell.fill = PatternFill("solid", fgColor=C_NAVY)
     ws3.row_dimensions[3].height = 18
 
     for ri, (_, row_data) in enumerate(scored_df.iterrows(), 4):
         tier = str(row_data.get("Risk_Tier", "Low"))
         tier_bg, tier_fg = _TIER_COLORS.get(tier, (C_GREY, C_DARK_TEXT))
-        for ci, (_, col_key, _) in enumerate(full_cols, 1):
+        for ci, (_, col_key, _, is_derived) in enumerate(full_cols, 1):
             val = row_data.get(col_key, "")
             if pd.isna(val):
                 val = ""
@@ -1517,127 +1537,15 @@ def dci_build_excel(scored_df, system_name, r_start, r_end, fname,
                     c.fill = _fill("FED7AA"); c.font = Font(name="Calibri", bold=True, size=8.5, color="7C2D12")
                 elif iq >= 0:
                     c.fill = _fill("FEE2E2"); c.font = Font(name="Calibri", bold=True, size=8.5, color="7F1D1D")
+            elif is_derived:
+                # Teal tint on derived cells — alternating rows stay visible
+                c.fill = _fill(C_DERIVED_FILL if ri % 2 == 0 else C_DERIVED_ALT)
             elif ri % 2 == 0:
                 c.fill = _fill("F8FAFC")
         ws3.row_dimensions[ri].height = 22
 
     ws3.freeze_panes = "A4"
 
-    # ── Sheet 4 — Detection Logic ───────────────────────────────────────
-    ws4 = wb.create_sheet("Detection Logic")
-    ws4.sheet_view.showGridLines = False
-    ws4.column_dimensions["A"].width = 6
-    ws4.column_dimensions["B"].width = 42
-    ws4.column_dimensions["C"].width = 12
-    ws4.column_dimensions["D"].width = 10
-    ws4.column_dimensions["E"].width = 12
-    ws4.column_dimensions["F"].width = 70
-
-    ws4.cell(row=1, column=1, value="DCI Detection Rules — 14 Rules Across 4 Engines"
-    ).font = Font(name="Calibri", bold=True, size=12, color=C_NAVY)
-    ws4.row_dimensions[1].height = 20
-
-    for ci, hdr in enumerate(
-        ["#", "Rule Name", "Severity", "Tier", "Engine", "Fire Condition"], 1
-    ):
-        _hdr(ws4, 3, ci, hdr)
-    ws4.row_dimensions[3].height = 18
-
-    engine_labels = {
-        "A": "RCA Recurrence",
-        "B": "Weak Investigation",
-        "C": "CAPA Effectiveness",
-        "D": "SLA / Aging",
-    }
-    fire_conditions = {
-        1:  "Same deviation_category in >=3 records within 180-day window.",
-        2:  "Same deviation_category in >=5 records within 90-day window.",
-        3:  "Same system_name has >=3 deviations within 60-day window.",
-        4:  "Closed record with len(rca_text.strip()) < 50 chars.",
-        5:  "Closed record, RCA contains vague term AND no specific-cause term. "
-            "Substring match, case-insensitive. Non-blank RCA only.",
-        6:  "Closed record with blank/null rca_text.",
-        7:  "Closed record with blank/null capa_text.",
-        8:  "Closed record, CAPA contains training term AND no action term. "
-            "Substring match. Non-blank CAPA only.",
-        9:  "Same record_type + system_name + deviation_category re-opens within "
-            "90 days of a prior closure.",
-        10: "Status normalizes to 're-opened' / 'reopened'.",
-        11: "Closed record, close_date - open_date < threshold days (default 7). "
-            "Both dates required.",
-        12: "open_date + sla_days < today AND status != Closed. "
-            "Requires numeric sla_days.",
-        13: "open_date + sla_days - today <= near_breach_pct% elapsed AND status != Closed.",
-        14: "Open >= 30 days, no close_date, status != Closed.",
-        15: "CAPA_Type = Training AND (Rule 1 OR Rule 9 fired on same record). "
-            "Escalates Risk_Tier one level. Does not change Risk_Score. "
-            "Rationale: training-only CAPAs on recurrent failures indicate "
-            "CAPA ineffectiveness per ICH Q10 §3.2.3.",
-    }
-
-    for ri, (num, name, sev, tier, eng, dflt, cfg_key) in enumerate(
-        _DCI_RULE_META, 4
-    ):
-        _cell(ws4, ri, 1, str(num), bold=True, align="center")
-        _cell(ws4, ri, 2, name)
-        sev_bg, sev_fg = _TIER_COLORS.get(sev, (C_GREY, C_DARK_TEXT))
-        c = _cell(ws4, ri, 3, sev, bold=True, align="center")
-        c.font = Font(name="Calibri", bold=True, size=9, color=sev_fg)
-        c.fill = _fill(sev_bg)
-        _cell(ws4, ri, 4, tier, align="center")
-        _cell(ws4, ri, 5, f"{eng} — {engine_labels.get(eng, eng)}", align="center")
-        _cell(ws4, ri, 6, fire_conditions.get(num, ""), wrap=True)
-        ws4.row_dimensions[ri].height = 30
-
-    ri_ai = 4 + len(_DCI_RULE_META) + 2
-    _hdr(ws4, ri_ai, 1, "AI Use in Scoring")
-    ws4.merge_cells(start_row=ri_ai, start_column=1, end_row=ri_ai, end_column=6)
-    _cell(ws4, ri_ai + 1, 1,
-          "No AI is used in DCI rule scoring or tier assignment. All 15 rules "
-          "are deterministic Python logic operating on keyword/date checks. "
-          "AI (if present in narrative generation for Summary) is advisory text "
-          "only — Risk_Score, Risk_Tier, and rule firing are fully reproducible "
-          "from config hash + input file hash. Per ISPE GAMP® Guide: Artificial "
-          "Intelligence (July 2025).",
-          wrap=True)
-    ws4.merge_cells(start_row=ri_ai+1, start_column=1,
-                    end_row=ri_ai+1, end_column=6)
-    ws4.row_dimensions[ri_ai + 1].height = 60
-
-    # IQI explanation block
-    ri_iqi = ri_ai + 4
-    _hdr(ws4, ri_iqi, 1, "Investigation Quality Index (IQI) — How It Works")
-    ws4.merge_cells(start_row=ri_iqi, start_column=1, end_row=ri_iqi, end_column=6)
-    _cell(ws4, ri_iqi + 1, 1,
-          "IQI = 100 × (1 − total_fired_score ÷ max_possible_score)  "
-          "where max_possible = 9 × number of active rules (default 12 ON → 108 max).  "
-          "IQI 100 = perfect investigation, no issues found.  "
-          "IQI 0 = every active rule fired.  "
-          "Bands: 85–100 Strong · 65–84 Acceptable · 40–64 Weak · 0–39 Poor.  "
-          "IQI is a parallel quality lens — it does NOT replace Risk_Tier. "
-          "Sort the Full Log by IQI ascending to find the weakest investigations first.",
-          wrap=True)
-    ws4.merge_cells(start_row=ri_iqi+1, start_column=1,
-                    end_row=ri_iqi+1, end_column=6)
-    ws4.row_dimensions[ri_iqi + 1].height = 70
-
-    # CAPA Type explanation block
-    ri_ct = ri_iqi + 4
-    _hdr(ws4, ri_ct, 1, "CAPA Type Classification — Deterministic Keyword Matching")
-    ws4.merge_cells(start_row=ri_ct, start_column=1, end_row=ri_ct, end_column=6)
-    _cell(ws4, ri_ct + 1, 1,
-          "Each CAPA is classified by control type using keyword matching on capa_text.  "
-          "Types (effectiveness hierarchy, strongest first):  "
-          "Engineering (hardware/automation/interlock) → "
-          "Systemic (process redesign/workflow change) → "
-          "Procedural (SOP/protocol/checklist update) → "
-          "Training (retrain/awareness/reminder).  "
-          "First match wins. Rule 15 escalates records where CAPA_Type = Training "
-          "AND the same failure has already recurred (Rule 1 or Rule 9 fired).",
-          wrap=True)
-    ws4.merge_cells(start_row=ri_ct+1, start_column=1,
-                    end_row=ri_ct+1, end_column=6)
-    ws4.row_dimensions[ri_ct + 1].height = 80
 
     # ── Sheet 5 — Integrity Audit ────────────────────────────────────────
     ws5 = wb.create_sheet("Integrity Audit")
@@ -1675,56 +1583,6 @@ def dci_build_excel(scored_df, system_name, r_start, r_end, fname,
         _cell(ws5, ri, 2, v, wrap=True)
         ws5.row_dimensions[ri].height = 18 if len(str(v)) < 60 else 32
 
-    # ── Sheet 6 — Compliance Checklist ───────────────────────────────────
-    ws6 = wb.create_sheet("Compliance Checklist")
-    ws6.sheet_view.showGridLines = False
-    ws6.column_dimensions["A"].width = 6
-    ws6.column_dimensions["B"].width = 40
-    ws6.column_dimensions["C"].width = 42
-    ws6.column_dimensions["D"].width = 14
-
-    ws6.cell(row=1, column=1,
-             value="DCI Compliance Checklist — Fired Rules Mapped to Regulatory Clauses"
-    ).font = Font(name="Calibri", bold=True, size=12, color=C_NAVY)
-    ws6.row_dimensions[1].height = 20
-
-    for ci, hdr in enumerate(["#", "Rule", "Regulatory Clause", "Count"], 1):
-        _hdr(ws6, 3, ci, hdr)
-    ws6.row_dimensions[3].height = 18
-
-    reg_map = {
-        1:  "ICH Q10 §3.2 · 21 CFR 820.100(a)(2)",
-        2:  "21 CFR 820.100(a)(2) · ICH Q10 §3.2.3",
-        3:  "EU Annex 11 §10 · ICH Q10 §3.2",
-        4:  "21 CFR 820.100(b)(4) · ICH Q10 §3.2.2",
-        5:  "FDA CAPA Guidance (2014) · 21 CFR 820.100(b)(2)",
-        6:  "21 CFR 820.100(b)(2) · 21 CFR 211.192",
-        7:  "21 CFR 820.100(a)(3) · 21 CFR 211.192",
-        8:  "ICH Q10 §3.2.3 · FDA CAPA Guidance (2014)",
-        9:  "21 CFR 820.100(a)(2) · ICH Q10 §3.2.3",
-        10: "21 CFR 820.100(a)(7)",
-        11: "ICH Q10 §3.2.2",
-        12: "21 CFR 820.100(b)(5) · EU Annex 11 §10",
-        13: "FDA CAPA Guidance (2014)",
-        14: "ICH Q10 §3.2.2",
-    }
-
-    rule_fire_counts = {}
-    for sc, thr, _ in _DCI_RULE_TIER_PRIORITY:
-        if sc in scored_df.columns and n_total:
-            cnt = int((scored_df[sc] >= thr).sum())
-            rn = int(sc.split("rule")[1].split("_")[0])
-            rule_fire_counts[rn] = cnt
-
-    for ri, (num, name, _, _, _, _, _) in enumerate(_DCI_RULE_META, 4):
-        _cell(ws6, ri, 1, str(num), bold=True, align="center")
-        _cell(ws6, ri, 2, name)
-        _cell(ws6, ri, 3, reg_map.get(num, ""), wrap=True)
-        cnt = rule_fire_counts.get(num, 0)
-        cell_cnt = _cell(ws6, ri, 4, str(cnt), align="center", bold=(cnt > 0))
-        if cnt > 0:
-            cell_cnt.fill = _fill("FEF2F2" if cnt >= 5 else "FFF7ED")
-        ws6.row_dimensions[ri].height = 24
 
     wb.save(output)
     return output.getvalue()
@@ -2015,6 +1873,7 @@ def _render_dci_results_from_session(user, model_id):
             ]
             for k in _keys_to_clear:
                 st.session_state.pop(k, None)
+            st.session_state["dci_key_n"] = st.session_state.get("dci_key_n", 0) + 1
             st.rerun()
 
     # Row 2: Open DIM full width
@@ -2371,10 +2230,11 @@ def show_dci_review(user, role, model_id):
     )
     st.markdown("<div style='margin-top:10px;'></div>", unsafe_allow_html=True)
 
+    _dci_upload_key = f"dci_uploader_{st.session_state.get('dci_key_n', 0)}"
     dci_file = st.file_uploader(
         "Excel or CSV file containing your deviation and CAPA records",
         type=["xlsx", "xls", "csv"],
-        key="dci_uploader",
+        key=_dci_upload_key,
     )
 
     # ── Persistent-results path ──────────────────────────────────────────────
@@ -2936,6 +2796,7 @@ def show_dci_review(user, role, model_id):
             ]
             for k in _keys_to_clear:
                 st.session_state.pop(k, None)
+            st.session_state["dci_key_n"] = st.session_state.get("dci_key_n", 0) + 1
             st.rerun()
 
     # Row 2: Open DIM (full width)
