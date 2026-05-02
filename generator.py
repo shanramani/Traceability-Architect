@@ -17147,8 +17147,9 @@ def show_dim(user: str, role: str, model_id: str):
             f"<div style='color:#7dd3fc;font-size:1.1rem;font-weight:700;margin-bottom:8px;'>"
             f"{'📊 0 periods banked' if _banked == 0 else f'📊 1 period banked — 1 more needed'}</div>"
             f"<div style='color:#94a3b8;font-size:0.9rem;'>"
-            f"Run <b style='color:#e2e8f0;'>Audit Trail Review</b> or "
-            f"<b style='color:#e2e8f0;'>User Access Review</b> for "
+            f"Run <b style='color:#e2e8f0;'>Audit Trail Review</b>, "
+            f"<b style='color:#e2e8f0;'>User Access Review</b>, or "
+            f"<b style='color:#e2e8f0;'>CAPA Investigation (DCI)</b> for "
             f"{_needed} more period{'s' if _needed > 1 else ''} to unlock trend analysis. "
             f"Minimum 2 periods required. Each analysis run automatically banks its findings here."
             f"</div>"
@@ -17461,7 +17462,7 @@ def show_dim(user: str, role: str, model_id: str):
 
     if _modules_not_run and _banked > 0:
         _ran_labels = sorted(
-            {r.get("Source_Module") for r in _banked_rows
+            {r.get("Source_Module") for r in _acc_rows
              if r.get("Source_Module") in ("AT", "UAR", "DCI")}
         )
         _ran_str  = " + ".join(_ran_labels) if _ran_labels else "unknown"
