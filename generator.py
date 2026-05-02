@@ -4366,6 +4366,7 @@ _defaults = {
     "at_review_end":        "",
     "at_sop_ref":           "",
     "at_key_n":             0,      # increment to reset uploaders
+    "dci_key_n":            0,      # increment to reset DCI file uploader
     "pr_active_module":     None,   # which PR sub-module is open (None = landing)
     "at_detection_logic_text": "",  # cached detection logic for Excel sheet 4
     # ── Audit Trail risk tier thresholds (GAMP 5 calibrated defaults) ────────
