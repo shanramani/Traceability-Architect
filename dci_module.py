@@ -1259,7 +1259,10 @@ def dci_build_excel(scored_df, system_name, r_start, r_end, fname,
     n_critical = int((scored_df["Risk_Tier"] == "Critical").sum()) if n_total else 0
     n_high     = int((scored_df["Risk_Tier"] == "High").sum())     if n_total else 0
     n_medium   = int((scored_df["Risk_Tier"] == "Medium").sum())   if n_total else 0
-    n_hc       = n_critical + n_high
+    # n_hc counts all records surfaced in Sheet 2 (Medium + High + Critical).
+    # Previously this was Critical + High only, which caused an off-by-N vs
+    # the actual Records for Review sheet (which filters Medium or higher). Fixed.
+    n_hc       = n_critical + n_high + n_medium
 
     # IQI summary stats
     _iqi_vals   = scored_df["IQI"].dropna() if "IQI" in scored_df.columns and n_total else []
@@ -1300,7 +1303,7 @@ def dci_build_excel(scored_df, system_name, r_start, r_end, fname,
         ("Critical Findings",         str(n_critical)),
         ("High Findings",             str(n_high)),
         ("Medium Findings",           str(n_medium)),
-        ("Records Requiring Review",  f"{n_hc} (Critical + High)"),
+        ("Records Requiring Review",  f"{n_hc} (Medium, High, or Critical)"),
         ("— — —",                     ""),
         ("Period IQI (avg)",          f"{_iqi_mean}" + (" / 100" if _iqi_mean != "—" else "")),
         ("Lowest Record IQI",         str(_iqi_min) + (" / 100" if _iqi_min != "—" else "")),
@@ -1315,13 +1318,18 @@ def dci_build_excel(scored_df, system_name, r_start, r_end, fname,
             cnt = _capa_types.get(ctype, 0)
             if cnt:
                 kpi_rows.append((f"CAPA Type: {ctype}", str(cnt)))
-    for i, (k, v) in enumerate(kpi_rows, 6):
+    _kpi_start = 6
+    for i, (k, v) in enumerate(kpi_rows, _kpi_start):
         _cell(ws1, i, 1, k, bold=True, bg=C_LIGHT)
         _cell(ws1, i, 2, v)
         ws1.row_dimensions[i].height = 16
+    # Track the next available row so CAPA-type expansion never collides with
+    # the Top Rules / Regulatory References / Config Hash sections below.
+    _next_row = _kpi_start + len(kpi_rows) + 1  # +1 blank gap
 
-    _hdr(ws1, 12, 1, "Top Rules Fired")
-    _hdr(ws1, 12, 2, "Count")
+    _hdr(ws1, _next_row, 1, "Top Rules Fired")
+    _hdr(ws1, _next_row, 2, "Count")
+    _rules_data_start = _next_row + 1
     if n_total:
         rule_counts = {}
         for score_col, threshold, _ in _DCI_RULE_TIER_PRIORITY:
@@ -1331,19 +1339,24 @@ def dci_build_excel(scored_df, system_name, r_start, r_end, fname,
                     disp = _DCI_RULE_DISPLAY_NAMES.get(score_col, score_col)
                     rule_counts[disp] = cnt
         top3 = sorted(rule_counts.items(), key=lambda x: -x[1])[:3]
-        for i, (rname, cnt) in enumerate(top3, 13):
+        for i, (rname, cnt) in enumerate(top3, _rules_data_start):
             _cell(ws1, i, 1, rname)
             _cell(ws1, i, 2, str(cnt), align="center")
             ws1.row_dimensions[i].height = 15
+        _next_row = _rules_data_start + max(len(top3), 1) + 1
     else:
-        _cell(ws1, 13, 1, "No findings", fg=C_MID)
+        _cell(ws1, _rules_data_start, 1, "No findings", fg=C_MID)
+        _next_row = _rules_data_start + 2
 
-    _hdr(ws1, 18, 1, "Regulatory References")
-    _cell(ws1, 19, 1, _REG_DCI, wrap=True)
-    ws1.merge_cells(start_row=19, start_column=1, end_row=19, end_column=2)
-    ws1.row_dimensions[19].height = 48
+    _hdr(ws1, _next_row, 1, "Regulatory References")
+    _cell(ws1, _next_row + 1, 1, _REG_DCI, wrap=True)
+    ws1.merge_cells(start_row=_next_row + 1, start_column=1,
+                    end_row=_next_row + 1, end_column=2)
+    ws1.row_dimensions[_next_row + 1].height = 48
+    _next_row += 3
 
-    _cell(ws1, 22, 1, f"Config Hash: {config_hash or 'n/a'}",
+    # Config Hash — footer note, small grey text (not a KPI row).
+    _cell(ws1, _next_row, 1, f"Config Hash: {config_hash or 'n/a'}",
           fg=C_MID, size=8)
 
     # ── Sheet 2 — Records for Review ────────────────────────────────────
@@ -1879,15 +1892,12 @@ def _render_dci_results_from_session(user, model_id):
     st.markdown(
         "<div style='background:#f8fafc;border-left:3px solid #94a3b8;"
         "padding:8px 14px;border-radius:0 6px 6px 0;margin-bottom:14px;'>"
-        "<span style='font-size:0.82rem;color:#475569;'>"
-        "<b>🔴 Critical</b> — multiple serious gaps (missing CAPA, repeat post-closure, vague RCA). "
-        "Requires immediate remediation and re-investigation. &nbsp;|&nbsp; "
-        "<b>🟠 High</b> — significant issue present (short RCA, repeat system, overdue). "
-        "Review and action required before next period. &nbsp;|&nbsp; "
-        "<b>🔵 Medium</b> — pattern detected but lower severity (recurring category, near-breach). "
-        "Monitor and address in current cycle. &nbsp;|&nbsp; "
-        "<b>🟢 Low</b> — no rules fired. Investigation meets quality checks."
-        "</span></div>",
+        "<div style='font-size:0.82rem;color:#475569;line-height:1.8;'>"
+        "<div>🔴 <b style='color:#dc2626;'>Critical</b> — multiple serious gaps: missing CAPA, repeat post-closure, or vague RCA. Immediate remediation required.</div>"
+        "<div>🟠 <b style='color:#d97706;'>High</b> — one significant issue: short RCA, repeat system failure, or overdue SLA. QA review and action required before next period.</div>"
+        "<div>🔵 <b style='color:#2563eb;'>Medium</b> — pattern detected at lower severity: recurring category or near-breach. Monitor and address in current cycle.</div>"
+        "<div>🟢 <b style='color:#16a34a;'>Low</b> — no rules fired. Investigation meets quality checks for this period.</div>"
+        "</div></div>",
         unsafe_allow_html=True,
     )
 
@@ -1994,15 +2004,17 @@ def _render_dci_results_from_session(user, model_id):
     with dc2:
         if st.button("🔄 Start New Analysis", key="dci_reset_btn_persistent",
                      use_container_width=True):
-            for k in ["dci_scored_df", "dci_analysis_done",
-                      "dci_last_run_fingerprint", "dci_config_hash",
-                      "dci_file_name", "dci_pending_hash",
-                      "dci_last_run_hash", "dci_last_run_filename",
-                      "dci_invalidation_msg",
-                      "dci_r_start_derived", "dci_r_end_derived",
-                      "dci_dim_banked_period", "dci_dim_banked_count"]:
-                if k in st.session_state:
-                    del st.session_state[k]
+            _keys_to_clear = [
+                "dci_scored_df", "dci_analysis_done", "dci_running",
+                "dci_last_run_fingerprint", "dci_config_hash",
+                "dci_file_name", "dci_pending_hash",
+                "dci_last_run_hash", "dci_last_run_filename",
+                "dci_invalidation_msg",
+                "dci_r_start_derived", "dci_r_end_derived",
+                "dci_dim_banked_period", "dci_dim_banked_count",
+            ]
+            for k in _keys_to_clear:
+                st.session_state.pop(k, None)
             st.rerun()
 
     # Row 2: Open DIM full width
@@ -2013,17 +2025,24 @@ def _render_dci_results_from_session(user, model_id):
         _st2.session_state["main_view"] = "dim"
         _st2.rerun()
 
-    # DIM banked confirmation — below Open DIM
+    # DIM banked confirmation — only show if DIM data still actually exists
     _bp = st.session_state.get("dci_dim_banked_period")
     _bc = st.session_state.get("dci_dim_banked_count", 0)
-    if _bp:
+    # Cross-check: if DIM was cleared, dim_data will be empty/absent — suppress stale banner
+    _dim_still_has_data = bool(st.session_state.get("dim_data") or
+                                st.session_state.get("dim_banked_periods"))
+    if _bp and _dim_still_has_data:
         _msg = (
-            f"✅ **Banked to DIM automatically** — clean period ({_bp})."
-            if (_bc <= 1 and n_crit == 0 and n_high == 0)
-            else f"✅ **Banked to DIM automatically** — {_bc} finding(s) in period *{_bp}*. "
-                 "Open DIM to run cross-module convergence analysis."
+            f"✅ **Banked to DIM** — {_bc} finding(s) added to period *{_bp}*. "
+            "Open DIM to run cross-module convergence analysis."
+            if _bc > 0
+            else f"✅ **Banked to DIM** — clean period ({_bp}), zero High/Critical findings recorded."
         )
         st.success(_msg)
+    elif _bp and not _dim_still_has_data:
+        # DIM was cleared — remove stale banked state silently
+        st.session_state.pop("dci_dim_banked_period", None)
+        st.session_state.pop("dci_dim_banked_count", None)
 
 
 def show_dci_review(user, role, model_id):
@@ -2369,22 +2388,9 @@ def show_dci_review(user, role, model_id):
 
     if dci_file is None and _prior_done and _prior_scored is not None:
         st.info(
-            f"📊 Showing results from previous analysis of "
-            f"**{_prior_fname or 'last uploaded file'}**. "
-            "Upload a new file or click **Clear results** to start over."
+            f"📊 Showing results from **{_prior_fname or 'last uploaded file'}**. "
+            "Upload a new file or click **Start New Analysis** below to reset."
         )
-        # Clear button — single click to reset the whole DCI session
-        _cc1, _cc2 = st.columns([1, 4])
-        with _cc1:
-            if st.button("🗑️ Clear results", key="dci_clear_results_btn",
-                         use_container_width=True):
-                for _k in ("dci_scored_df", "dci_analysis_done",
-                           "dci_last_run_fingerprint", "dci_config_hash",
-                           "dci_file_name"):
-                    if _k in st.session_state:
-                        del st.session_state[_k]
-                st.rerun()
-
         # Render results from session state — bypass upload/validate/run flow
         _render_dci_results_from_session(user, model_id)
         return
@@ -2769,18 +2775,7 @@ def show_dci_review(user, role, model_id):
         return
 
     st.markdown("---")
-    _hr1, _hr2 = st.columns([4, 1])
-    with _hr1:
-        st.markdown("### 4. Results")
-    with _hr2:
-        if st.button("🗑️ Clear results", key="dci_clear_results_btn_inflow",
-                     use_container_width=True):
-            for _k in ("dci_scored_df", "dci_analysis_done",
-                       "dci_last_run_fingerprint", "dci_config_hash",
-                       "dci_file_name"):
-                if _k in st.session_state:
-                    del st.session_state[_k]
-            st.rerun()
+    st.markdown("### 4. Results")
 
     n_crit = int((scored_df["Risk_Tier"] == "Critical").sum())
     n_high = int((scored_df["Risk_Tier"] == "High").sum())
@@ -2812,15 +2807,12 @@ def show_dci_review(user, role, model_id):
     st.markdown(
         "<div style='background:#f8fafc;border-left:3px solid #94a3b8;"
         "padding:8px 14px;border-radius:0 6px 6px 0;margin-bottom:14px;'>"
-        "<span style='font-size:0.82rem;color:#475569;'>"
-        "<b>🔴 Critical</b> — multiple serious gaps (missing CAPA, repeat post-closure, vague RCA). "
-        "Requires immediate remediation and re-investigation. &nbsp;|&nbsp; "
-        "<b>🟠 High</b> — significant issue present (short RCA, repeat system, overdue). "
-        "Review and action required before next period. &nbsp;|&nbsp; "
-        "<b>🔵 Medium</b> — pattern detected but lower severity (recurring category, near-breach). "
-        "Monitor and address in current cycle. &nbsp;|&nbsp; "
-        "<b>🟢 Low</b> — no rules fired. Investigation meets quality checks."
-        "</span></div>",
+        "<div style='font-size:0.82rem;color:#475569;line-height:1.8;'>"
+        "<div>🔴 <b style='color:#dc2626;'>Critical</b> — multiple serious gaps: missing CAPA, repeat post-closure, or vague RCA. Immediate remediation required.</div>"
+        "<div>🟠 <b style='color:#d97706;'>High</b> — one significant issue: short RCA, repeat system failure, or overdue SLA. QA review and action required before next period.</div>"
+        "<div>🔵 <b style='color:#2563eb;'>Medium</b> — pattern detected at lower severity: recurring category or near-breach. Monitor and address in current cycle.</div>"
+        "<div>🟢 <b style='color:#16a34a;'>Low</b> — no rules fired. Investigation meets quality checks for this period.</div>"
+        "</div></div>",
         unsafe_allow_html=True,
     )
 
@@ -2933,15 +2925,17 @@ def show_dci_review(user, role, model_id):
     with dc2:
         if st.button("🔄 Start New Analysis", key="dci_reset_btn",
                      use_container_width=True):
-            for k in ["dci_scored_df", "dci_analysis_done",
-                      "dci_last_run_fingerprint", "dci_config_hash",
-                      "dci_file_name", "dci_pending_hash",
-                      "dci_last_run_hash", "dci_last_run_filename",
-                      "dci_invalidation_msg",
-                      "dci_r_start_derived", "dci_r_end_derived",
-                      "dci_dim_banked_period", "dci_dim_banked_count"]:
-                if k in st.session_state:
-                    del st.session_state[k]
+            _keys_to_clear = [
+                "dci_scored_df", "dci_analysis_done", "dci_running",
+                "dci_last_run_fingerprint", "dci_config_hash",
+                "dci_file_name", "dci_pending_hash",
+                "dci_last_run_hash", "dci_last_run_filename",
+                "dci_invalidation_msg",
+                "dci_r_start_derived", "dci_r_end_derived",
+                "dci_dim_banked_period", "dci_dim_banked_count",
+            ]
+            for k in _keys_to_clear:
+                st.session_state.pop(k, None)
             st.rerun()
 
     # Row 2: Open DIM (full width)
@@ -2951,21 +2945,22 @@ def show_dci_review(user, role, model_id):
         st.session_state["main_view"] = "dim"
         st.rerun()
 
-    # DIM banked confirmation — below Open DIM
-    _banked_period = st.session_state.get("dci_dim_banked_period")
-    _banked_count  = st.session_state.get("dci_dim_banked_count", 0)
-    if _banked_period:
-        if _banked_count <= 1 and n_crit == 0 and n_high == 0:
-            st.success(
-                f"✅ **Banked to DIM automatically** — clean period "
-                f"({_banked_period}). DCI ran with zero High/Critical findings."
-            )
-        else:
-            st.success(
-                f"✅ **Banked to DIM automatically** — {_banked_count} "
-                f"High/Critical finding(s) added to period *{_banked_period}*. "
-                f"Open DIM to run cross-module convergence analysis."
-            )
+    # DIM banked confirmation — only show if DIM data still actually exists
+    _bp = st.session_state.get("dci_dim_banked_period")
+    _bc = st.session_state.get("dci_dim_banked_count", 0)
+    _dim_still_has_data = bool(st.session_state.get("dim_data") or
+                                st.session_state.get("dim_banked_periods"))
+    if _bp and _dim_still_has_data:
+        _msg = (
+            f"✅ **Banked to DIM** — {_bc} finding(s) added to period *{_bp}*. "
+            "Open DIM to run cross-module convergence analysis."
+            if _bc > 0
+            else f"✅ **Banked to DIM** — clean period ({_bp}), zero High/Critical findings recorded."
+        )
+        st.success(_msg)
+    elif _bp and not _dim_still_has_data:
+        st.session_state.pop("dci_dim_banked_period", None)
+        st.session_state.pop("dci_dim_banked_count", None)
 
     # Compliance evidence confirmation
     if st.session_state.get("dci_analysis_done"):
